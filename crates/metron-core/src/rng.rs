@@ -168,4 +168,75 @@ mod tests {
         sorted.sort_unstable();
         assert_eq!(sorted, (0..20).collect::<Vec<_>>());
     }
+
+    #[test]
+    fn matches_the_reference_implementation() {
+        // Prior: the constants and the seeding procedure are the published
+        // ones. Reference vectors were produced by compiling Blackman and
+        // Vigna's `xoshiro256starstar.c` and `splitmix64.c` (prng.di.unimi.it)
+        // with the state seeded by four successive splitmix64 outputs, which
+        // is how `seed_from_u64` seeds.
+        let vectors: [(u64, [u64; 6]); 5] = [
+            (
+                0,
+                [
+                    0x99ec5f36cb75f2b4,
+                    0xbf6e1f784956452a,
+                    0x1a5f849d4933e6e0,
+                    0x6aa594f1262d2d2c,
+                    0xbba5ad4a1f842e59,
+                    0xffef8375d9ebcaca,
+                ],
+            ),
+            (
+                1,
+                [
+                    0xb3f2af6d0fc710c5,
+                    0x853b559647364cea,
+                    0x92f89756082a4514,
+                    0x642e1c7bc266a3a7,
+                    0xb27a48e29a233673,
+                    0x24c123126ffda722,
+                ],
+            ),
+            (
+                42,
+                [
+                    0x15780b2e0c2ec716,
+                    0x6104d9866d113a7e,
+                    0xae17533239e499a1,
+                    0xecb8ad4703b360a1,
+                    0xfde6dc7fe2ec5e64,
+                    0xc50da53101795238,
+                ],
+            ),
+            (
+                0xDEAD_BEEF,
+                [
+                    0xc5555444a74d7e83,
+                    0x65c30d37b4b16e38,
+                    0x54f773200a4efa23,
+                    0x429aed75fb958af7,
+                    0xfb0e1dd69c255b2e,
+                    0x9d6d02ec58814a27,
+                ],
+            ),
+            (
+                u64::MAX,
+                [
+                    0x8f5520d52a7ead08,
+                    0xc476a018caa1802d,
+                    0x81de31c0d260469e,
+                    0xbf658d7e065f3c2f,
+                    0x913593fda1bca32a,
+                    0xbb535e93941ba525,
+                ],
+            ),
+        ];
+        for (seed, expected) in vectors {
+            let mut r = Rng::seed_from_u64(seed);
+            let got: Vec<u64> = (0..6).map(|_| r.next_u64()).collect();
+            assert_eq!(got, expected, "seed {seed}");
+        }
+    }
 }

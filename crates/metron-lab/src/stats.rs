@@ -13,8 +13,9 @@ pub fn mean(xs: &[f64]) -> f64 {
     }
 }
 
-/// Interquartile mean: the mean of the middle half of the sorted values,
-/// with fractional weights at the quartile boundaries.
+/// Interquartile mean as `rliable` defines it (Agarwal et al. 2021): a 25%
+/// trimmed mean, dropping `floor(n / 4)` values from each end of the sorted
+/// sample and averaging the rest (`scipy.stats.trim_mean(x, 0.25)`).
 #[must_use]
 pub fn iqm(xs: &[f64]) -> f64 {
     let n = xs.len();
@@ -23,24 +24,8 @@ pub fn iqm(xs: &[f64]) -> f64 {
     }
     let mut sorted = xs.to_vec();
     sorted.sort_by(|a, b| a.partial_cmp(b).expect("finite values"));
-    let lo = n as f64 * 0.25;
-    let hi = n as f64 * 0.75;
-    let mut total = 0.0;
-    let mut weight = 0.0;
-    for (i, &x) in sorted.iter().enumerate() {
-        let start = i as f64;
-        let end = start + 1.0;
-        let overlap = (end.min(hi) - start.max(lo)).max(0.0);
-        if overlap > 0.0 {
-            total += x * overlap;
-            weight += overlap;
-        }
-    }
-    if weight > 0.0 {
-        total / weight
-    } else {
-        mean(&sorted)
-    }
+    let cut = n / 4;
+    mean(&sorted[cut..n - cut])
 }
 
 /// A percentile bootstrap interval for `statistic` over `groups`,
@@ -91,6 +76,29 @@ mod tests {
         assert_eq!(iqm(&[]), 0.0);
         assert_eq!(iqm(&[3.0]), 3.0);
         assert!((iqm(&[1.0, 2.0, 3.0]) - 2.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn iqm_matches_the_rliable_reference() {
+        // Prior: `iqm` equals rliable's `aggregate_iqm`, which is
+        // `scipy.stats.trim_mean(scores, proportiontocut=0.25)`. Reference
+        // values computed with scipy 1.17.1. A fractional-weight interquartile
+        // mean differs from the reference whenever n mod 4 != 0 (for the
+        // seven-element case it gives 5.93, not 5.8).
+        let cases: [(&[f64], f64); 6] = [
+            (&[3.0, 1.0, 2.0, 4.0], 2.5),
+            (&[5.0, 1.0, 4.0, 2.0, 3.0], 3.0),
+            (&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], 3.5),
+            (&[10.0, 2.0, 7.0, 1.0, 9.0, 3.0, 8.0], 5.8),
+            (&[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 100.0], 1.0),
+            (
+                &[2.5, 7.5, 1.0, 9.0, 3.5, 6.0, 4.0, 8.0, 5.0, 0.5, 11.0],
+                5.214_285_714_285_714,
+            ),
+        ];
+        for (xs, expected) in cases {
+            assert!((iqm(xs) - expected).abs() < 1e-12, "{xs:?}: {}", iqm(xs));
+        }
     }
 
     #[test]
