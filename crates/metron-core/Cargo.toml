@@ -1,0 +1,18 @@
+[package]
+name = "metron-core"
+description = "Domain types and port traits for the Metron cognitive kernel (hexagonal core)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

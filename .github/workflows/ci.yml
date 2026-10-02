@@ -1,0 +1,34 @@
+name: ci
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.97.0
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Tests (unit + architecture invariants)
+        run: cargo test --workspace
+      - name: Smoke run
+        run: |
+          cargo run -p metron-cli -- run experiments/manifests/smoke-majority3.json --results target/results
+          cargo run -p metron-cli -- run experiments/manifests/smoke-majority3-capped.json --results target/results
+          for journal in target/results/*/episode.jsonl; do
+            cargo run -p metron-cli -- verify "$journal"
+          done

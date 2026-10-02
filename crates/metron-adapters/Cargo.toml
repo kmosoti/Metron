@@ -1,0 +1,18 @@
+[package]
+name = "metron-adapters"
+description = "Adapters that implement Metron ports against the outside world: persistence, clocks, and (later) models"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+metron-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

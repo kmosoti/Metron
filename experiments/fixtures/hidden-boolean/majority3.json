@@ -1,0 +1,6 @@
+{
+  "name": "majority-3",
+  "arity": 3,
+  "rows": "00010111",
+  "notes": "maj(x0, x1, x2). Row i holds f at the assignment whose x_j is bit j of i. Laboratory property: the system under study never reads this file."
+}

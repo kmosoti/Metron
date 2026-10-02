@@ -1,0 +1,6 @@
+{
+  "name": "xor-2",
+  "arity": 2,
+  "rows": "0110",
+  "notes": "x0 xor x1. Laboratory property: the system under study never reads this file."
+}

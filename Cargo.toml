@@ -1,0 +1,38 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/metron-core",
+    "crates/metron-app",
+    "crates/metron-lab",
+    "crates/metron-operators",
+    "crates/metron-adapters",
+    "crates/metron-cli",
+    "tests/architecture",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+license = "Apache-2.0"
+repository = "https://github.com/kmosoti/Metron"
+authors = ["Metron contributors"]
+
+[workspace.dependencies]
+metron-core = { path = "crates/metron-core", version = "0.1.0" }
+metron-app = { path = "crates/metron-app", version = "0.1.0" }
+metron-lab = { path = "crates/metron-lab", version = "0.1.0" }
+metron-operators = { path = "crates/metron-operators", version = "0.1.0" }
+metron-adapters = { path = "crates/metron-adapters", version = "0.1.0" }
+
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+thiserror = "2.0"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }

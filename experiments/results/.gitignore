@@ -1,0 +1,4 @@
+# Run directories are reproducible from manifests and seeds; they are not committed.
+*
+!.gitignore
+!README.md

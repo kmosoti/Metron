@@ -1,0 +1,24 @@
+[package]
+name = "metron-cli"
+description = "Composition root for Metron: wires the lab, the app and the adapters together"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "metron"
+path = "src/main.rs"
+
+[dependencies]
+metron-core = { workspace = true }
+metron-app = { workspace = true }
+metron-lab = { workspace = true }
+metron-operators = { workspace = true }
+metron-adapters = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

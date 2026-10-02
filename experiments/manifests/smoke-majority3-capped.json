@@ -1,0 +1,20 @@
+{
+  "name": "smoke-majority3-capped",
+  "seed": 1,
+  "lab": {
+    "family": "hidden-boolean-function",
+    "fixture": "experiments/fixtures/hidden-boolean/majority3.json",
+    "max_probes": 4
+  },
+  "system": {
+    "schedule": [
+      { "operator": "probe-next-unobserved", "repeat": 8 },
+      { "operator": "observations-to-partial-table" },
+      { "operator": "complete-table-by-default" },
+      { "operator": "commit-truth-table" }
+    ],
+    "budget": { "max_oracle_probes": 8 },
+    "max_steps": 32,
+    "stall_limit": 0
+  }
+}
