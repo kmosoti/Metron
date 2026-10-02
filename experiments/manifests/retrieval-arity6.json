@@ -1,0 +1,20 @@
+{
+  "name": "retrieval-arity6",
+  "seed": 401,
+  "lab": {
+    "family": "hidden-boolean-function",
+    "fixture": "experiments/fixtures/hidden-boolean/majority3.json"
+  },
+  "system": {
+    "schedule": [ { "operator": "probe-next-unobserved" } ]
+  },
+  "retrieval": {
+    "arity": 6,
+    "families": ["affine", "monotone", "read-once", "threshold", "k-term-dnf", "decision-tree"],
+    "store_per_family": 1000,
+    "queries": 200,
+    "observed_rows": [4, 8, 16, 32],
+    "dimensions": [1024, 4096, 8192],
+    "bloom_bits_per_pair": 8
+  }
+}

@@ -22,6 +22,7 @@ cargo run -p metron-cli -- explain experiments/manifests/smoke-majority3.json
 | `llm-consult-majority3` | Probes four rows, suspends with a prompt for the language-model service, verifies the proposal on resume, commits if consistent, otherwise falls back to the exhaustive pipeline. |
 | `headroom-arity5`, `headroom-arity6` | Ten task-set seeds, six families, strategies from exhaustive to family-restricted version spaces; `metron headroom` reports SBS, VBS and gap closed. |
 | `promotion-arity5` | Four fixed strategies; `metron promote` proposes candidate compositions from the train split and the laboratory's gate judges them on the test split (ADR 0012). |
+| `retrieval-arity6` | A store of about 5,000 solved functions; `metron retrieval` compares exact scan, bitmask index, Bloom filters and hyperdimensional codes on recall, bytes and nanoseconds (ADR 0013). |
 | `selectors-arity5`, `selectors-arity6` | The same, plus `survivor-count` selector columns (rule `most` with prefix 0 to 6, and `fewest` as the negative control) and two extra cost models. The M3 control measurement (ADR 0011). |
 
 All runs are deterministic for a given manifest and seed; consultation runs

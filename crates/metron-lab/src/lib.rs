@@ -26,6 +26,7 @@ pub mod manifest;
 pub mod npn;
 pub mod pool;
 pub mod promotion;
+pub mod retrieval;
 pub mod stats;
 pub mod tasks;
 pub mod truth_table;

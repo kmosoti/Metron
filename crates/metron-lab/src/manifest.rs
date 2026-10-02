@@ -244,6 +244,10 @@ pub struct Manifest {
     /// Headroom settings, when the manifest is a comparison.
     #[serde(default)]
     pub headroom: Option<HeadroomSpec>,
+    /// Retrieval workload settings, when the manifest is a retrieval
+    /// measurement.
+    #[serde(default)]
+    pub retrieval: Option<crate::retrieval::RetrievalSpec>,
 }
 
 impl Manifest {
@@ -365,6 +369,32 @@ impl Manifest {
         }
         if self.system.max_steps == 0 {
             return Err(ManifestError::Invalid("max_steps must be positive".into()));
+        }
+        if let Some(r) = &self.retrieval {
+            let rows = crate::truth_table::TruthTable::rows_for(
+                r.arity.min(crate::truth_table::MAX_ARITY),
+            );
+            if r.arity == 0 || r.arity > crate::truth_table::MAX_ARITY {
+                return Err(ManifestError::Invalid(format!(
+                    "retrieval arity {} is out of range",
+                    r.arity
+                )));
+            }
+            if r.families.is_empty() || r.store_per_family == 0 || r.queries == 0 {
+                return Err(ManifestError::Invalid(
+                    "retrieval needs families, store members and queries".into(),
+                ));
+            }
+            if r.observed_rows.iter().any(|&k| k == 0 || k > rows) {
+                return Err(ManifestError::Invalid(
+                    "retrieval observed_rows must be within 1..=rows".into(),
+                ));
+            }
+            if r.dimensions.iter().any(|&d| d < 64) {
+                return Err(ManifestError::Invalid(
+                    "retrieval dimensions must be at least 64".into(),
+                ));
+            }
         }
         if let Some(h) = &self.headroom {
             if h.seeds == 0 {

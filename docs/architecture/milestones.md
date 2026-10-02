@@ -13,7 +13,7 @@ milestones are gated on earlier ones; a gate can close a milestone as
 | M2 | We know whether routing can pay | reached: ADR 0010, `experiments/reports/headroom-arity{5,6}-*.md` |
 | M3 | A selector closes measured headroom under matched budgets | closed as a negative result on this configuration (ADR 0011); reopens with an identifiable-structure task set |
 | M4 | Candidates are judged, not trusted | reached: ADR 0012, `experiments/reports/promotion-arity5-7f5ef8af8c7d.md` |
-| M5 | Retrieval earns its place or leaves | open |
+| M5 | Retrieval earns its place or leaves | reached, HDC dropped: ADR 0013, `experiments/reports/retrieval-arity6-e59c328070b5.md` |
 | M6 | An LLM can propose, never decide | reached |
 
 ## M0 — The rules are executable
@@ -109,6 +109,12 @@ nanosecond.
 
 **Exit criteria.** A report with the decision. If the exact scan wins at
 this scale, hyperdimensional retrieval is dropped and the report says so.
+
+**Result.** On a store of 5,126 functions on six inputs, the bitmask index
+has 100% recall at 16 bytes per entry and about 10 microseconds per query;
+8,192-bit hyperdimensional codes reach 96 to 99% recall at 1,024 bytes per
+entry and 100 times the query time. Hyperdimensional retrieval is dropped
+for the laboratory's native objects. ADR 0013.
 
 ## M6 — An LLM can propose, never decide
 

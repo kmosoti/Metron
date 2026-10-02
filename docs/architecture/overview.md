@@ -39,10 +39,10 @@ fails the build if an arrow appears that is not in this picture.
 |---|---|---|
 | `metron-core` | The research objects and the ports: `Inquiry`, `Question`, `View`, `Frame`, `TransformContract`, `Observation`, `Evidence`, `Operator` (observe, transform, consult, commit), `ResourceReceipt`, `Episode`, `EpisodeCheckpoint`, `CapabilityCandidate`; the `Oracle`, `Knowledge`, `ExternalService`, `Receipts` and `Clock` ports; a seeded RNG; content hashing. | `serde`, `serde_json`, `sha2`, `thiserror` |
 | `metron-app` | Use cases: `OperatorRegistry` (validates specs), `Scheduler` / `FixedSchedule` (nested, repeatable), `SurvivorCountSelector` (the hand-authored routing control), `propose` (capability candidates from answered episodes), `EpisodeRunner` (journals every step, receipt and service answer, enforces write rules per kind, suspends to a checkpoint and resumes). | `metron-core` |
-| `metron-lab` | The immutable evaluator: `HiddenFunction` (sealed), six structural `Family` generators, `npn` canonicalisation, `HypothesisPool` (public knowledge), `TaskSet` with NPN-clean splits, query `bounds`, `LabWorld` (oracle, knowledge, judge), `Protocol`, `Verdict`, `PromotionGate` (private criteria), `headroom` analysis and `stats`, `BooleanFixture`, `Manifest`. | `metron-core` |
+| `metron-lab` | The immutable evaluator: `HiddenFunction` (sealed), six structural `Family` generators, `npn` canonicalisation, `HypothesisPool` (public knowledge), `TaskSet` with NPN-clean splits, query `bounds`, `LabWorld` (oracle, knowledge, judge), `Protocol`, `Verdict`, `PromotionGate` (private criteria), `headroom` analysis and `stats`, the `retrieval` workload, `BooleanFixture`, `Manifest`. | `metron-core` |
 | `metron-operators` | The strategy building blocks: exhaustive pipeline, version-space filter (optionally family-restricted), greedy split probe, single-survivor table, affine probe and solve, a formula parser, LLM proposal and verified formula-to-table, commit. | `metron-core` |
 | `metron-adapters` | Effects: `SystemClock`, file helpers, `ResultsWriter`, the `ClaudeCodeBridge` (file-based LLM protocol), `ReplayService`, `StubService`. No API client, by ADR 0009. | `metron-core` |
-| `metron-cli` | Library and binary: `ComposedWorld`, `metron run / resume / answer / replay / headroom / promote / verify / explain / npn-classes`. | everything |
+| `metron-cli` | Library and binary: `ComposedWorld`, `metron run / resume / answer / replay / headroom / promote / retrieval / verify / explain / npn-classes`. | everything |
 | `tests/architecture` | Executable invariants and milestone checks. | everything (dev) |
 
 ## An episode, end to end
@@ -123,8 +123,7 @@ scale. Reports that matter are copied to `experiments/reports/`.
 
 ## What is deliberately absent
 
-No hyperdimensional memory, no learned routing, no model API client. ADR
-0006 records the order in which the first two may arrive and what gates
-them; ADR 0009 records why there is no API client and how language-model
-inference enters instead. `docs/architecture/milestones.md` states each
+No hyperdimensional memory (dropped by measurement, ADR 0013), no learned
+routing (closed on this configuration, ADR 0011), no model API client
+(ADR 0009). `docs/architecture/milestones.md` states each
 milestone as an outcome with exit criteria.

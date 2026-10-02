@@ -3,8 +3,8 @@
 use metron_adapters::results::read_journal;
 use metron_cli::run::Backend;
 use metron_cli::{
-    HeadroomOptions, PromoteOptions, RunOptions, RunStatus, answer, load_manifest, registry,
-    replay, resume, run, run_headroom, run_promote,
+    HeadroomOptions, PromoteOptions, RetrievalOptions, RunOptions, RunStatus, answer,
+    load_manifest, registry, replay, resume, run, run_headroom, run_promote, run_retrieval,
 };
 use metron_core::journal::JournalEvent;
 use std::path::{Path, PathBuf};
@@ -27,6 +27,9 @@ usage:
   metron promote <manifest.json> [--results <dir>] [--strategy <name>] [--rounds <n>]
       Propose capability candidates from the train split and let the
       laboratory's gate judge them on the test split.
+  metron retrieval <manifest.json> [--results <dir>]
+      Measure retrieval methods (exact scan, bitmask index, Bloom filter,
+      hyperdimensional codes) on a store of solved functions.
   metron verify <episode.jsonl>
       Verify a journal's hash chain and every receipt in it.
   metron explain <manifest.json>
@@ -44,6 +47,7 @@ fn main() -> ExitCode {
         Some("replay") => cmd_replay(&args[1..]),
         Some("headroom") => cmd_headroom(&args[1..]),
         Some("promote") => cmd_promote(&args[1..]),
+        Some("retrieval") => cmd_retrieval(&args[1..]),
         Some("verify") => cmd_verify(&args[1..]),
         Some("explain") => cmd_explain(&args[1..]),
         Some("npn-classes") => cmd_npn(&args[1..]),
@@ -292,6 +296,22 @@ fn cmd_promote(args: &[String]) -> Result<(), String> {
         options.rounds = Some(r.parse().map_err(|e| format!("--rounds: {e}"))?);
     }
     let outcome = run_promote(Path::new(manifest), &options)?;
+    print!("{}", outcome.markdown);
+    println!("results    {}", outcome.dir.display());
+    Ok(())
+}
+
+fn cmd_retrieval(args: &[String]) -> Result<(), String> {
+    let flags = parse_flags(args, &["results"], &[])?;
+    let manifest = flags
+        .positional
+        .first()
+        .ok_or("a manifest path is required")?;
+    let mut options = RetrievalOptions::default();
+    if let Some(r) = flags.value("results") {
+        options.results_root = PathBuf::from(r);
+    }
+    let outcome = run_retrieval(Path::new(manifest), &options)?;
     print!("{}", outcome.markdown);
     println!("results    {}", outcome.dir.display());
     Ok(())

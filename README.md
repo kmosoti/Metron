@@ -20,9 +20,10 @@ enforces on every build:
 On top of that it holds the mixed Boolean laboratory (six structural
 families at arities up to 8, NPN-clean splits, query rulers), the strategy
 operators the laboratory compares, a headroom harness that reports single
-best solver, virtual best solver and gap closed, and language-model
-consultation that enters through a Claude Code session rather than an API
-client. Milestones are outcomes with exit criteria
+best solver, virtual best solver and gap closed, capability promotion
+judged by the laboratory on held-out targets, a retrieval workload that
+compares exact and sketch indexes, and language-model consultation that
+enters through a Claude Code session rather than an API client. Milestones are outcomes with exit criteria
 (`docs/architecture/milestones.md`); learned routing is gated on the measured
 headroom (ADR 0006), and there is no model API client by design (ADR 0009).
 
@@ -33,6 +34,7 @@ cargo test --workspace                                      # unit tests + archi
 cargo run -p metron-cli -- run experiments/manifests/smoke-majority3.json
 cargo run -p metron-cli -- headroom experiments/manifests/headroom-arity5.json
 cargo run -p metron-cli -- promote experiments/manifests/promotion-arity5.json
+cargo run --release -p metron-cli -- retrieval experiments/manifests/retrieval-arity6.json
 cargo run -p metron-cli -- run experiments/manifests/llm-consult-majority3.json   # suspends with a prompt
 cargo run -p metron-cli -- answer <run-dir> --text "(x0 & x1) | (x0 & x2) | (x1 & x2)" --by "me"
 cargo run -p metron-cli -- resume <run-dir>

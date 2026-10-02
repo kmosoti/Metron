@@ -1,0 +1,247 @@
+{
+  "store_size": 5126,
+  "rows": 64,
+  "table_bytes": 8.0,
+  "rows_measured": [
+    {
+      "method": "exact-scan",
+      "observed_rows": 4,
+      "mean_answer_size": 486.195,
+      "recall_at_answer": 1.0,
+      "recall_at_double": 1.0,
+      "bytes_per_entry": 8.0,
+      "mean_query_nanos": 101399.885,
+      "build_nanos": 0
+    },
+    {
+      "method": "bitmask-index",
+      "observed_rows": 4,
+      "mean_answer_size": 486.195,
+      "recall_at_answer": 1.0,
+      "recall_at_double": 1.0,
+      "bytes_per_entry": 16.0,
+      "mean_query_nanos": 20829.64,
+      "build_nanos": 7174077
+    },
+    {
+      "method": "bloom-per-table(512 bits, 6 hashes)",
+      "observed_rows": 4,
+      "mean_answer_size": 486.195,
+      "recall_at_answer": 0.9095821871911858,
+      "recall_at_double": 0.990520175972098,
+      "bytes_per_entry": 64.0,
+      "mean_query_nanos": 155126.74,
+      "build_nanos": 166068761
+    },
+    {
+      "method": "hdc-bundle(1024 bits)",
+      "observed_rows": 4,
+      "mean_answer_size": 486.195,
+      "recall_at_answer": 0.6861735419597406,
+      "recall_at_double": 0.8896808258114858,
+      "bytes_per_entry": 128.0,
+      "mean_query_nanos": 297330.085,
+      "build_nanos": 2570183950
+    },
+    {
+      "method": "hdc-bundle(4096 bits)",
+      "observed_rows": 4,
+      "mean_answer_size": 486.195,
+      "recall_at_answer": 0.9461208397910716,
+      "recall_at_double": 0.9980338003901535,
+      "bytes_per_entry": 512.0,
+      "mean_query_nanos": 706892.325,
+      "build_nanos": 10497129794
+    },
+    {
+      "method": "hdc-bundle(8192 bits)",
+      "observed_rows": 4,
+      "mean_answer_size": 486.195,
+      "recall_at_answer": 0.9927952259995979,
+      "recall_at_double": 1.0,
+      "bytes_per_entry": 1024.0,
+      "mean_query_nanos": 1301229.315,
+      "build_nanos": 21368954726
+    },
+    {
+      "method": "exact-scan",
+      "observed_rows": 8,
+      "mean_answer_size": 101.45,
+      "recall_at_answer": 1.0,
+      "recall_at_double": 1.0,
+      "bytes_per_entry": 8.0,
+      "mean_query_nanos": 79906.4,
+      "build_nanos": 0
+    },
+    {
+      "method": "bitmask-index",
+      "observed_rows": 8,
+      "mean_answer_size": 101.45,
+      "recall_at_answer": 1.0,
+      "recall_at_double": 1.0,
+      "bytes_per_entry": 16.0,
+      "mean_query_nanos": 10748.935,
+      "build_nanos": 5203663
+    },
+    {
+      "method": "bloom-per-table(512 bits, 6 hashes)",
+      "observed_rows": 8,
+      "mean_answer_size": 101.45,
+      "recall_at_answer": 0.9034054019260697,
+      "recall_at_double": 0.9883568848592068,
+      "bytes_per_entry": 64.0,
+      "mean_query_nanos": 170113.51,
+      "build_nanos": 139565049
+    },
+    {
+      "method": "hdc-bundle(1024 bits)",
+      "observed_rows": 8,
+      "mean_answer_size": 101.45,
+      "recall_at_answer": 0.5283282460874824,
+      "recall_at_double": 0.724921186366392,
+      "bytes_per_entry": 128.0,
+      "mean_query_nanos": 352928.055,
+      "build_nanos": 2629658160
+    },
+    {
+      "method": "hdc-bundle(4096 bits)",
+      "observed_rows": 8,
+      "mean_answer_size": 101.45,
+      "recall_at_answer": 0.8602601390770717,
+      "recall_at_double": 0.976351216804288,
+      "bytes_per_entry": 512.0,
+      "mean_query_nanos": 788972.19,
+      "build_nanos": 10724947375
+    },
+    {
+      "method": "hdc-bundle(8192 bits)",
+      "observed_rows": 8,
+      "mean_answer_size": 101.45,
+      "recall_at_answer": 0.9652315027671169,
+      "recall_at_double": 0.9993889260249554,
+      "bytes_per_entry": 1024.0,
+      "mean_query_nanos": 1391298.085,
+      "build_nanos": 20958213305
+    },
+    {
+      "method": "exact-scan",
+      "observed_rows": 16,
+      "mean_answer_size": 14.615,
+      "recall_at_answer": 1.0,
+      "recall_at_double": 1.0,
+      "bytes_per_entry": 8.0,
+      "mean_query_nanos": 78480.71,
+      "build_nanos": 0
+    },
+    {
+      "method": "bitmask-index",
+      "observed_rows": 16,
+      "mean_answer_size": 14.615,
+      "recall_at_answer": 1.0,
+      "recall_at_double": 1.0,
+      "bytes_per_entry": 16.0,
+      "mean_query_nanos": 9567.32,
+      "build_nanos": 5093516
+    },
+    {
+      "method": "bloom-per-table(512 bits, 6 hashes)",
+      "observed_rows": 16,
+      "mean_answer_size": 14.615,
+      "recall_at_answer": 0.916020847736941,
+      "recall_at_double": 0.9748333333333333,
+      "bytes_per_entry": 64.0,
+      "mean_query_nanos": 170275.975,
+      "build_nanos": 142222876
+    },
+    {
+      "method": "hdc-bundle(1024 bits)",
+      "observed_rows": 16,
+      "mean_answer_size": 14.615,
+      "recall_at_answer": 0.46535445210492893,
+      "recall_at_double": 0.6586618228115515,
+      "bytes_per_entry": 128.0,
+      "mean_query_nanos": 383635.765,
+      "build_nanos": 2629553441
+    },
+    {
+      "method": "hdc-bundle(4096 bits)",
+      "observed_rows": 16,
+      "mean_answer_size": 14.615,
+      "recall_at_answer": 0.8622512055664387,
+      "recall_at_double": 0.9630050186741361,
+      "bytes_per_entry": 512.0,
+      "mean_query_nanos": 1129109.825,
+      "build_nanos": 10302511779
+    },
+    {
+      "method": "hdc-bundle(8192 bits)",
+      "observed_rows": 16,
+      "mean_answer_size": 14.615,
+      "recall_at_answer": 0.9548044218747798,
+      "recall_at_double": 0.98875,
+      "bytes_per_entry": 1024.0,
+      "mean_query_nanos": 2303858.98,
+      "build_nanos": 21503657455
+    },
+    {
+      "method": "exact-scan",
+      "observed_rows": 32,
+      "mean_answer_size": 2.395,
+      "recall_at_answer": 1.0,
+      "recall_at_double": 1.0,
+      "bytes_per_entry": 8.0,
+      "mean_query_nanos": 84281.435,
+      "build_nanos": 0
+    },
+    {
+      "method": "bitmask-index",
+      "observed_rows": 32,
+      "mean_answer_size": 2.395,
+      "recall_at_answer": 1.0,
+      "recall_at_double": 1.0,
+      "bytes_per_entry": 16.0,
+      "mean_query_nanos": 11668.84,
+      "build_nanos": 5253721
+    },
+    {
+      "method": "bloom-per-table(512 bits, 6 hashes)",
+      "observed_rows": 32,
+      "mean_answer_size": 2.395,
+      "recall_at_answer": 0.9829319105691056,
+      "recall_at_double": 0.995,
+      "bytes_per_entry": 64.0,
+      "mean_query_nanos": 252644.66,
+      "build_nanos": 164278934
+    },
+    {
+      "method": "hdc-bundle(1024 bits)",
+      "observed_rows": 32,
+      "mean_answer_size": 2.395,
+      "recall_at_answer": 0.8008375663273439,
+      "recall_at_double": 0.8987173027747682,
+      "bytes_per_entry": 128.0,
+      "mean_query_nanos": 530401.755,
+      "build_nanos": 2607363640
+    },
+    {
+      "method": "hdc-bundle(4096 bits)",
+      "observed_rows": 32,
+      "mean_answer_size": 2.395,
+      "recall_at_answer": 0.9576626980060315,
+      "recall_at_double": 0.9998529411764706,
+      "bytes_per_entry": 512.0,
+      "mean_query_nanos": 1560819.14,
+      "build_nanos": 10332327325
+    },
+    {
+      "method": "hdc-bundle(8192 bits)",
+      "observed_rows": 32,
+      "mean_answer_size": 2.395,
+      "recall_at_answer": 0.9864106760590414,
+      "recall_at_double": 1.0,
+      "bytes_per_entry": 1024.0,
+      "mean_query_nanos": 3238585.13,
+      "build_nanos": 20915375042
+    }
+  ]
+}

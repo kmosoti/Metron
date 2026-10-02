@@ -39,7 +39,7 @@ crates/metron-app         use cases: registry, schedules, episode runner
 crates/metron-lab         immutable evaluator: hidden targets, oracle, judge, promotion gate, manifests
 crates/metron-operators   reference operators (one complete pipeline)
 crates/metron-adapters    effects: clock, files, results
-crates/metron-cli         composition root (library + binary): run | resume | answer | replay | headroom | promote | verify | explain
+crates/metron-cli         composition root (library + binary): run | resume | answer | replay | headroom | promote | retrieval | verify | explain
 experiments/manifests     experiment definitions (lab property)
 experiments/fixtures      hidden targets as data (lab property)
 experiments/results       generated run directories (not committed)
@@ -83,9 +83,12 @@ tests/architecture        executable invariants
   Fixtures are data under `experiments/fixtures/`.
 - Changing the cost model (`metron_core::cost::Cost`) or the journal
   format is an ADR-level change.
-- Do not add, before their gates in ADR 0006 and the milestones are met:
-  hyperdimensional memory or learned routing. Routing (M3) is closed as a
-  negative result on the current laboratory configuration (ADR 0011):
+- Hyperdimensional memory is closed (ADR 0013): on the laboratory's
+  native objects the bitmask index wins on recall, bytes and time. Do not
+  add an HDC crate; `metron-lab::retrieval` is the standing comparison.
+- Do not add learned routing before its gate is met. Routing (M3) is
+  closed as a negative result on the current laboratory configuration
+  (ADR 0011):
   the family label that defines the virtual best solver is not
   identifiable from probes. Any routing claim needs a task set whose
   per-task best is keyed by verifiable structure, a fresh headroom

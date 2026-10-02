@@ -11,6 +11,7 @@
 pub mod compose;
 pub mod headroom;
 pub mod promote;
+pub mod retrieval;
 pub mod run;
 pub mod world;
 
@@ -20,5 +21,6 @@ pub use compose::{
 };
 pub use headroom::{HeadroomOptions, HeadroomOutcome, run_headroom};
 pub use promote::{PromoteOptions, PromoteOutcome, run_promote};
+pub use retrieval::{RetrievalOptions, RetrievalOutcome, run_retrieval};
 pub use run::{Backend, ReplayReport, RunOptions, RunStatus, answer, replay, resume, run};
 pub use world::ComposedWorld;
