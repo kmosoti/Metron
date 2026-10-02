@@ -198,6 +198,29 @@ pub struct HeadroomReport {
     pub vbs_choices: BTreeMap<String, usize>,
     /// Per-family breakdown.
     pub families: Vec<FamilySummary>,
+    /// The entropy floor in this cost model's units: no strategy that is
+    /// not told the target's family averages less on correct answers.
+    /// `None` when not computed, or when the failure cost is too low for the
+    /// floor to bind.
+    #[serde(default)]
+    pub entropy_floor: Option<f64>,
+}
+
+impl HeadroomReport {
+    /// Attaches the entropy floor, given in probes, scaled by this report's
+    /// probe weight.
+    #[must_use]
+    pub fn with_entropy_floor(mut self, floor_probes: f64) -> Self {
+        self.entropy_floor = Some(floor_probes * self.cost_model.probe_weight);
+        self
+    }
+
+    /// The most a router that is not told the label can save against the
+    /// single best solver: `SBS − floor`, at least zero.
+    #[must_use]
+    pub fn realisable_gap_bound(&self) -> Option<f64> {
+        self.entropy_floor.map(|h| (self.sbs_cost - h).max(0.0))
+    }
 }
 
 /// Analyses a cost table. `base` names the strategies that count as
@@ -374,6 +397,7 @@ pub fn analyze(
         },
         vbs_choices,
         families: family_summaries,
+        entropy_floor: None,
     }
 }
 
@@ -402,6 +426,17 @@ pub fn render_markdown(report: &HeadroomReport, title: &str) -> String {
         report.gap_ci.1,
         report.vbs_over_sbs
     );
+    if let (Some(floor), Some(bound)) = (report.entropy_floor, report.realisable_gap_bound()) {
+        let share = if report.gap > 0.0 {
+            format!(", {:.1}% of the gap", 100.0 * bound / report.gap)
+        } else {
+            String::new()
+        };
+        let _ = writeln!(
+            out,
+            "**Entropy floor:** {floor:.3}. A strategy that is not told the target's family averages at least this much on correct answers, so a router can save at most {bound:.3} against the single best solver{share}.\n"
+        );
+    }
     let _ = writeln!(
         out,
         "| Strategy | Mean cost | IQM cost | IQM 95% CI | Solved | Mean probes (solved) | Gap closed |"

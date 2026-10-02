@@ -247,6 +247,26 @@ impl TaskSet {
         Ok(())
     }
 
+    /// Shannon entropy, in bits, of the distribution the targets are drawn
+    /// from: uniform over the families that have members, then uniform over
+    /// that family's members of the pool.
+    ///
+    /// No strategy that is not told the target's family and always answers
+    /// correctly averages fewer probes than this (Kraft's inequality;
+    /// `bounds::optimal_expected_depth` checks the bound on small classes).
+    /// A virtual best solver below this floor is spending information the
+    /// probes do not carry. Laboratory property: it describes the target
+    /// distribution.
+    #[must_use]
+    pub fn entropy_floor(&self) -> f64 {
+        let counts = self.pool.family_counts();
+        let k = counts.len() as f64;
+        if counts.is_empty() {
+            return 0.0;
+        }
+        counts.values().map(|&n| (k * n as f64).log2()).sum::<f64>() / k
+    }
+
     /// Number of distinct NPN classes among the tasks.
     #[must_use]
     pub fn class_count(&self) -> usize {
@@ -294,6 +314,22 @@ mod tests {
         }
         let c = TaskSet::generate(&spec(5), 4);
         assert_ne!(a.pool.hash(), c.pool.hash());
+    }
+
+    #[test]
+    fn entropy_floor_is_the_entropy_of_family_then_member() {
+        let set = TaskSet::generate(&spec(5), 3);
+        let counts = set.pool.family_counts();
+        let k = counts.len() as f64;
+        let weights: Vec<f64> = counts
+            .values()
+            .flat_map(|&n| std::iter::repeat_n(1.0 / (k * n as f64), n))
+            .collect();
+        let direct = crate::bounds::entropy_bits(&weights);
+        assert!((set.entropy_floor() - direct).abs() < 1e-9);
+        if counts.values().all(|&n| n == 12) {
+            assert!((set.entropy_floor() - (k * 12.0).log2()).abs() < 1e-9);
+        }
     }
 
     #[test]

@@ -57,6 +57,20 @@ fn split_of(label: &str) -> Option<Split> {
     }
 }
 
+/// The mean entropy floor over the task-set seeds, with the failure cost
+/// (in probes) at or above which the floor binds: a wrong answer must cost
+/// more than finishing the identification would, which holds once it
+/// exceeds the probe cap plus `log2` of the pool size.
+fn entropy_floor(floors: &[(f64, usize)], cap: Option<u64>, arity: u8) -> Option<(f64, f64)> {
+    if floors.is_empty() {
+        return None;
+    }
+    let h = floors.iter().map(|(h, _)| h).sum::<f64>() / floors.len() as f64;
+    let largest = floors.iter().map(|&(_, n)| n).max().unwrap_or(1).max(1);
+    let cap = cap.unwrap_or(1u64 << arity) as f64;
+    Some((h, cap + (largest as f64).log2()))
+}
+
 /// Runs the headroom measurement described by a manifest.
 pub fn run_headroom(
     manifest_path: &Path,
@@ -86,10 +100,12 @@ pub fn run_headroom(
         max_probes: manifest.lab.max_probes(),
     };
     let mut episodes = 0usize;
+    let mut floors: Vec<(f64, usize)> = Vec::new();
     for offset in 0..u64::from(seeds) {
         let seed = manifest.seed.wrapping_add(offset);
         let set = TaskSet::generate(&spec, seed);
         set.verify_split_hygiene()?;
+        floors.push((set.entropy_floor(), set.pool.len()));
         if options.verbose {
             eprintln!(
                 "seed {seed}: pool {} members, {} tasks, {} NPN classes",
@@ -150,13 +166,24 @@ pub fn run_headroom(
             );
         }
     }
-    let report = analyze(
+    let floor = entropy_floor(&floors, protocol.max_probes, spec.arity);
+    let attach = |report: HeadroomReport| -> HeadroomReport {
+        match floor {
+            Some((h, needed))
+                if report.cost_model.failure_cost >= needed * report.cost_model.probe_weight =>
+            {
+                report.with_entropy_floor(h)
+            }
+            _ => report,
+        }
+    };
+    let report = attach(analyze(
         &table,
         &headroom.cost_model,
         Some(&fixed),
         headroom.resamples,
         manifest.seed,
-    );
+    ));
     let title = format!(
         "Headroom: {} ({} seeds, arity {})",
         manifest.name, seeds, spec.arity
@@ -172,13 +199,13 @@ pub fn run_headroom(
     write_json_pretty(dir.join("cost-table.json"), &table).map_err(|e| e.to_string())?;
     write_json_pretty(dir.join("headroom.json"), &report).map_err(|e| e.to_string())?;
     for (name, model) in &headroom.extra_cost_models {
-        let extra = analyze(
+        let extra = attach(analyze(
             &table,
             model,
             Some(&fixed),
             headroom.resamples,
             manifest.seed,
-        );
+        ));
         let extra_md = render_markdown(&extra, &format!("{title}, cost model `{name}`"));
         write_json_pretty(dir.join(format!("headroom-{name}.json")), &extra)
             .map_err(|e| e.to_string())?;

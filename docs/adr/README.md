@@ -15,7 +15,8 @@ mark them superseded. Template: context, decision, consequences.
 | 0008 | Milestones are outcomes with exit criteria, not dates | accepted |
 | 0009 | Language-model inference comes from Claude Code sessions, not an API client | accepted |
 | 0010 | Headroom is measured; routing proceeds, with bounded expectations | accepted |
-| 0011 | Family selection does not realise the measured gap; M3 is closed on this configuration | accepted |
+| 0011 | Family selection does not realise the measured gap; M3 is closed on this configuration | accepted; decision 2 superseded by 0015 |
 | 0012 | Capability candidates are proposed by the system and judged by the laboratory on held-out targets | accepted |
 | 0013 | Hyperdimensional retrieval is dropped for the laboratory's native objects | accepted |
 | 0014 | Every prior the design relies on is a hypothesis with a test | accepted |
+| 0015 | The routing floor; M3 reopens on a structure-keyed task set | accepted; supersedes ADR 0011, decision 2 |

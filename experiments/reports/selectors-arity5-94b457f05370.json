@@ -399,5 +399,6 @@
       "best": "greedy-threshold-only",
       "vbs_cost": 5.32
     }
-  ]
+  ],
+  "entropy_floor": 7.906890595608518
 }

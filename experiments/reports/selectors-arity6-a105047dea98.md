@@ -4,6 +4,8 @@ Tasks: 300. Cost model: probe weight 1, work weight 0, external weight 0, failur
 
 **Single best solver:** `greedy-pool` at mean cost 7.977. **Virtual best solver:** mean cost 5.357. **Gap:** 2.620 (95% CI 2.550 to 2.690); VBS/SBS = 0.672.
 
+**Entropy floor:** 7.907. A strategy that is not told the target's family averages at least this much on correct answers, so a router can save at most 0.070 against the single best solver, 2.7% of the gap.
+
 | Strategy | Mean cost | IQM cost | IQM 95% CI | Solved | Mean probes (solved) | Gap closed |
 |---|---:|---:|---:|---:|---:|---:|
 | `exhaustive` | 64.000 | 64.000 | 64.000 to 64.000 | 100.0% | 64.00 | -21.383 |
@@ -103,6 +105,8 @@ Tasks: 300. Cost model: probe weight 1, work weight 0, external weight 0, failur
 Tasks: 300. Cost model: probe weight 1, work weight 0.001, external weight 0, failure cost 128.
 
 **Single best solver:** `affine-verified-then-greedy` at mean cost 43.286. **Virtual best solver:** mean cost 12.356. **Gap:** 30.930 (95% CI 27.030 to 35.207); VBS/SBS = 0.285.
+
+**Entropy floor:** 7.907. A strategy that is not told the target's family averages at least this much on correct answers, so a router can save at most 35.379 against the single best solver, 114.4% of the gap.
 
 | Strategy | Mean cost | IQM cost | IQM 95% CI | Solved | Mean probes (solved) | Gap closed |
 |---|---:|---:|---:|---:|---:|---:|

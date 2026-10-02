@@ -412,8 +412,12 @@ fn headroom_figure(a5: &HeadroomReport, a6: &HeadroomReport) -> Result<String, S
     let (left, right, top, row_h) = (310.0, 716.0, 100.0, 48.0);
     let bottom = top + row_h * rows.len() as f64;
     let families = a5.families.len();
+    let floors: Vec<(f64, &str)> = [(a5, BLUE), (a6, ORANGE)]
+        .into_iter()
+        .filter_map(|(r, c)| r.entropy_floor.map(|h| (h, c)))
+        .collect();
     let mut svg = Svg::new(
-        bottom + 86.0,
+        bottom + if floors.is_empty() { 86.0 } else { 106.0 },
         "What would a perfect router save?",
         &format!(
             "Mean cost per task: {} tasks from {families} structural families, ten task-set seeds",
@@ -451,6 +455,20 @@ fn headroom_figure(a5: &HeadroomReport, a6: &HeadroomReport) -> Result<String, S
             );
         }
     }
+    let same_floor =
+        floors.len() == 2 && format!("{:.2}", floors[0].0) == format!("{:.2}", floors[1].0);
+    for (i, &(h, color)) in floors.iter().enumerate() {
+        let fx = x(h);
+        let stroke = if same_floor { INK } else { color };
+        svg.line((fx, top - 8.0), (fx, bottom), stroke, 1.5, true);
+        if i == 0 || !same_floor {
+            svg.text(
+                (fx + 5.0, top - 8.0 + 14.0 * i as f64),
+                Style::new(11.0, stroke).bold(),
+                &format!("entropy floor {h:.2}"),
+            );
+        }
+    }
     svg.text(
         ((left + right) / 2.0, bottom + 36.0),
         Style::new(11.5, MUTED).middle(),
@@ -460,12 +478,21 @@ fn headroom_figure(a5: &HeadroomReport, a6: &HeadroomReport) -> Result<String, S
         (24.0, bottom + 66.0),
         Style::new(12.5, INK),
         &format!(
-            "The router would save {:.2} probes (arity 5) and {:.2} (arity 6): about log2 {families} = {:.2} bits, the family label.",
+            "The perfect router would save {:.2} probes (arity 5) and {:.2} (arity 6): about log2 {families} = {:.2} bits, the family label.",
             a5.gap,
             a6.gap,
             (families as f64).log2()
         ),
     );
+    if let (Some(b5), Some(b6)) = (a5.realisable_gap_bound(), a6.realisable_gap_bound()) {
+        svg.text(
+            (24.0, bottom + 86.0),
+            Style::new(12.5, INK),
+            &format!(
+                "It sits below the entropy floor. A router that is not told the family can save at most {b5:.2} and {b6:.2}."
+            ),
+        );
+    }
     Ok(svg.finish())
 }
 

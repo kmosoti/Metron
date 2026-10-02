@@ -1,6 +1,6 @@
 # ADR 0011: Family selection does not realise the measured gap; M3 is closed on this configuration
 
-Status: accepted. Date: 2026-10-02.
+Status: accepted; decision 2 superseded by ADR 0015. Date: 2026-10-02.
 
 ## Context
 

@@ -11,7 +11,7 @@ milestones are gated on earlier ones; a gate can close a milestone as
 | M0 | The rules are executable | reached |
 | M1 | The laboratory can tell strategies apart | reached |
 | M2 | We know whether routing can pay | reached: ADR 0010, `experiments/reports/headroom-arity{5,6}-*.md` |
-| M3 | A selector closes measured headroom under matched budgets | closed as a negative result on this configuration (ADR 0011); reopens with an identifiable-structure task set |
+| M3 | A selector closes measured headroom under matched budgets | closed on the family-labelled lab (ADR 0011, explained by the entropy floor); reopened on a structure-keyed task set (ADR 0015), in progress |
 | M4 | Candidates are judged, not trusted | reached: ADR 0012, `experiments/reports/promotion-arity5-7f5ef8af8c7d.md` |
 | M5 | Retrieval earns its place or leaves | reached, HDC dropped: ADR 0013, `experiments/reports/retrieval-arity6-e59c328070b5.md` |
 | M6 | An LLM can propose, never decide | reached |
@@ -81,6 +81,21 @@ per-task best is not identifiable from probes, so the gap is an upper
 bound, not a target. M3 is closed on this configuration (ADR 0011) and
 reopens only with a task set whose per-task best is keyed by structure
 that can be verified for fewer probes than it saves.
+
+**The floor.** The entropy of the target distribution bounds every
+strategy that is not told the label (ADR 0015). On the family-labelled
+lab it is `log2 240 = 7.907`; the single best solver sits 0.126 and 0.070
+above it, so at most 4.8% and 2.7% of the gap was reachable, and the
+negative result above was predictable from arithmetic. Every headroom
+report now states the floor.
+
+**Reopened (ADR 0015).** A structure-keyed task set publishes no pool:
+affine, symmetric and three-variable junta targets at arity 8, each class
+learned by its own representation, with the truth table as the fallback.
+Headroom is measured over label-free strategies only; the floor (about
+12.1 probes) sits far below the best cascade, so routing is not ruled out
+by arithmetic. The protocol, the controls, the success criteria and four
+predictions are pre-registered in ADR 0015.
 
 ## M4 — Candidates are judged, not trusted
 

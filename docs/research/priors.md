@@ -31,6 +31,9 @@ not removed.
 | 17 | The family with the fewest surviving hypotheses is the right one to commit to | design | selector sweeps, `experiments/reports/selectors-arity{5,6}-*.md` | 6 to 17% solved | falsified; replaced by the Bayes rule (entry 7) |
 | 18 | Hyperdimensional codes cannot win on recall per byte for the laboratory's native objects | review | `experiments/reports/retrieval-arity6-*.md` | 1,024 bytes per entry for 96 to 99% recall against 16 bytes at 100% | validated |
 | 19 | Burnside's lemma applied to the NPN group counts classes | weights (the lemma), derivation (its application) | agreement with OEIS and with exhaustive enumeration | Agrees | validated |
+| 20 | An always-correct adaptive strategy averages at least the entropy of the target distribution in queries (Shannon; Kraft's inequality on the query tree's leaves) | weights | `bounds::expected_queries_are_bounded_below_by_entropy`: exact optimal expected depth by DP on 40 random explicit classes of 6–14 members at arity 4–5, uniform and skewed weights | The optimum is never below the entropy; mean slack 0.066 bits; greedy's mean depth equals the optimum on average (ratio 1.000) | validated |
+| 21 | The SBS–VBS gap measures the headroom a router can realise (the ASlib convention used in ADR 0010) | review | entropy floor attached to the committed headroom and selector reports: floor 7.907 at both arities (log2 240) | The single best solver sits 0.126 (arity 5) and 0.070 (arity 6) above the floor, while the gap is 2.64 and 2.62. At most 4.8% and 2.7% of the gap is reachable by any strategy that is not told the family; the virtual best sits 2.5 probes below the floor | falsified as a measure of realisable headroom: the gap measures the value of the label. Realisable headroom is SBS minus the floor. ADR 0011's negative result follows from it without running a selector |
+| 22 | Bigger pools would reopen routing (ADR 0011's first reopening candidate) | derivation (ADR 0011) | the entropy floor with entry 4: greedy over the published union stays within a fraction of a probe of the floor at any pool size | Ruled out: a larger published pool raises the floor and the greedy cost together | falsified by derivation; ADR 0015 replaces the candidate with a structure-keyed task set that publishes no pool |
 
 ## Citation checks (entry 5)
 
@@ -72,6 +75,13 @@ repository relies on it.
 - Every prior that was tested was tested by code that is now part of the
   suite, so the ledger does not decay: the next change that breaks a
   validated prior fails a test.
+- The cheapest experiment was a calculation. The entropy floor, one line
+  of arithmetic per task set, predicts ADR 0011's negative result to
+  within a tenth of a probe; the selector sweep that established it cost
+  thousands of episodes. Before building a router, compute the floor.
+- A virtual best solver can sit below what any honest strategy can
+  reach. When the per-task best is keyed by something the strategies are
+  never told, the gap prices that something, not the router.
 - "Equals the reference" is a prior about a convention, not about
   mathematics, and conventions hide in rounding. The interquartile mean
   was right at every n divisible by four, which is every n the reports
@@ -97,7 +107,12 @@ The same measurement (ADR 0010, 0011) read from six angles; where they
 disagree is where the finding lives.
 
 - **Information.** The gap is log2 6 bits: exactly the family identity.
-  From this angle the gap looks earnable.
+  Read naively, the gap looks earnable. Read correctly, it is not: the
+  virtual best sits 2.5 probes below the entropy of the target
+  distribution, which no strategy without the label can beat, so the
+  information perspective alone predicts the negative result (entries
+  20 and 21). The first reading of this bullet was wrong; it is kept
+  here as written so the correction stays visible.
 - **Bayesian.** The family posterior after k probes is calibrated and
   low; the information is not in the probes. From this angle the gap is
   not earnable by any rule on those probes.

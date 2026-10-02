@@ -7,6 +7,12 @@
 //! * [`optimal_query_depth`]: the exact worst-case depth of the optimal
 //!   adaptive query tree, by dynamic programming over survivor sets; only
 //!   feasible for small explicit classes.
+//! * [`entropy_bits`] and [`optimal_expected_depth`]: the average-case
+//!   ruler. For a target drawn from a known distribution, no adaptive
+//!   strategy that always answers correctly averages fewer queries than the
+//!   distribution's entropy, because the leaves of its query tree form a
+//!   prefix code (Kraft's inequality). The DP computes the exact optimum
+//!   for small classes so the bound can be checked rather than trusted.
 
 use crate::truth_table::TruthTable;
 use std::collections::HashMap;
@@ -145,6 +151,91 @@ pub fn optimal_query_depth(tables: &[TruthTable]) -> Option<u32> {
     depth(all, &patterns, &mut memo)
 }
 
+/// Shannon entropy, in bits, of a distribution given by non-negative
+/// weights (normalised here; zero weights contribute nothing).
+#[must_use]
+pub fn entropy_bits(weights: &[f64]) -> f64 {
+    let total: f64 = weights.iter().filter(|w| **w > 0.0).sum();
+    if total <= 0.0 {
+        return 0.0;
+    }
+    weights
+        .iter()
+        .filter(|w| **w > 0.0)
+        .map(|w| {
+            let p = w / total;
+            -p * p.log2()
+        })
+        .sum()
+}
+
+/// Exact minimum expected number of membership queries to identify a
+/// member drawn with probability proportional to `weights` (at most 64
+/// members), by dynamic programming over survivor sets. `None` if the
+/// class holds members no row distinguishes.
+#[must_use]
+pub fn optimal_expected_depth(tables: &[TruthTable], weights: &[f64]) -> Option<f64> {
+    assert!(
+        tables.len() <= 64,
+        "explicit rulers are limited to 64 members"
+    );
+    assert_eq!(tables.len(), weights.len(), "one weight per member");
+    let total: f64 = weights.iter().sum();
+    if tables.len() <= 1 || total <= 0.0 {
+        return Some(0.0);
+    }
+    let patterns = row_patterns(tables);
+    let all = if tables.len() == 64 {
+        u64::MAX
+    } else {
+        (1u64 << tables.len()) - 1
+    };
+    let mass = |set: u64| -> f64 {
+        (0..tables.len())
+            .filter(|i| set & (1u64 << i) != 0)
+            .map(|i| weights[i])
+            .sum()
+    };
+    // `cost(set)` is the expected number of further queries, weighted by
+    // the absolute mass of `set`, so a split adds the mass of the set once.
+    fn cost(
+        survivors: u64,
+        patterns: &[u64],
+        mass: &dyn Fn(u64) -> f64,
+        memo: &mut HashMap<u64, Option<f64>>,
+    ) -> Option<f64> {
+        if survivors.count_ones() <= 1 {
+            return Some(0.0);
+        }
+        if let Some(&c) = memo.get(&survivors) {
+            return c;
+        }
+        let here = mass(survivors);
+        let mut best: Option<f64> = None;
+        for &p in patterns {
+            let ones = survivors & p;
+            let zeros = survivors & !p;
+            if ones == 0 || zeros == 0 {
+                continue;
+            }
+            let Some(a) = cost(ones, patterns, mass, memo) else {
+                continue;
+            };
+            let Some(b) = cost(zeros, patterns, mass, memo) else {
+                continue;
+            };
+            let c = here + a + b;
+            if best.is_none_or(|bc| c < bc) {
+                best = Some(c);
+            }
+        }
+        memo.insert(survivors, best);
+        best
+    }
+    let mut memo: HashMap<u64, Option<f64>> = HashMap::new();
+    cost(all, &patterns, &mass, &mut memo).map(|c| c / total)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -224,6 +315,79 @@ mod tests {
         );
         assert!(mean <= 1.25, "mean ratio {mean}");
         assert!(max <= 2.0, "max ratio {max}");
+    }
+
+    #[test]
+    fn expected_queries_are_bounded_below_by_entropy() {
+        // Prior (Shannon, Kraft): an always-correct adaptive strategy's
+        // expected number of queries is at least the entropy of the target
+        // distribution. Checked against the exact optimum on random explicit
+        // classes, with uniform and with skewed weights, and greedy's mean
+        // depth is checked to sit above the optimum.
+        let params = FamilyParams::default();
+        let mut rng = Rng::seed_from_u64(1313);
+        let mut slack_uniform = Vec::new();
+        let mut greedy_over_optimal = Vec::new();
+        for t in 0..40 {
+            let arity = if t % 2 == 0 { 4 } else { 5 };
+            let size = 6 + rng.below_usize(9);
+            let mut tables = Vec::new();
+            let mut guard = 0;
+            while tables.len() < size && guard < 500 {
+                guard += 1;
+                let family = Family::ALL[rng.below_usize(Family::ALL.len())];
+                let table = sample(family, arity, &params, &mut rng).table;
+                if !tables.contains(&table) {
+                    tables.push(table);
+                }
+            }
+            let uniform = vec![1.0; tables.len()];
+            let skewed: Vec<f64> = (0..tables.len()).map(|i| (i + 1) as f64).collect();
+            for weights in [&uniform, &skewed] {
+                let Some(optimal) = optimal_expected_depth(&tables, weights) else {
+                    continue;
+                };
+                let h = entropy_bits(weights);
+                assert!(
+                    optimal >= h - 1e-9,
+                    "optimal expected depth {optimal} below entropy {h}"
+                );
+                if std::ptr::eq(weights, &uniform) {
+                    slack_uniform.push(optimal - h);
+                    let greedy = greedy_depths(&tables);
+                    let mean =
+                        greedy.iter().map(|&d| f64::from(d)).sum::<f64>() / greedy.len() as f64;
+                    assert!(
+                        mean >= optimal - 1e-9,
+                        "greedy {mean} below optimum {optimal}"
+                    );
+                    greedy_over_optimal.push(mean / optimal.max(1e-9));
+                }
+            }
+        }
+        let mean_slack = slack_uniform.iter().sum::<f64>() / slack_uniform.len() as f64;
+        let mean_ratio = greedy_over_optimal.iter().sum::<f64>() / greedy_over_optimal.len() as f64;
+        println!(
+            "optimal expected depth minus entropy over {} classes: mean {mean_slack:.3}; greedy/optimal expected depth: mean {mean_ratio:.3}",
+            slack_uniform.len()
+        );
+        assert!(
+            mean_slack < 1.0,
+            "the optimum sits within a bit of the entropy"
+        );
+        assert!(
+            mean_ratio < 1.1,
+            "greedy is near the expected-depth optimum"
+        );
+    }
+
+    #[test]
+    fn entropy_of_simple_distributions() {
+        assert!((entropy_bits(&[1.0; 8]) - 3.0).abs() < 1e-12);
+        assert!((entropy_bits(&[1.0, 1.0]) - 1.0).abs() < 1e-12);
+        assert_eq!(entropy_bits(&[5.0]), 0.0);
+        assert_eq!(entropy_bits(&[]), 0.0);
+        assert!((entropy_bits(&[2.0, 1.0, 1.0, 0.0]) - 1.5).abs() < 1e-12);
     }
 
     #[test]
