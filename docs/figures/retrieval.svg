@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="396" viewBox="0 0 760 396" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" role="img">
+  <title>Retrieval: recall per byte</title>
+  <rect x="0.5" y="0.5" width="759" height="395" rx="10" fill="#ffffff" stroke="#d0d7de"/>
+  <text x="24" y="36" font-size="18" fill="#24292f" font-weight="600">Retrieval: recall per byte</text>
+  <text x="24" y="58" font-size="12.5" fill="#57606a">Find every stored function consistent with a few observed rows; 5,126 six-input functions in the store</text>
+  <line x1="84" y1="304" x2="716" y2="304" stroke="#d8dee4" stroke-width="1"/>
+  <text x="74" y="308" font-size="11" fill="#57606a" text-anchor="end">40%</text>
+  <line x1="84" y1="270.7" x2="716" y2="270.7" stroke="#d8dee4" stroke-width="1"/>
+  <text x="74" y="274.7" font-size="11" fill="#57606a" text-anchor="end">50%</text>
+  <line x1="84" y1="237.3" x2="716" y2="237.3" stroke="#d8dee4" stroke-width="1"/>
+  <text x="74" y="241.3" font-size="11" fill="#57606a" text-anchor="end">60%</text>
+  <line x1="84" y1="204" x2="716" y2="204" stroke="#d8dee4" stroke-width="1"/>
+  <text x="74" y="208" font-size="11" fill="#57606a" text-anchor="end">70%</text>
+  <line x1="84" y1="170.7" x2="716" y2="170.7" stroke="#d8dee4" stroke-width="1"/>
+  <text x="74" y="174.7" font-size="11" fill="#57606a" text-anchor="end">80%</text>
+  <line x1="84" y1="137.3" x2="716" y2="137.3" stroke="#d8dee4" stroke-width="1"/>
+  <text x="74" y="141.3" font-size="11" fill="#57606a" text-anchor="end">90%</text>
+  <line x1="84" y1="104" x2="716" y2="104" stroke="#d8dee4" stroke-width="1"/>
+  <text x="74" y="108" font-size="11" fill="#57606a" text-anchor="end">100%</text>
+  <text x="154.2" y="322" font-size="11" fill="#57606a" text-anchor="middle">8 B</text>
+  <text x="224.4" y="322" font-size="11" fill="#57606a" text-anchor="middle">16 B</text>
+  <text x="294.7" y="322" font-size="11" fill="#57606a" text-anchor="middle">32 B</text>
+  <text x="364.9" y="322" font-size="11" fill="#57606a" text-anchor="middle">64 B</text>
+  <text x="435.1" y="322" font-size="11" fill="#57606a" text-anchor="middle">128 B</text>
+  <text x="505.3" y="322" font-size="11" fill="#57606a" text-anchor="middle">256 B</text>
+  <text x="575.6" y="322" font-size="11" fill="#57606a" text-anchor="middle">512 B</text>
+  <text x="645.8" y="322" font-size="11" fill="#57606a" text-anchor="middle">1024 B</text>
+  <text x="400" y="344" font-size="11.5" fill="#57606a" text-anchor="middle">index bytes per stored function, log scale (the raw table is 8 bytes)</text>
+  <text x="24" y="76" font-size="12.5" fill="#57606a">Recall of that set; dot: mean over 4 to 32 observed rows, bar: range; HDC: hyperdimensional codes</text>
+  <line x1="154.2" y1="104" x2="154.2" y2="104" stroke="#8c959f" stroke-width="3"/>
+  <circle cx="154.2" cy="104" r="6" fill="#8c959f" stroke="#ffffff" stroke-width="1.5"/>
+  <text x="164.2" y="126" font-size="11.5" fill="#24292f">exact scan · 77 µs</text>
+  <line x1="224.4" y1="104" x2="224.4" y2="104" stroke="#009E73" stroke-width="3"/>
+  <circle cx="224.4" cy="104" r="6" fill="#009E73" stroke="#ffffff" stroke-width="1.5"/>
+  <text x="234.4" y="94" font-size="12" fill="#009E73" font-weight="600">bitmask index · 14 µs</text>
+  <line x1="364.9" y1="138.9" x2="364.9" y2="110.5" stroke="#E69F00" stroke-width="3"/>
+  <circle cx="364.9" cy="125.3" r="6" fill="#E69F00" stroke="#ffffff" stroke-width="1.5"/>
+  <text x="354.9" y="147.3" font-size="11.5" fill="#24292f" text-anchor="end">Bloom, 512 bits · 252 µs</text>
+  <line x1="435.1" y1="282.2" x2="435.1" y2="170.4" stroke="#CC79A7" stroke-width="3"/>
+  <circle cx="435.1" cy="230.6" r="6" fill="#CC79A7" stroke="#ffffff" stroke-width="1.5"/>
+  <text x="447.1" y="234.6" font-size="11.5" fill="#24292f">HDC, 1,024 bits · 379 µs</text>
+  <line x1="575.6" y1="150.6" x2="575.6" y2="118.1" stroke="#CC79A7" stroke-width="3"/>
+  <circle cx="575.6" cy="135.1" r="6" fill="#CC79A7" stroke="#ffffff" stroke-width="1.5"/>
+  <text x="585.6" y="157.1" font-size="11.5" fill="#24292f">HDC, 4,096 bits · 984 µs</text>
+  <line x1="645.8" y1="119.1" x2="645.8" y2="106.4" stroke="#CC79A7" stroke-width="3"/>
+  <circle cx="645.8" cy="112.4" r="6" fill="#CC79A7" stroke="#ffffff" stroke-width="1.5"/>
+  <text x="633.8" y="104.4" font-size="11.5" fill="#24292f" text-anchor="end">HDC, 8,192 bits · 1.9 ms</text>
+  <text x="24" y="376" font-size="12.5" fill="#24292f">The bitmask index finds 100% at 16 bytes; the best hyperdimensional code uses 64 times the bytes and misses 2.5%.</text>
+</svg>

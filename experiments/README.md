@@ -7,13 +7,34 @@
 | `results/` | generated | One directory per run: `run.json`, `manifest.json`, `episode.jsonl` (the hash-chained journal), `episode.json`, `summary.json` (outcome and verdict), `checkpoint.json` while suspended, and `llm/requests` and `llm/responses` for consultations. Headroom runs write `cost-table.json`, `headroom.json` and `headroom.md`. Not committed; reproducible from manifest and seed. |
 | `reports/` | committed | Reports worth keeping, named with the manifest hash, plus the decision they led to. |
 
-Run one:
+## Commands
 
 ```sh
+cargo test --workspace                                      # unit tests + architecture invariants
 cargo run -p metron-cli -- run experiments/manifests/smoke-majority3.json
 cargo run -p metron-cli -- verify experiments/results/<run-dir>/episode.jsonl
 cargo run -p metron-cli -- explain experiments/manifests/smoke-majority3.json
+cargo run -p metron-cli -- headroom experiments/manifests/headroom-arity5.json
+cargo run -p metron-cli -- promote experiments/manifests/promotion-arity5.json
+cargo run --release -p metron-cli -- retrieval experiments/manifests/retrieval-arity6.json
+cargo run -p metron-cli -- run experiments/manifests/llm-consult-majority3.json   # suspends with a prompt
+cargo run -p metron-cli -- answer <run-dir> --text "(x0 & x1) | (x0 & x2) | (x1 & x2)" --by "me"
+cargo run -p metron-cli -- resume <run-dir>
+cargo run -p metron-cli -- replay <run-dir>
+cargo run -p metron-cli -- figures                          # redraw docs/figures from reports/
 ```
+
+The smoke run probes every row of a hidden three-input function and is
+judged correct. The headroom run compares fixed strategies on generated
+task sets and reports how much an ideal per-task selector would save. The
+consultation run suspends after four probes with a prompt for a language
+model; the Claude Code session answers it, the proposal is verified against
+the observations, and the episode replays from its journal without the
+session. `metron figures` redraws the front page's figures from the
+committed reports; `metron figures --check` and the test suite fail when a
+report changes and its figure does not.
+
+## Manifests
 
 | Manifest | What it does |
 |---|---|

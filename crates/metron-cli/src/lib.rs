@@ -6,9 +6,11 @@
 //! [`ComposedWorld`] (oracle, public knowledge and a service backend behind
 //! one identifier counter), registers every operator, turns manifest
 //! schedules into app schedules, runs, resumes and replays episodes, and
-//! orchestrates headroom measurements.
+//! orchestrates headroom measurements and renders the front-page figures
+//! from committed reports.
 
 pub mod compose;
+pub mod figures;
 pub mod headroom;
 pub mod promote;
 pub mod retrieval;
@@ -19,6 +21,7 @@ pub use compose::{
     family_labels, load_manifest, registry, resolve_fixture, schedule_from, scheduler_for,
     vocabulary,
 };
+pub use figures::{Figure, render_figures, stale_figures, write_figures};
 pub use headroom::{HeadroomOptions, HeadroomOutcome, run_headroom};
 pub use promote::{PromoteOptions, PromoteOutcome, run_promote};
 pub use retrieval::{RetrievalOptions, RetrievalOutcome, run_retrieval};

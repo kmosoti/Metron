@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="386" viewBox="0 0 760 386" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" role="img">
+  <title>Can a router learn the family from a few probes?</title>
+  <rect x="0.5" y="0.5" width="759" height="385" rx="10" fill="#ffffff" stroke="#d0d7de"/>
+  <text x="24" y="36" font-size="18" fill="#24292f" font-weight="600">Can a router learn the family from a few probes?</text>
+  <text x="24" y="58" font-size="12.5" fill="#57606a">Spend k greedy probes, commit to the family with the most surviving hypotheses, search only that family</text>
+  <text x="689" y="88" font-size="12" fill="#24292f">arity 6</text>
+  <rect x="671" y="78" width="12" height="12" rx="2" fill="#E69F00"/>
+  <text x="605.9" y="88" font-size="12" fill="#24292f">arity 5</text>
+  <rect x="587.9" y="78" width="12" height="12" rx="2" fill="#0072B2"/>
+  <line x1="84" y1="300" x2="500" y2="300" stroke="#d8dee4" stroke-width="1"/>
+  <text x="74" y="304" font-size="11" fill="#57606a" text-anchor="end">0%</text>
+  <line x1="84" y1="251" x2="500" y2="251" stroke="#d8dee4" stroke-width="1"/>
+  <text x="74" y="255" font-size="11" fill="#57606a" text-anchor="end">25%</text>
+  <line x1="84" y1="202" x2="500" y2="202" stroke="#d8dee4" stroke-width="1"/>
+  <text x="74" y="206" font-size="11" fill="#57606a" text-anchor="end">50%</text>
+  <line x1="84" y1="153" x2="500" y2="153" stroke="#d8dee4" stroke-width="1"/>
+  <text x="74" y="157" font-size="11" fill="#57606a" text-anchor="end">75%</text>
+  <line x1="84" y1="104" x2="500" y2="104" stroke="#d8dee4" stroke-width="1"/>
+  <text x="74" y="108" font-size="11" fill="#57606a" text-anchor="end">100%</text>
+  <text x="84" y="318" font-size="11" fill="#57606a" text-anchor="middle">0</text>
+  <text x="153.3" y="318" font-size="11" fill="#57606a" text-anchor="middle">1</text>
+  <text x="222.7" y="318" font-size="11" fill="#57606a" text-anchor="middle">2</text>
+  <text x="292" y="318" font-size="11" fill="#57606a" text-anchor="middle">3</text>
+  <text x="361.3" y="318" font-size="11" fill="#57606a" text-anchor="middle">4</text>
+  <text x="430.7" y="318" font-size="11" fill="#57606a" text-anchor="middle">5</text>
+  <text x="500" y="318" font-size="11" fill="#57606a" text-anchor="middle">6</text>
+  <text x="292" y="340" font-size="11.5" fill="#57606a" text-anchor="middle">greedy probes spent before committing to a family (k)</text>
+  <text x="84" y="90" font-size="11.5" fill="#57606a">tasks solved</text>
+  <line x1="84" y1="104" x2="500" y2="104" stroke="#009E73" stroke-width="2" stroke-dasharray="6 4"/>
+  <text x="514" y="108" font-size="12" fill="#009E73" font-weight="600">single best (greedy-pool)</text>
+  <text x="514" y="124" font-size="11.5" fill="#57606a">solves 100% at 8.0 probes</text>
+  <polyline points="84,267.3 153.3,256.9 222.7,249.7 292,240.5 361.3,234.7 430.7,219.6 500,192.2" fill="none" stroke="#0072B2" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+  <circle cx="84" cy="267.3" r="4.5" fill="#0072B2" stroke="#ffffff" stroke-width="1.5"/>
+  <circle cx="153.3" cy="256.9" r="4.5" fill="#0072B2" stroke="#ffffff" stroke-width="1.5"/>
+  <circle cx="222.7" cy="249.7" r="4.5" fill="#0072B2" stroke="#ffffff" stroke-width="1.5"/>
+  <circle cx="292" cy="240.5" r="4.5" fill="#0072B2" stroke="#ffffff" stroke-width="1.5"/>
+  <circle cx="361.3" cy="234.7" r="4.5" fill="#0072B2" stroke="#ffffff" stroke-width="1.5"/>
+  <circle cx="430.7" cy="219.6" r="4.5" fill="#0072B2" stroke="#ffffff" stroke-width="1.5"/>
+  <circle cx="500" cy="192.2" r="4.5" fill="#0072B2" stroke="#ffffff" stroke-width="1.5"/>
+  <polyline points="84,267.3 153.3,249.7 222.7,243.2 292,235.3 361.3,224.9 430.7,217.7 500,204" fill="none" stroke="#E69F00" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+  <circle cx="84" cy="267.3" r="4.5" fill="#E69F00" stroke="#ffffff" stroke-width="1.5"/>
+  <circle cx="153.3" cy="249.7" r="4.5" fill="#E69F00" stroke="#ffffff" stroke-width="1.5"/>
+  <circle cx="222.7" cy="243.2" r="4.5" fill="#E69F00" stroke="#ffffff" stroke-width="1.5"/>
+  <circle cx="292" cy="235.3" r="4.5" fill="#E69F00" stroke="#ffffff" stroke-width="1.5"/>
+  <circle cx="361.3" cy="224.9" r="4.5" fill="#E69F00" stroke="#ffffff" stroke-width="1.5"/>
+  <circle cx="430.7" cy="217.7" r="4.5" fill="#E69F00" stroke="#ffffff" stroke-width="1.5"/>
+  <circle cx="500" cy="204" r="4.5" fill="#E69F00" stroke="#ffffff" stroke-width="1.5"/>
+  <text x="510" y="194.6" font-size="11.5" fill="#0072B2" font-weight="600">55%</text>
+  <text x="510" y="209.6" font-size="11.5" fill="#E69F00" font-weight="600">49%</text>
+  <line x1="287.5" y1="283.1" x2="296.5" y2="292.1" stroke="#0072B2" stroke-width="2"/>
+  <line x1="287.5" y1="292.1" x2="296.5" y2="283.1" stroke="#0072B2" stroke-width="2"/>
+  <line x1="287.5" y1="283.7" x2="296.5" y2="292.7" stroke="#E69F00" stroke-width="2"/>
+  <line x1="287.5" y1="292.7" x2="296.5" y2="283.7" stroke="#E69F00" stroke-width="2"/>
+  <text x="302" y="280.2" font-size="11" fill="#57606a">fewest-survivors control</text>
+  <text x="514" y="241.2" font-size="12" fill="#24292f">At k = 6 a solved task costs</text>
+  <text x="514" y="259.2" font-size="12" fill="#24292f">7.0 probes (arity 5) and 7.2 (arity 6).</text>
+  <text x="514" y="277.2" font-size="12" fill="#24292f">More prefix only walks the router</text>
+  <text x="514" y="295.2" font-size="12" fill="#24292f">back to the single best strategy:</text>
+  <text x="514" y="313.2" font-size="12" fill="#24292f">the family label is not in the probes.</text>
+</svg>

@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="378" viewBox="0 0 760 378" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" role="img">
+  <title>What would a perfect router save?</title>
+  <rect x="0.5" y="0.5" width="759" height="377" rx="10" fill="#ffffff" stroke="#d0d7de"/>
+  <text x="24" y="36" font-size="18" fill="#24292f" font-weight="600">What would a perfect router save?</text>
+  <text x="24" y="58" font-size="12.5" fill="#57606a">Mean cost per task: 300 tasks from 6 structural families, ten task-set seeds</text>
+  <text x="669" y="88" font-size="12" fill="#24292f">arity 6</text>
+  <rect x="651" y="78" width="12" height="12" rx="2" fill="#E69F00"/>
+  <text x="585.9" y="88" font-size="12" fill="#24292f">arity 5</text>
+  <rect x="567.9" y="78" width="12" height="12" rx="2" fill="#0072B2"/>
+  <line x1="310" y1="96" x2="310" y2="292" stroke="#d8dee4" stroke-width="1"/>
+  <text x="310" y="308" font-size="11" fill="#57606a" text-anchor="middle">4</text>
+  <line x1="391.2" y1="96" x2="391.2" y2="292" stroke="#d8dee4" stroke-width="1"/>
+  <text x="391.2" y="308" font-size="11" fill="#57606a" text-anchor="middle">8</text>
+  <line x1="472.4" y1="96" x2="472.4" y2="292" stroke="#d8dee4" stroke-width="1"/>
+  <text x="472.4" y="308" font-size="11" fill="#57606a" text-anchor="middle">16</text>
+  <line x1="553.6" y1="96" x2="553.6" y2="292" stroke="#d8dee4" stroke-width="1"/>
+  <text x="553.6" y="308" font-size="11" fill="#57606a" text-anchor="middle">32</text>
+  <line x1="634.8" y1="96" x2="634.8" y2="292" stroke="#d8dee4" stroke-width="1"/>
+  <text x="634.8" y="308" font-size="11" fill="#57606a" text-anchor="middle">64</text>
+  <line x1="716" y1="96" x2="716" y2="292" stroke="#d8dee4" stroke-width="1"/>
+  <text x="716" y="308" font-size="11" fill="#57606a" text-anchor="middle">128</text>
+  <text x="296" y="119" font-size="13" fill="#24292f" text-anchor="end" font-weight="600">Probe every row</text>
+  <text x="296" y="135" font-size="11" fill="#57606a" text-anchor="end">the exhaustive truth table</text>
+  <rect x="310" y="108" width="243.6" height="14" rx="2" fill="#0072B2"/>
+  <text x="559.6" y="119" font-size="11" fill="#24292f">32.00</text>
+  <rect x="310" y="125" width="324.8" height="14" rx="2" fill="#E69F00"/>
+  <text x="640.8" y="136" font-size="11" fill="#24292f">64.00</text>
+  <text x="296" y="167" font-size="13" fill="#24292f" text-anchor="end" font-weight="600">Affine shortcut, verified, then greedy</text>
+  <text x="296" y="183" font-size="11" fill="#57606a" text-anchor="end">guess a structure, check it, fall back</text>
+  <rect x="310" y="156" width="141" height="14" rx="2" fill="#0072B2"/>
+  <text x="457" y="167" font-size="11" fill="#24292f">13.33</text>
+  <rect x="310" y="173" width="237.9" height="14" rx="2" fill="#E69F00"/>
+  <text x="553.9" y="184" font-size="11" fill="#24292f">30.48</text>
+  <text x="296" y="215" font-size="13" fill="#24292f" text-anchor="end" font-weight="600">Greedy search over the whole pool</text>
+  <text x="296" y="231" font-size="11" fill="#57606a" text-anchor="end">single best fixed strategy (greedy-pool)</text>
+  <rect x="310" y="204" width="81.7" height="14" rx="2" fill="#0072B2"/>
+  <text x="397.7" y="215" font-size="11" fill="#24292f">8.03</text>
+  <rect x="310" y="221" width="80.9" height="14" rx="2" fill="#E69F00"/>
+  <text x="396.9" y="232" font-size="11" fill="#24292f">7.98</text>
+  <text x="296" y="263" font-size="13" fill="#24292f" text-anchor="end" font-weight="600">A perfect per-task router</text>
+  <text x="296" y="279" font-size="11" fill="#57606a" text-anchor="end">virtual best: told each target's family</text>
+  <rect x="310" y="252" width="35" height="14" rx="2" fill="#0072B2"/>
+  <text x="351" y="263" font-size="11" fill="#24292f">5.39</text>
+  <rect x="310" y="269" width="34.2" height="14" rx="2" fill="#E69F00"/>
+  <text x="350.2" y="280" font-size="11" fill="#24292f">5.36</text>
+  <text x="513" y="328" font-size="11.5" fill="#57606a" text-anchor="middle">probes per task, log scale; a wrong or missing answer costs twice the probe cap</text>
+  <text x="24" y="358" font-size="12.5" fill="#24292f">The router would save 2.64 probes (arity 5) and 2.62 (arity 6): about log2 6 = 2.58 bits, the family label.</text>
+</svg>

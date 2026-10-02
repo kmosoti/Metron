@@ -36,6 +36,9 @@ usage:
       Print the strategies, the budget and every operator contract.
   metron npn-classes <arity>
       Count NPN classes by exhaustive enumeration (arity <= 4).
+  metron figures [--root <dir>] [--check]
+      Render the front-page figures from experiments/reports and the priors
+      ledger into docs/figures; with --check, fail if any is out of date.
 ";
 
 fn main() -> ExitCode {
@@ -51,6 +54,7 @@ fn main() -> ExitCode {
         Some("verify") => cmd_verify(&args[1..]),
         Some("explain") => cmd_explain(&args[1..]),
         Some("npn-classes") => cmd_npn(&args[1..]),
+        Some("figures") => cmd_figures(&args[1..]),
         Some("--help" | "-h" | "help") => {
             print!("{USAGE}");
             Ok(())
@@ -411,4 +415,27 @@ fn cmd_npn(args: &[String]) -> Result<(), String> {
     }
     println!("{}", metron_lab::npn::class_count(arity));
     Ok(())
+}
+
+fn cmd_figures(args: &[String]) -> Result<(), String> {
+    let flags = parse_flags(args, &["root"], &["check"])?;
+    let root = PathBuf::from(flags.value("root").unwrap_or("."));
+    let out = root.join(metron_cli::figures::FIGURES_DIR);
+    if flags.has("check") {
+        let stale = metron_cli::stale_figures(&root, &out)?;
+        if stale.is_empty() {
+            println!("figures are up to date");
+            Ok(())
+        } else {
+            Err(format!(
+                "out of date: {}; run `metron figures`",
+                stale.join(", ")
+            ))
+        }
+    } else {
+        for path in metron_cli::write_figures(&root, &out)? {
+            println!("wrote {}", path.display());
+        }
+        Ok(())
+    }
 }

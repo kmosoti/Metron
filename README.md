@@ -1,73 +1,160 @@
 # Metron
 
-Hexagonal Cognitive Kernel: a Rust laboratory for a resource-bounded system
-that learns hidden structure through multiple representations, built so
-that the experimental rules are enforced by the architecture rather than by
-discipline.
+**Hexagonal Cognitive Kernel: a laboratory where a resource-bounded system
+learns hidden Boolean functions through several representations, and where
+every claim has to survive measurement.**
 
-The repository establishes the research objects (inquiry, observation,
-evidence, view, frame, transform contract, operator, resource receipt,
-episode, capability candidate) and four invariants that `tests/architecture`
-enforces on every build:
+[![ci](https://github.com/kmosoti/Metron/actions/workflows/ci.yml/badge.svg)](https://github.com/kmosoti/Metron/actions/workflows/ci.yml)
 
-1. the core is pure and dependencies point inward;
-2. the laboratory owns ground truth; the system cannot inspect hidden
-   targets, the judge or the promotion criteria;
-3. every external operation produces a receipt, so cost accounting and
-   replay are possible;
-4. representations connect only through explicit transform contracts.
+The system never sees the function it is trying to learn. It asks questions
+through a port, pays for every answer with a receipt, and commits a guess
+that the laboratory judges once the episode is over. These rules are not a
+convention: the build fails if any of them is broken.
 
-On top of that it holds the mixed Boolean laboratory (six structural
-families at arities up to 8, NPN-clean splits, query rulers), the strategy
-operators the laboratory compares, a headroom harness that reports single
-best solver, virtual best solver and gap closed, capability promotion
-judged by the laboratory on held-out targets, a retrieval workload that
-compares exact and sketch indexes, and language-model consultation that
-enters through a Claude Code session rather than an API client. Milestones are outcomes with exit criteria
-(`docs/architecture/milestones.md`); learned routing is gated on the measured
-headroom (ADR 0006), and there is no model API client by design (ADR 0009).
+## The picture
 
-## Quick start
-
-```sh
-cargo test --workspace                                      # unit tests + architecture invariants
-cargo run -p metron-cli -- run experiments/manifests/smoke-majority3.json
-cargo run -p metron-cli -- headroom experiments/manifests/headroom-arity5.json
-cargo run -p metron-cli -- promote experiments/manifests/promotion-arity5.json
-cargo run --release -p metron-cli -- retrieval experiments/manifests/retrieval-arity6.json
-cargo run -p metron-cli -- run experiments/manifests/llm-consult-majority3.json   # suspends with a prompt
-cargo run -p metron-cli -- answer <run-dir> --text "(x0 & x1) | (x0 & x2) | (x1 & x2)" --by "me"
-cargo run -p metron-cli -- resume <run-dir>
-cargo run -p metron-cli -- replay <run-dir>
-cargo run -p metron-cli -- verify <run-dir>/episode.jsonl
+```mermaid
+flowchart LR
+    RUN["Episode runner<br/>journal: a hash chain"] -->|applies| OPS["Operators<br/>observe · transform · consult · commit"]
+    OPS -->|writes views| INQ["Inquiry<br/>views in frames,<br/>joined by contracts"]
+    OPS -->|probe a row| ORACLE(["Oracle port"])
+    OPS -->|read| KNOW(["Knowledge port"])
+    OPS -->|ask| SERVICE(["Service port"])
+    ORACLE --> TARGET[("Hidden target")]
+    ORACLE -.->|receipt| RUN
+    KNOW --> POOL[("Hypothesis pool")]
+    SERVICE -.->|request file| SESSION["Claude Code session"]
+    INQ ==>|committed answer| JUDGE{{"Judge"}}
+    subgraph SYSTEM["The system under study"]
+        RUN
+        OPS
+        INQ
+    end
+    subgraph LAB["The laboratory, sealed"]
+        TARGET
+        POOL
+        JUDGE
+    end
 ```
 
-The smoke run probes every row of a hidden three-input function and is
-judged correct. The headroom run compares fixed strategies on generated
-task sets and reports how much an ideal per-task selector would save. The
-consultation run suspends after four probes with a prompt for a language
-model; the Claude Code session answers it, the proposal is verified against
-the observations, and the episode replays from its journal without the
-session.
+Four rules hold everywhere, and `cargo test` checks them on every build: the
+core is pure, the laboratory owns ground truth, every external operation
+leaves a receipt, and representations meet only through explicit transform
+contracts that say what they preserve, lose and assume.
 
-## Layout
+## One episode
 
-| Path | What |
+```mermaid
+sequenceDiagram
+    autonumber
+    participant R as Runner
+    participant O as Operator
+    participant L as Laboratory
+    participant J as Journal
+    participant I as Inquiry
+    R->>O: apply, with the episode's seeded RNG
+    O->>L: probe row 5
+    L-->>O: f(row 5) = 1
+    L-->>R: a receipt with cost and hashes
+    R->>J: journal the receipt before reading the result
+    O->>I: write a view under a transform contract
+    R->>R: check what this kind of operator may write
+    Note over R,I: repeat until an operator commits an answer
+    R->>J: the answer and the head hash
+    L->>L: judge the answer after the episode
+```
+
+The same manifest and seed always produce the same journal head, so any run
+can be replayed and audited, including runs that paused to ask a language
+model a question.
+
+## What the laboratory has found
+
+**A perfect router would save probes.** Six structural families, ten
+task-set seeds. A clairvoyant per-task router beats the best fixed strategy
+by about log2 6 probes: exactly the information in the family label.
+
+![Cost ladder: exhaustive, verified affine, greedy over the pool, perfect router](docs/figures/headroom.svg)
+
+**But the label it routes on is not in the probes.** A real router has to
+learn the family from the same probes it is trying to save. It cannot: more
+prefix only walks it back to the single best strategy.
+
+![Solved rate of the most-survivors router against prefix length](docs/figures/selectors.svg)
+
+**Exact beats hyperdimensional for these objects.** Retrieving every stored
+function consistent with a few observed rows, the bitmask index is complete,
+smallest and fastest.
+
+![Recall against bytes per entry for exact, Bloom and hyperdimensional indexes](docs/figures/retrieval.svg)
+
+**The system proposes; the laboratory decides.** Compositions extracted from
+episodes are judged on held-out targets, never on the episodes that produced
+them.
+
+![Held-out pass rates of proposed compositions](docs/figures/promotion.svg)
+
+**Every prior is a hypothesis.** Whatever the design relies on, whether
+recalled, cited or derived, carries a test or a primary source.
+
+![The priors ledger by status](docs/figures/priors.svg)
+
+These pictures are drawn from the committed reports by `metron figures`, and
+the test suite fails if a report changes without its picture.
+
+## Where it stands
+
+```mermaid
+flowchart LR
+    M0["M0<br/>the rules are executable"]:::reached
+    M1["M1<br/>the lab tells strategies apart"]:::reached
+    M2["M2<br/>headroom measured"]:::reached
+    M3["M3<br/>routing<br/>closed: the gap was the free label"]:::closed
+    M4["M4<br/>candidates judged on held-out targets"]:::reached
+    M5["M5<br/>retrieval<br/>hyperdimensional codes dropped"]:::dropped
+    M6["M6<br/>an LLM proposes, never decides"]:::reached
+    M0 --> M1 --> M2 --> M3
+    M1 --> M4
+    M1 --> M5
+    M0 --> M6
+    classDef reached fill:#d3f2e3,stroke:#009E73,color:#0b3d2a
+    classDef closed fill:#fde4d6,stroke:#D55E00,color:#5a1e00
+    classDef dropped fill:#eceff1,stroke:#8c959f,color:#24292f
+```
+
+Milestones are outcomes with exit criteria, never dates. A milestone closed
+by a negative result is a result.
+
+## Explore
+
+```mermaid
+flowchart TB
+    CLI["metron-cli<br/>composition root"] --> LAB["metron-lab<br/>sealed evaluator"]
+    CLI --> APP["metron-app<br/>use cases"]
+    CLI --> OPS["metron-operators<br/>strategies"]
+    CLI --> ADA["metron-adapters<br/>effects"]
+    LAB --> CORE["metron-core<br/>pure domain and ports"]
+    APP --> CORE
+    OPS --> CORE
+    ADA --> CORE
+```
+
+| If you want to… | Go to |
 |---|---|
-| `crates/metron-core` | Pure domain and ports |
-| `crates/metron-app` | Use cases: operator registry, fixed schedule, episode runner |
-| `crates/metron-lab` | Immutable evaluator: sealed hidden targets, oracle, judge, promotion gate, manifests |
-| `crates/metron-operators` | Reference operators forming one complete pipeline |
-| `crates/metron-adapters` | Effects: clock, files, results |
-| `crates/metron-cli` | Composition root (`metron run`, `verify`, `explain`) |
-| `experiments/` | Manifests, fixtures, generated results, committed reports |
-| `docs/architecture` | Overview and the invariants with their enforcement |
-| `docs/research` | Archived inputs and the priors ledger: every prior the design relies on, with its test |
-| `docs/adr` | Architecture decision records |
-| `tests/architecture` | Executable invariants |
+| see the rules the build enforces | [docs/architecture/invariants.md](docs/architecture/invariants.md) |
+| follow an episode end to end, crate by crate | [docs/architecture/overview.md](docs/architecture/overview.md) |
+| read the milestones and their exit criteria | [docs/architecture/milestones.md](docs/architecture/milestones.md) |
+| know why things are the way they are | [docs/adr](docs/adr/README.md) |
+| check what was assumed and what survived | [docs/research/priors.md](docs/research/priors.md) |
+| open the raw measurements | [experiments/reports](experiments/reports/README.md) |
+| run experiments, or answer a consultation as the language model | [experiments/README.md](experiments/README.md) |
+| change the code, as a person or a coding agent | [AGENTS.md](AGENTS.md) |
 
-Working rules for contributors and coding agents are in `AGENTS.md`.
+```sh
+cargo test --workspace                                                    # the rules, as tests
+cargo run -p metron-cli -- run experiments/manifests/smoke-majority3.json # one episode
+cargo run --release -p metron-cli -- headroom experiments/manifests/headroom-arity5.json
+cargo run -p metron-cli -- figures                                        # redraw this page
+```
 
-## License
-
-Apache-2.0. See `LICENSE`.
+Apache-2.0. See [LICENSE](LICENSE).
