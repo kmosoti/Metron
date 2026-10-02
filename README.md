@@ -32,6 +32,7 @@ headroom (ADR 0006), and there is no model API client by design (ADR 0009).
 cargo test --workspace                                      # unit tests + architecture invariants
 cargo run -p metron-cli -- run experiments/manifests/smoke-majority3.json
 cargo run -p metron-cli -- headroom experiments/manifests/headroom-arity5.json
+cargo run -p metron-cli -- promote experiments/manifests/promotion-arity5.json
 cargo run -p metron-cli -- run experiments/manifests/llm-consult-majority3.json   # suspends with a prompt
 cargo run -p metron-cli -- answer <run-dir> --text "(x0 & x1) | (x0 & x2) | (x1 & x2)" --by "me"
 cargo run -p metron-cli -- resume <run-dir>

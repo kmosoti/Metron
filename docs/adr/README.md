@@ -16,3 +16,4 @@ mark them superseded. Template: context, decision, consequences.
 | 0009 | Language-model inference comes from Claude Code sessions, not an API client | accepted |
 | 0010 | Headroom is measured; routing proceeds, with bounded expectations | accepted |
 | 0011 | Family selection does not realise the measured gap; M3 is closed on this configuration | accepted |
+| 0012 | Capability candidates are proposed by the system and judged by the laboratory on held-out targets | accepted |

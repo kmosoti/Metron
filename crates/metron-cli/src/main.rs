@@ -3,8 +3,8 @@
 use metron_adapters::results::read_journal;
 use metron_cli::run::Backend;
 use metron_cli::{
-    HeadroomOptions, RunOptions, RunStatus, answer, load_manifest, registry, replay, resume, run,
-    run_headroom,
+    HeadroomOptions, PromoteOptions, RunOptions, RunStatus, answer, load_manifest, registry,
+    replay, resume, run, run_headroom, run_promote,
 };
 use metron_core::journal::JournalEvent;
 use std::path::{Path, PathBuf};
@@ -24,6 +24,9 @@ usage:
       Re-run a completed run with its recorded answers and compare journals.
   metron headroom <manifest.json> [--results <dir>] [--seeds <n>] [--verbose]
       Run every strategy on every task and report SBS, VBS and gap closed.
+  metron promote <manifest.json> [--results <dir>] [--strategy <name>] [--rounds <n>]
+      Propose capability candidates from the train split and let the
+      laboratory's gate judge them on the test split.
   metron verify <episode.jsonl>
       Verify a journal's hash chain and every receipt in it.
   metron explain <manifest.json>
@@ -40,6 +43,7 @@ fn main() -> ExitCode {
         Some("answer") => cmd_answer(&args[1..]),
         Some("replay") => cmd_replay(&args[1..]),
         Some("headroom") => cmd_headroom(&args[1..]),
+        Some("promote") => cmd_promote(&args[1..]),
         Some("verify") => cmd_verify(&args[1..]),
         Some("explain") => cmd_explain(&args[1..]),
         Some("npn-classes") => cmd_npn(&args[1..]),
@@ -269,6 +273,26 @@ fn cmd_headroom(args: &[String]) -> Result<(), String> {
     let outcome = run_headroom(Path::new(manifest), &options)?;
     print!("{}", outcome.markdown);
     println!("\nepisodes   {}", outcome.episodes);
+    println!("results    {}", outcome.dir.display());
+    Ok(())
+}
+
+fn cmd_promote(args: &[String]) -> Result<(), String> {
+    let flags = parse_flags(args, &["results", "strategy", "rounds"], &[])?;
+    let manifest = flags
+        .positional
+        .first()
+        .ok_or("a manifest path is required")?;
+    let mut options = PromoteOptions::default();
+    if let Some(r) = flags.value("results") {
+        options.results_root = PathBuf::from(r);
+    }
+    options.strategy = flags.value("strategy").map(str::to_owned);
+    if let Some(r) = flags.value("rounds") {
+        options.rounds = Some(r.parse().map_err(|e| format!("--rounds: {e}"))?);
+    }
+    let outcome = run_promote(Path::new(manifest), &options)?;
+    print!("{}", outcome.markdown);
     println!("results    {}", outcome.dir.display());
     Ok(())
 }

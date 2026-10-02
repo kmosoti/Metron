@@ -27,6 +27,10 @@ pub struct CapabilityCandidate {
     pub evidence: Vec<Evidence>,
     /// Episode in which it was proposed.
     pub proposed_in: EpisodeId,
+    /// An executable form of the composition (a schedule), opaque to the
+    /// core. The application layer writes and reads it.
+    #[serde(default)]
+    pub program: serde_json::Value,
 }
 
 impl CapabilityCandidate {
@@ -34,6 +38,21 @@ impl CapabilityCandidate {
     #[must_use]
     pub fn independent_support(&self) -> usize {
         independent_observations(&self.evidence)
+    }
+
+    /// A key that identifies the composition: the program when present,
+    /// else the operator sequence.
+    #[must_use]
+    pub fn key(&self) -> String {
+        if self.program.is_null() {
+            self.composition
+                .iter()
+                .map(|o| o.as_str())
+                .collect::<Vec<_>>()
+                .join(" -> ")
+        } else {
+            self.program.to_string()
+        }
     }
 }
 

@@ -40,7 +40,9 @@ pub use manifest::{
     LabConfig, Manifest, ManifestError, ScheduleStep, SelectorSpec, Strategy, SystemPlan,
 };
 pub use pool::{HypothesisPool, PoolSpec};
-pub use promotion::{PromotionCriteria, PromotionGate};
+pub use promotion::{
+    HeldOutSummary, PromotionCase, PromotionCriteria, PromotionGate, PromotionReport,
+};
 pub use tasks::{Split, Task, TaskSet, TaskSetSpec};
 pub use truth_table::{TruthTable, TruthTableError};
 pub use verdict::Verdict;

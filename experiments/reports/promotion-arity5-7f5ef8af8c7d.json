@@ -1,0 +1,982 @@
+[
+  {
+    "strategy": "exhaustive",
+    "manifest_hash": "7f5ef8af8c7db954ae783bacac2bcc1b2a73df22538c21dcdd51bb5443249751",
+    "gate_fingerprint": "fbcd54ba0fe5da6fb5a8cc4565de813af7b525b179cbd49458824efde08917ed",
+    "cases": [
+      {
+        "candidate": {
+          "name": "probe-next-unobserved -> observations-to-partial-table -> complete-table-by-default -> commit-truth-table",
+          "description": "Composition that answered hidden-boolean-function in episode episode#1",
+          "composition": [
+            "probe-next-unobserved",
+            "observations-to-partial-table",
+            "complete-table-by-default",
+            "commit-truth-table"
+          ],
+          "claimed_contract": {
+            "from": [
+              "observations"
+            ],
+            "to": "truth-table/complete",
+            "preserves": [
+              "every observed row"
+            ],
+            "loses": [
+              "the order in which rows were probed",
+              "which receipt paid for each observation"
+            ],
+            "assumes": [
+              "unobserved rows evaluate to false"
+            ],
+            "fidelity": {
+              "kind": "approximate",
+              "description": "unobserved rows are filled with a default, not inferred"
+            }
+          },
+          "evidence": [
+            {
+              "observation": 1,
+              "via": [
+                "probe-next-unobserved",
+                "observations-to-partial-table",
+                "complete-table-by-default",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 2,
+              "via": [
+                "probe-next-unobserved",
+                "observations-to-partial-table",
+                "complete-table-by-default",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 3,
+              "via": [
+                "probe-next-unobserved",
+                "observations-to-partial-table",
+                "complete-table-by-default",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 4,
+              "via": [
+                "probe-next-unobserved",
+                "observations-to-partial-table",
+                "complete-table-by-default",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 5,
+              "via": [
+                "probe-next-unobserved",
+                "observations-to-partial-table",
+                "complete-table-by-default",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 6,
+              "via": [
+                "probe-next-unobserved",
+                "observations-to-partial-table",
+                "complete-table-by-default",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 7,
+              "via": [
+                "probe-next-unobserved",
+                "observations-to-partial-table",
+                "complete-table-by-default",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 8,
+              "via": [
+                "probe-next-unobserved",
+                "observations-to-partial-table",
+                "complete-table-by-default",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 9,
+              "via": [
+                "probe-next-unobserved",
+                "observations-to-partial-table",
+                "complete-table-by-default",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 10,
+              "via": [
+                "probe-next-unobserved",
+                "observations-to-partial-table",
+                "complete-table-by-default",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 11,
+              "via": [
+                "probe-next-unobserved",
+                "observations-to-partial-table",
+                "complete-table-by-default",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 12,
+              "via": [
+                "probe-next-unobserved",
+                "observations-to-partial-table",
+                "complete-table-by-default",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 13,
+              "via": [
+                "probe-next-unobserved",
+                "observations-to-partial-table",
+                "complete-table-by-default",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 14,
+              "via": [
+                "probe-next-unobserved",
+                "observations-to-partial-table",
+                "complete-table-by-default",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 15,
+              "via": [
+                "probe-next-unobserved",
+                "observations-to-partial-table",
+                "complete-table-by-default",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 16,
+              "via": [
+                "probe-next-unobserved",
+                "observations-to-partial-table",
+                "complete-table-by-default",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 17,
+              "via": [
+                "probe-next-unobserved",
+                "observations-to-partial-table",
+                "complete-table-by-default",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 18,
+              "via": [
+                "probe-next-unobserved",
+                "observations-to-partial-table",
+                "complete-table-by-default",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 19,
+              "via": [
+                "probe-next-unobserved",
+                "observations-to-partial-table",
+                "complete-table-by-default",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 20,
+              "via": [
+                "probe-next-unobserved",
+                "observations-to-partial-table",
+                "complete-table-by-default",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 21,
+              "via": [
+                "probe-next-unobserved",
+                "observations-to-partial-table",
+                "complete-table-by-default",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 22,
+              "via": [
+                "probe-next-unobserved",
+                "observations-to-partial-table",
+                "complete-table-by-default",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 23,
+              "via": [
+                "probe-next-unobserved",
+                "observations-to-partial-table",
+                "complete-table-by-default",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 24,
+              "via": [
+                "probe-next-unobserved",
+                "observations-to-partial-table",
+                "complete-table-by-default",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 25,
+              "via": [
+                "probe-next-unobserved",
+                "observations-to-partial-table",
+                "complete-table-by-default",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 26,
+              "via": [
+                "probe-next-unobserved",
+                "observations-to-partial-table",
+                "complete-table-by-default",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 27,
+              "via": [
+                "probe-next-unobserved",
+                "observations-to-partial-table",
+                "complete-table-by-default",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 28,
+              "via": [
+                "probe-next-unobserved",
+                "observations-to-partial-table",
+                "complete-table-by-default",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 29,
+              "via": [
+                "probe-next-unobserved",
+                "observations-to-partial-table",
+                "complete-table-by-default",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 30,
+              "via": [
+                "probe-next-unobserved",
+                "observations-to-partial-table",
+                "complete-table-by-default",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 31,
+              "via": [
+                "probe-next-unobserved",
+                "observations-to-partial-table",
+                "complete-table-by-default",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 32,
+              "via": [
+                "probe-next-unobserved",
+                "observations-to-partial-table",
+                "complete-table-by-default",
+                "commit-truth-table"
+              ]
+            }
+          ],
+          "proposed_in": 1,
+          "program": [
+            {
+              "repeat": 32,
+              "sequence": [
+                {
+                  "operator": "probe-next-unobserved",
+                  "repeat": 1
+                }
+              ]
+            },
+            {
+              "operator": "observations-to-partial-table",
+              "repeat": 1
+            },
+            {
+              "operator": "complete-table-by-default",
+              "repeat": 1
+            },
+            {
+              "operator": "commit-truth-table",
+              "repeat": 1
+            }
+          ]
+        },
+        "train_support": 14,
+        "train_episodes": 14,
+        "reuse_frequency": 1.0,
+        "held_out": {
+          "episodes": 10,
+          "solved": 1.0,
+          "mean_probes_solved": 32.0,
+          "mean_probes": 32.0
+        },
+        "reference": {
+          "episodes": 10,
+          "solved": 1.0,
+          "mean_probes_solved": 32.0,
+          "mean_probes": 32.0
+        },
+        "decision": {
+          "verdict": "promoted"
+        }
+      }
+    ]
+  },
+  {
+    "strategy": "greedy-pool",
+    "manifest_hash": "7f5ef8af8c7db954ae783bacac2bcc1b2a73df22538c21dcdd51bb5443249751",
+    "gate_fingerprint": "fbcd54ba0fe5da6fb5a8cc4565de813af7b525b179cbd49458824efde08917ed",
+    "cases": [
+      {
+        "candidate": {
+          "name": "greedy-split-probe -> version-space-filter -> single-survivor-to-table -> commit-truth-table",
+          "description": "Composition that answered hidden-boolean-function in episode episode#1",
+          "composition": [
+            "greedy-split-probe",
+            "version-space-filter",
+            "single-survivor-to-table",
+            "commit-truth-table"
+          ],
+          "claimed_contract": {
+            "from": [
+              "observations"
+            ],
+            "to": "truth-table/complete",
+            "preserves": [
+              "every observed row"
+            ],
+            "loses": [
+              "the order in which rows were probed"
+            ],
+            "assumes": [
+              "the hidden function is a member of the published pool"
+            ],
+            "fidelity": {
+              "kind": "exact"
+            }
+          },
+          "evidence": [
+            {
+              "observation": 1,
+              "via": [
+                "greedy-split-probe",
+                "version-space-filter",
+                "single-survivor-to-table",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 2,
+              "via": [
+                "greedy-split-probe",
+                "version-space-filter",
+                "single-survivor-to-table",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 3,
+              "via": [
+                "greedy-split-probe",
+                "version-space-filter",
+                "single-survivor-to-table",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 4,
+              "via": [
+                "greedy-split-probe",
+                "version-space-filter",
+                "single-survivor-to-table",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 5,
+              "via": [
+                "greedy-split-probe",
+                "version-space-filter",
+                "single-survivor-to-table",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 6,
+              "via": [
+                "greedy-split-probe",
+                "version-space-filter",
+                "single-survivor-to-table",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 7,
+              "via": [
+                "greedy-split-probe",
+                "version-space-filter",
+                "single-survivor-to-table",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 8,
+              "via": [
+                "greedy-split-probe",
+                "version-space-filter",
+                "single-survivor-to-table",
+                "commit-truth-table"
+              ]
+            }
+          ],
+          "proposed_in": 1,
+          "program": [
+            {
+              "repeat": 32,
+              "sequence": [
+                {
+                  "operator": "version-space-filter",
+                  "repeat": 1
+                },
+                {
+                  "operator": "greedy-split-probe",
+                  "repeat": 1
+                }
+              ]
+            },
+            {
+              "repeat": 32,
+              "sequence": [
+                {
+                  "operator": "version-space-filter",
+                  "repeat": 1
+                }
+              ]
+            },
+            {
+              "operator": "single-survivor-to-table",
+              "repeat": 1
+            },
+            {
+              "operator": "commit-truth-table",
+              "repeat": 1
+            }
+          ]
+        },
+        "train_support": 14,
+        "train_episodes": 14,
+        "reuse_frequency": 1.0,
+        "held_out": {
+          "episodes": 10,
+          "solved": 1.0,
+          "mean_probes_solved": 7.7,
+          "mean_probes": 7.7
+        },
+        "reference": {
+          "episodes": 10,
+          "solved": 1.0,
+          "mean_probes_solved": 7.7,
+          "mean_probes": 7.7
+        },
+        "decision": {
+          "verdict": "promoted"
+        }
+      }
+    ]
+  },
+  {
+    "strategy": "affine-blind",
+    "manifest_hash": "7f5ef8af8c7db954ae783bacac2bcc1b2a73df22538c21dcdd51bb5443249751",
+    "gate_fingerprint": "fbcd54ba0fe5da6fb5a8cc4565de813af7b525b179cbd49458824efde08917ed",
+    "cases": [
+      {
+        "candidate": {
+          "name": "affine-probe -> affine-solve -> commit-truth-table",
+          "description": "Composition that answered hidden-boolean-function in episode episode#1",
+          "composition": [
+            "affine-probe",
+            "affine-solve",
+            "commit-truth-table"
+          ],
+          "claimed_contract": {
+            "from": [
+              "observations"
+            ],
+            "to": "truth-table/complete",
+            "preserves": [
+              "every observed row"
+            ],
+            "loses": [],
+            "assumes": [
+              "the hidden function is affine over GF(2)"
+            ],
+            "fidelity": {
+              "kind": "approximate",
+              "description": "rows other than the observed ones are extrapolated from the affine hypothesis"
+            }
+          },
+          "evidence": [
+            {
+              "observation": 1,
+              "via": [
+                "affine-probe",
+                "affine-solve",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 2,
+              "via": [
+                "affine-probe",
+                "affine-solve",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 3,
+              "via": [
+                "affine-probe",
+                "affine-solve",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 4,
+              "via": [
+                "affine-probe",
+                "affine-solve",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 5,
+              "via": [
+                "affine-probe",
+                "affine-solve",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 6,
+              "via": [
+                "affine-probe",
+                "affine-solve",
+                "commit-truth-table"
+              ]
+            }
+          ],
+          "proposed_in": 1,
+          "program": [
+            {
+              "operator": "affine-probe",
+              "repeat": 1
+            },
+            {
+              "operator": "affine-solve",
+              "repeat": 1
+            },
+            {
+              "operator": "commit-truth-table",
+              "repeat": 1
+            }
+          ]
+        },
+        "train_support": 2,
+        "train_episodes": 14,
+        "reuse_frequency": 1.0,
+        "held_out": {
+          "episodes": 10,
+          "solved": 0.3,
+          "mean_probes_solved": 6.0,
+          "mean_probes": 6.0
+        },
+        "reference": {
+          "episodes": 10,
+          "solved": 0.3,
+          "mean_probes_solved": 6.0,
+          "mean_probes": 6.0
+        },
+        "decision": {
+          "verdict": "rejected",
+          "reasons": [
+            "held-out pass rate below threshold"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "strategy": "affine-verified-then-greedy",
+    "manifest_hash": "7f5ef8af8c7db954ae783bacac2bcc1b2a73df22538c21dcdd51bb5443249751",
+    "gate_fingerprint": "fbcd54ba0fe5da6fb5a8cc4565de813af7b525b179cbd49458824efde08917ed",
+    "cases": [
+      {
+        "candidate": {
+          "name": "greedy-split-probe -> version-space-filter -> single-survivor-to-table -> commit-truth-table",
+          "description": "Composition that answered hidden-boolean-function in episode episode#1",
+          "composition": [
+            "greedy-split-probe",
+            "version-space-filter",
+            "single-survivor-to-table",
+            "commit-truth-table"
+          ],
+          "claimed_contract": {
+            "from": [
+              "observations"
+            ],
+            "to": "truth-table/complete",
+            "preserves": [
+              "every observed row"
+            ],
+            "loses": [
+              "the order in which rows were probed"
+            ],
+            "assumes": [
+              "the hidden function is a member of the published pool"
+            ],
+            "fidelity": {
+              "kind": "exact"
+            }
+          },
+          "evidence": [
+            {
+              "observation": 1,
+              "via": [
+                "greedy-split-probe",
+                "version-space-filter",
+                "single-survivor-to-table",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 2,
+              "via": [
+                "greedy-split-probe",
+                "version-space-filter",
+                "single-survivor-to-table",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 3,
+              "via": [
+                "greedy-split-probe",
+                "version-space-filter",
+                "single-survivor-to-table",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 4,
+              "via": [
+                "greedy-split-probe",
+                "version-space-filter",
+                "single-survivor-to-table",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 5,
+              "via": [
+                "greedy-split-probe",
+                "version-space-filter",
+                "single-survivor-to-table",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 6,
+              "via": [
+                "greedy-split-probe",
+                "version-space-filter",
+                "single-survivor-to-table",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 7,
+              "via": [
+                "greedy-split-probe",
+                "version-space-filter",
+                "single-survivor-to-table",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 8,
+              "via": [
+                "greedy-split-probe",
+                "version-space-filter",
+                "single-survivor-to-table",
+                "commit-truth-table"
+              ]
+            }
+          ],
+          "proposed_in": 1,
+          "program": [
+            {
+              "operator": "affine-probe",
+              "repeat": 1
+            },
+            {
+              "repeat": 32,
+              "sequence": [
+                {
+                  "operator": "version-space-filter",
+                  "repeat": 1
+                },
+                {
+                  "operator": "greedy-split-probe",
+                  "repeat": 1
+                }
+              ]
+            },
+            {
+              "repeat": 32,
+              "sequence": [
+                {
+                  "operator": "version-space-filter",
+                  "repeat": 1
+                }
+              ]
+            },
+            {
+              "operator": "single-survivor-to-table",
+              "repeat": 1
+            },
+            {
+              "operator": "commit-truth-table",
+              "repeat": 1
+            }
+          ]
+        },
+        "train_support": 12,
+        "train_episodes": 14,
+        "reuse_frequency": 0.5,
+        "held_out": {
+          "episodes": 10,
+          "solved": 1.0,
+          "mean_probes_solved": 8.5,
+          "mean_probes": 8.5
+        },
+        "reference": {
+          "episodes": 10,
+          "solved": 0.8,
+          "mean_probes_solved": 8.0,
+          "mean_probes": 8.1
+        },
+        "decision": {
+          "verdict": "promoted"
+        }
+      },
+      {
+        "candidate": {
+          "name": "greedy-split-probe -> affine-solve -> commit-truth-table",
+          "description": "Composition that answered hidden-boolean-function in episode episode#1",
+          "composition": [
+            "greedy-split-probe",
+            "affine-solve",
+            "commit-truth-table"
+          ],
+          "claimed_contract": {
+            "from": [
+              "observations"
+            ],
+            "to": "truth-table/complete",
+            "preserves": [
+              "every observed row"
+            ],
+            "loses": [],
+            "assumes": [
+              "the hidden function is affine over GF(2)"
+            ],
+            "fidelity": {
+              "kind": "approximate",
+              "description": "rows other than the observed ones are extrapolated from the affine hypothesis"
+            }
+          },
+          "evidence": [
+            {
+              "observation": 1,
+              "via": [
+                "greedy-split-probe",
+                "affine-solve",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 2,
+              "via": [
+                "greedy-split-probe",
+                "affine-solve",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 3,
+              "via": [
+                "greedy-split-probe",
+                "affine-solve",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 4,
+              "via": [
+                "greedy-split-probe",
+                "affine-solve",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 5,
+              "via": [
+                "greedy-split-probe",
+                "affine-solve",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 6,
+              "via": [
+                "greedy-split-probe",
+                "affine-solve",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 7,
+              "via": [
+                "greedy-split-probe",
+                "affine-solve",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 8,
+              "via": [
+                "greedy-split-probe",
+                "affine-solve",
+                "commit-truth-table"
+              ]
+            },
+            {
+              "observation": 9,
+              "via": [
+                "greedy-split-probe",
+                "affine-solve",
+                "commit-truth-table"
+              ]
+            }
+          ],
+          "proposed_in": 1,
+          "program": [
+            {
+              "operator": "affine-probe",
+              "repeat": 1
+            },
+            {
+              "repeat": 32,
+              "sequence": [
+                {
+                  "operator": "version-space-filter",
+                  "repeat": 1
+                },
+                {
+                  "operator": "greedy-split-probe",
+                  "repeat": 1
+                }
+              ]
+            },
+            {
+              "repeat": 32,
+              "sequence": [
+                {
+                  "operator": "version-space-filter",
+                  "repeat": 1
+                }
+              ]
+            },
+            {
+              "operator": "affine-solve",
+              "repeat": 1
+            },
+            {
+              "operator": "commit-truth-table",
+              "repeat": 1
+            }
+          ]
+        },
+        "train_support": 2,
+        "train_episodes": 14,
+        "reuse_frequency": 0.0,
+        "held_out": {
+          "episodes": 10,
+          "solved": 0.3,
+          "mean_probes_solved": 6.0,
+          "mean_probes": 8.5
+        },
+        "reference": {
+          "episodes": 10,
+          "solved": 0.8,
+          "mean_probes_solved": 8.0,
+          "mean_probes": 8.1
+        },
+        "decision": {
+          "verdict": "rejected",
+          "reasons": [
+            "held-out pass rate below threshold"
+          ]
+        }
+      }
+    ]
+  }
+]

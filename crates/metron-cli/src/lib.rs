@@ -10,6 +10,7 @@
 
 pub mod compose;
 pub mod headroom;
+pub mod promote;
 pub mod run;
 pub mod world;
 
@@ -18,5 +19,6 @@ pub use compose::{
     vocabulary,
 };
 pub use headroom::{HeadroomOptions, HeadroomOutcome, run_headroom};
+pub use promote::{PromoteOptions, PromoteOutcome, run_promote};
 pub use run::{Backend, ReplayReport, RunOptions, RunStatus, answer, replay, resume, run};
 pub use world::ComposedWorld;

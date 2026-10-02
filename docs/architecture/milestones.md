@@ -12,7 +12,7 @@ milestones are gated on earlier ones; a gate can close a milestone as
 | M1 | The laboratory can tell strategies apart | reached |
 | M2 | We know whether routing can pay | reached: ADR 0010, `experiments/reports/headroom-arity{5,6}-*.md` |
 | M3 | A selector closes measured headroom under matched budgets | closed as a negative result on this configuration (ADR 0011); reopens with an identifiable-structure task set |
-| M4 | Candidates are judged, not trusted | open |
+| M4 | Candidates are judged, not trusted | reached: ADR 0012, `experiments/reports/promotion-arity5-7f5ef8af8c7d.md` |
 | M5 | Retrieval earns its place or leaves | open |
 | M6 | An LLM can propose, never decide | reached |
 
@@ -92,6 +92,12 @@ held-out targets at matched compute; reuse frequency is measured.
 fingerprint; a candidate that fails held-out targets is rejected in tests;
 a report states reuse frequency against the inlined reference at equal
 budget.
+
+**Result.** `metron promote` proposes candidates from train-split episodes
+and the gate judges them on the test split. The exhaustive and greedy
+compositions are promoted at 100% held-out; the blind affine composition
+is rejected at 30%; the greedy fallback extracted from the verified-affine
+strategy is promoted at 100% where its parent solved 80%. ADR 0012.
 
 ## M5 — Retrieval earns its place or leaves
 

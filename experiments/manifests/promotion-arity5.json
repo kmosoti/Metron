@@ -1,0 +1,139 @@
+{
+  "name": "promotion-arity5",
+  "seed": 301,
+  "lab": {
+    "family": "hidden-boolean-function",
+    "tasks": {
+      "arity": 5,
+      "pool": {
+        "families": [
+          "affine",
+          "monotone",
+          "read-once",
+          "threshold",
+          "k-term-dnf",
+          "decision-tree"
+        ],
+        "per_family": 40
+      },
+      "targets_per_family": 5,
+      "split": {
+        "train": 0.5,
+        "validation": 0.2,
+        "test": 0.3
+      }
+    },
+    "max_probes": 32
+  },
+  "system": {
+    "strategies": [
+      {
+        "name": "exhaustive",
+        "schedule": [
+          {
+            "operator": "probe-next-unobserved",
+            "repeat": 32
+          },
+          {
+            "operator": "observations-to-partial-table"
+          },
+          {
+            "operator": "complete-table-by-default"
+          },
+          {
+            "operator": "commit-truth-table"
+          }
+        ]
+      },
+      {
+        "name": "greedy-pool",
+        "schedule": [
+          {
+            "operator": "version-space-filter"
+          },
+          {
+            "sequence": [
+              {
+                "operator": "greedy-split-probe"
+              },
+              {
+                "operator": "version-space-filter"
+              }
+            ],
+            "repeat": 32
+          },
+          {
+            "operator": "single-survivor-to-table"
+          },
+          {
+            "operator": "commit-truth-table"
+          }
+        ]
+      },
+      {
+        "name": "affine-blind",
+        "schedule": [
+          {
+            "operator": "affine-probe"
+          },
+          {
+            "operator": "affine-solve"
+          },
+          {
+            "operator": "commit-truth-table"
+          }
+        ]
+      },
+      {
+        "name": "affine-verified-then-greedy",
+        "schedule": [
+          {
+            "operator": "affine-probe"
+          },
+          {
+            "operator": "version-space-filter"
+          },
+          {
+            "sequence": [
+              {
+                "operator": "greedy-split-probe"
+              },
+              {
+                "operator": "version-space-filter"
+              }
+            ],
+            "repeat": 4
+          },
+          {
+            "operator": "affine-solve"
+          },
+          {
+            "operator": "commit-truth-table"
+          },
+          {
+            "sequence": [
+              {
+                "operator": "greedy-split-probe"
+              },
+              {
+                "operator": "version-space-filter"
+              }
+            ],
+            "repeat": 32
+          },
+          {
+            "operator": "single-survivor-to-table"
+          },
+          {
+            "operator": "commit-truth-table"
+          }
+        ]
+      }
+    ],
+    "budget": {
+      "max_oracle_probes": 32
+    },
+    "max_steps": 128,
+    "stall_limit": 0
+  }
+}

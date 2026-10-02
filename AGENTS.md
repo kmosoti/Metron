@@ -39,7 +39,7 @@ crates/metron-app         use cases: registry, schedules, episode runner
 crates/metron-lab         immutable evaluator: hidden targets, oracle, judge, promotion gate, manifests
 crates/metron-operators   reference operators (one complete pipeline)
 crates/metron-adapters    effects: clock, files, results
-crates/metron-cli         composition root (library + binary): run | resume | answer | replay | headroom | verify | explain
+crates/metron-cli         composition root (library + binary): run | resume | answer | replay | headroom | promote | verify | explain
 experiments/manifests     experiment definitions (lab property)
 experiments/fixtures      hidden targets as data (lab property)
 experiments/results       generated run directories (not committed)
@@ -70,8 +70,14 @@ tests/architecture        executable invariants
   and `metron resume <run-dir>`. Never write the answer into any other
   file, never edit the journal, never read the fixture to answer.
 - Measuring: `metron headroom experiments/manifests/headroom-arity5.json`
-  produces the SBS/VBS/gap report; copy reports worth keeping to
-  `experiments/reports/` with the manifest hash in the file name.
+  produces the SBS/VBS/gap report; `metron promote
+  experiments/manifests/promotion-arity5.json` proposes candidates from the
+  train split and has the gate judge them on the test split. Copy reports
+  worth keeping to `experiments/reports/` with the manifest hash in the
+  file name.
+- Promotion: the system proposes (`metron_app::propose`), the laboratory
+  judges (`PromotionGate`). A promoted candidate is a report, not a
+  registered operator; turning it into a strategy is a manifest edit.
 - Adding a task family: it goes in `metron-lab`, sealed like
   `HiddenFunction`, exposing only a `Question` and the `Oracle` port.
   Fixtures are data under `experiments/fixtures/`.
