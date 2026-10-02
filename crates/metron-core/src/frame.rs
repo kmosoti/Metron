@@ -23,6 +23,17 @@ pub fn observations_frame() -> FrameId {
     FrameId::from(OBSERVATIONS)
 }
 
+/// The frame in which raw answers from external services are kept. Consult
+/// operators may write only here; nothing in it is evidence until a
+/// transform has checked it against observations.
+pub const CONSULTATIONS: &str = "consultations";
+
+/// The consultations frame identifier.
+#[must_use]
+pub fn consultations_frame() -> FrameId {
+    FrameId::from(CONSULTATIONS)
+}
+
 /// A representation system.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Frame {

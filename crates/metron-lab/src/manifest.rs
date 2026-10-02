@@ -1,10 +1,13 @@
 //! Experiment manifests.
 //!
-//! A manifest fixes everything about a run before it starts: the fixture,
-//! the protocol, the system's schedule and budget, and the seed. Its hash is
-//! written into every episode journal.
+//! A manifest fixes everything about a run before it starts: the fixture
+//! or task-set specification, the protocol, the system's strategies and
+//! budget, the cost model, and the seed. Its hash is written into every
+//! episode journal.
 
 use crate::FAMILY_HIDDEN_BOOLEAN;
+use crate::headroom::CostModel;
+use crate::tasks::TaskSetSpec;
 use metron_core::cost::Budget;
 use metron_core::hash::ContentHash;
 use serde::{Deserialize, Serialize};
@@ -20,26 +23,110 @@ pub enum ManifestError {
     Invalid(String),
 }
 
-/// Laboratory side of a manifest.
+/// Laboratory side of a manifest: one fixture, or a generated task set.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LabConfig {
-    /// Task family.
-    pub family: String,
-    /// Fixture path, relative to the repository root.
-    pub fixture: String,
-    /// Probe cap per episode.
-    #[serde(default)]
-    pub max_probes: Option<u64>,
+#[serde(untagged)]
+pub enum LabConfig {
+    /// One hidden target from a fixture file.
+    Fixture {
+        /// Task family.
+        family: String,
+        /// Fixture path, relative to the repository root.
+        fixture: String,
+        /// Probe cap per episode.
+        #[serde(default)]
+        max_probes: Option<u64>,
+    },
+    /// A task set generated from families.
+    Tasks {
+        /// Task family.
+        family: String,
+        /// Task-set specification.
+        tasks: TaskSetSpec,
+        /// Probe cap per episode.
+        #[serde(default)]
+        max_probes: Option<u64>,
+    },
 }
 
-/// One schedule entry.
+impl LabConfig {
+    /// The task family.
+    #[must_use]
+    pub fn family(&self) -> &str {
+        match self {
+            LabConfig::Fixture { family, .. } | LabConfig::Tasks { family, .. } => family,
+        }
+    }
+
+    /// The probe cap.
+    #[must_use]
+    pub fn max_probes(&self) -> Option<u64> {
+        match self {
+            LabConfig::Fixture { max_probes, .. } | LabConfig::Tasks { max_probes, .. } => {
+                *max_probes
+            }
+        }
+    }
+
+    /// The fixture path, for fixture configurations.
+    #[must_use]
+    pub fn fixture(&self) -> Option<&str> {
+        match self {
+            LabConfig::Fixture { fixture, .. } => Some(fixture),
+            LabConfig::Tasks { .. } => None,
+        }
+    }
+
+    /// The task-set specification, for task configurations.
+    #[must_use]
+    pub fn tasks(&self) -> Option<&TaskSetSpec> {
+        match self {
+            LabConfig::Tasks { tasks, .. } => Some(tasks),
+            LabConfig::Fixture { .. } => None,
+        }
+    }
+}
+
+/// One schedule entry: an operator or a nested sequence, each repeated.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ScheduleStep {
-    /// Operator identifier.
-    pub operator: String,
-    /// Consecutive applications.
-    #[serde(default = "one")]
-    pub repeat: u32,
+#[serde(untagged)]
+pub enum ScheduleStep {
+    /// An operator.
+    Operator {
+        /// Operator identifier.
+        operator: String,
+        /// Consecutive applications.
+        #[serde(default = "one")]
+        repeat: u32,
+    },
+    /// A sequence.
+    Sequence {
+        /// The steps.
+        sequence: Vec<ScheduleStep>,
+        /// Consecutive repetitions.
+        #[serde(default = "one")]
+        repeat: u32,
+    },
+}
+
+impl ScheduleStep {
+    /// Every operator identifier mentioned, in order, with repetition.
+    pub fn operators(&self, out: &mut Vec<String>) {
+        match self {
+            ScheduleStep::Operator { operator, repeat } => {
+                for _ in 0..*repeat {
+                    out.push(operator.clone());
+                }
+            }
+            ScheduleStep::Sequence { sequence, repeat } => {
+                for _ in 0..*repeat {
+                    for s in sequence {
+                        s.operators(out);
+                    }
+                }
+            }
+        }
+    }
 }
 
 const fn one() -> u32 {
@@ -50,12 +137,25 @@ const fn default_max_steps() -> u32 {
     1_000
 }
 
+/// A named fixed strategy.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Strategy {
+    /// Name used in reports.
+    pub name: String,
+    /// The schedule.
+    pub schedule: Vec<ScheduleStep>,
+}
+
 /// System side of a manifest.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SystemPlan {
-    /// Fixed operator schedule.
+    /// A single fixed schedule (used when `strategies` is empty).
+    #[serde(default)]
     pub schedule: Vec<ScheduleStep>,
-    /// Cost budget for the inquiry.
+    /// Named strategies to compare.
+    #[serde(default)]
+    pub strategies: Vec<Strategy>,
+    /// Cost budget for each inquiry.
     #[serde(default)]
     pub budget: Budget,
     /// Maximum scheduler ticks.
@@ -66,17 +166,40 @@ pub struct SystemPlan {
     pub stall_limit: u32,
 }
 
+/// Headroom-measurement settings.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct HeadroomSpec {
+    /// Independent task-set seeds to draw (the manifest seed is the first).
+    #[serde(default = "one")]
+    pub seeds: u32,
+    /// Cost model.
+    pub cost_model: CostModel,
+    /// Bootstrap resamples.
+    #[serde(default = "default_resamples")]
+    pub resamples: usize,
+    /// Splits to include (`train`, `validation`, `test`); empty means all.
+    #[serde(default)]
+    pub splits: Vec<String>,
+}
+
+const fn default_resamples() -> usize {
+    2_000
+}
+
 /// An experiment manifest.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Manifest {
     /// Experiment name.
     pub name: String,
-    /// Seed for the episode's random stream.
+    /// Seed for the episode's random stream and the first task set.
     pub seed: u64,
     /// Laboratory configuration.
     pub lab: LabConfig,
     /// System configuration.
     pub system: SystemPlan,
+    /// Headroom settings, when the manifest is a comparison.
+    #[serde(default)]
+    pub headroom: Option<HeadroomSpec>,
 }
 
 impl Manifest {
@@ -87,35 +210,93 @@ impl Manifest {
         Ok(manifest)
     }
 
+    /// The strategies to run: `strategies` if given, else the single
+    /// schedule as a strategy named `default`.
+    #[must_use]
+    pub fn strategies(&self) -> Vec<Strategy> {
+        if self.system.strategies.is_empty() {
+            vec![Strategy {
+                name: "default".into(),
+                schedule: self.system.schedule.clone(),
+            }]
+        } else {
+            self.system.strategies.clone()
+        }
+    }
+
     /// Checks the manifest describes something runnable.
     pub fn validate(&self) -> Result<(), ManifestError> {
         if self.name.trim().is_empty() {
             return Err(ManifestError::Invalid("name is empty".into()));
         }
-        if self.lab.family != FAMILY_HIDDEN_BOOLEAN {
+        if self.lab.family() != FAMILY_HIDDEN_BOOLEAN {
             return Err(ManifestError::Invalid(format!(
                 "unknown family `{}` (known: `{FAMILY_HIDDEN_BOOLEAN}`)",
-                self.lab.family
+                self.lab.family()
             )));
         }
-        if self.lab.fixture.trim().is_empty() {
+        if self.lab.fixture().is_some_and(|f| f.trim().is_empty()) {
             return Err(ManifestError::Invalid("fixture path is empty".into()));
         }
-        if self.system.schedule.is_empty() {
-            return Err(ManifestError::Invalid("schedule is empty".into()));
+        if let Some(tasks) = self.lab.tasks() {
+            if tasks.arity == 0 || tasks.arity > crate::truth_table::MAX_ARITY {
+                return Err(ManifestError::Invalid(format!(
+                    "arity {} is out of range",
+                    tasks.arity
+                )));
+            }
+            if tasks.pool.families.is_empty() {
+                return Err(ManifestError::Invalid("task set names no families".into()));
+            }
+            if tasks.targets_per_family == 0 || tasks.pool.per_family == 0 {
+                return Err(ManifestError::Invalid(
+                    "task set needs targets and pool members".into(),
+                ));
+            }
         }
-        if self
-            .system
-            .schedule
-            .iter()
-            .any(|s| s.operator.trim().is_empty())
-        {
-            return Err(ManifestError::Invalid(
-                "schedule names an empty operator".into(),
-            ));
+        let strategies = self.strategies();
+        if strategies.iter().any(|s| s.schedule.is_empty()) {
+            return Err(ManifestError::Invalid("a schedule is empty".into()));
+        }
+        for s in &strategies {
+            if s.name.trim().is_empty() {
+                return Err(ManifestError::Invalid("a strategy has no name".into()));
+            }
+            let mut ops = Vec::new();
+            for step in &s.schedule {
+                step.operators(&mut ops);
+            }
+            if ops.iter().any(|o| o.trim().is_empty()) {
+                return Err(ManifestError::Invalid(format!(
+                    "strategy `{}` names an empty operator",
+                    s.name
+                )));
+            }
+        }
+        let mut names: Vec<&str> = strategies.iter().map(|s| s.name.as_str()).collect();
+        names.sort_unstable();
+        if names.windows(2).any(|w| w[0] == w[1]) {
+            return Err(ManifestError::Invalid("duplicate strategy names".into()));
         }
         if self.system.max_steps == 0 {
             return Err(ManifestError::Invalid("max_steps must be positive".into()));
+        }
+        if let Some(h) = &self.headroom {
+            if h.seeds == 0 {
+                return Err(ManifestError::Invalid(
+                    "headroom.seeds must be positive".into(),
+                ));
+            }
+            if self.lab.tasks().is_none() {
+                return Err(ManifestError::Invalid(
+                    "headroom needs a task set, not a fixture".into(),
+                ));
+            }
+            for s in &h.splits {
+                if !["train", "validation", "test"].contains(&s.as_str()) {
+                    return Err(ManifestError::Invalid(format!("unknown split `{s}`")));
+                }
+            }
         }
         Ok(())
     }
@@ -137,36 +318,60 @@ impl Manifest {
 mod tests {
     use super::*;
 
-    const TEXT: &str = r#"{
+    const FIXTURE: &str = r#"{
         "name": "smoke",
         "seed": 1,
         "lab": {"family": "hidden-boolean-function", "fixture": "f.json", "max_probes": 8},
-        "system": {"schedule": [{"operator": "a", "repeat": 2}, {"operator": "b"}], "budget": {"max_oracle_probes": 8}}
+        "system": {"schedule": [{"operator": "a", "repeat": 2}, {"sequence": [{"operator": "b"}, {"operator": "c"}], "repeat": 2}], "budget": {"max_oracle_probes": 8}}
+    }"#;
+
+    const TASKS: &str = r#"{
+        "name": "headroom",
+        "seed": 7,
+        "lab": {"family": "hidden-boolean-function", "tasks": {"arity": 5, "pool": {"families": ["affine", "monotone"], "per_family": 20}, "targets_per_family": 4}, "max_probes": 32},
+        "system": {"strategies": [{"name": "s1", "schedule": [{"operator": "a"}]}, {"name": "s2", "schedule": [{"operator": "b"}]}]},
+        "headroom": {"seeds": 3, "cost_model": {"failure_cost": 64.0}}
     }"#;
 
     #[test]
-    fn parses_and_hashes() {
-        let m = Manifest::from_json(TEXT).unwrap();
-        assert_eq!(m.system.schedule[1].repeat, 1);
-        assert_eq!(m.system.max_steps, 1_000);
-        assert_eq!(m.system.budget.max_oracle_probes, Some(8));
-        assert_eq!(m.hash(), Manifest::from_json(TEXT).unwrap().hash());
-        let mut other = m.clone();
-        other.seed = 2;
-        assert_ne!(m.hash(), other.hash());
+    fn fixture_manifests_parse_and_hash() {
+        let m = Manifest::from_json(FIXTURE).unwrap();
+        assert_eq!(m.lab.fixture(), Some("f.json"));
+        assert_eq!(m.lab.max_probes(), Some(8));
+        assert_eq!(m.strategies().len(), 1);
+        let mut ops = Vec::new();
+        for s in &m.system.schedule {
+            s.operators(&mut ops);
+        }
+        assert_eq!(ops, vec!["a", "a", "b", "c", "b", "c"]);
+        assert_eq!(m.hash(), Manifest::from_json(FIXTURE).unwrap().hash());
+    }
+
+    #[test]
+    fn task_manifests_parse() {
+        let m = Manifest::from_json(TASKS).unwrap();
+        let tasks = m.lab.tasks().unwrap();
+        assert_eq!(tasks.arity, 5);
+        assert_eq!(tasks.pool.families.len(), 2);
+        assert_eq!(m.strategies().len(), 2);
+        let h = m.headroom.as_ref().unwrap();
+        assert_eq!(h.seeds, 3);
+        assert_eq!(h.resamples, 2_000);
+        assert_eq!(h.cost_model.probe_weight, 1.0);
     }
 
     #[test]
     fn rejects_invalid() {
-        let bad = TEXT.replace("hidden-boolean-function", "mystery");
-        assert!(matches!(
-            Manifest::from_json(&bad),
-            Err(ManifestError::Invalid(_))
-        ));
-        let empty = TEXT.replace(
-            r#"[{"operator": "a", "repeat": 2}, {"operator": "b"}]"#,
-            "[]",
+        assert!(
+            Manifest::from_json(&FIXTURE.replace("hidden-boolean-function", "mystery")).is_err()
         );
-        assert!(Manifest::from_json(&empty).is_err());
+        assert!(
+            Manifest::from_json(&TASKS.replace("\"name\": \"s2\"", "\"name\": \"s1\"")).is_err()
+        );
+        assert!(Manifest::from_json(&TASKS.replace("\"seeds\": 3", "\"seeds\": 0")).is_err());
+        assert!(
+            Manifest::from_json(&FIXTURE.replace("\"fixture\": \"f.json\"", "\"fixture\": \" \""))
+                .is_err()
+        );
     }
 }

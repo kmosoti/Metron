@@ -116,6 +116,8 @@ mod tests {
             probes_answered: 4,
             cost: Cost::ZERO,
             target_fingerprint: ContentHash::GENESIS,
+            target_family: None,
+            target_description: None,
             reasons: Vec::new(),
         }
     }

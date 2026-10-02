@@ -17,6 +17,7 @@ metron-app = { workspace = true }
 metron-lab = { workspace = true }
 metron-operators = { workspace = true }
 metron-adapters = { workspace = true }
+metron-cli = { workspace = true }
 serde_json = { workspace = true }
 
 [lints]

@@ -4,10 +4,14 @@ use metron_core::frame::Frame;
 
 /// Raw observations, as the core defines it.
 pub const OBSERVATIONS: &str = metron_core::frame::OBSERVATIONS;
+/// Raw service answers, as the core defines it.
+pub const CONSULTATIONS: &str = metron_core::frame::CONSULTATIONS;
 /// A truth table with some rows unknown.
 pub const TRUTH_TABLE_PARTIAL: &str = "truth-table/partial";
 /// A truth table with every row filled.
 pub const TRUTH_TABLE_COMPLETE: &str = "truth-table/complete";
+/// The members of the published pool still consistent with every observation.
+pub const VERSION_SPACE: &str = "hypotheses/version-space";
 
 /// Descriptions of every frame used here.
 #[must_use]
@@ -17,6 +21,7 @@ pub fn frames() -> Vec<Frame> {
             OBSERVATIONS,
             "Probe/result pairs exactly as the oracle returned them.",
         ),
+        Frame::new(CONSULTATIONS, "Answers from external services, unverified."),
         Frame::new(
             TRUTH_TABLE_PARTIAL,
             "One entry per row of the function: 0, 1, or null when unobserved.",
@@ -24,6 +29,10 @@ pub fn frames() -> Vec<Frame> {
         Frame::new(
             TRUTH_TABLE_COMPLETE,
             "One bit per row of the function; bit i is f at assignment i (x_j = bit j of i).",
+        ),
+        Frame::new(
+            VERSION_SPACE,
+            "A mask over the published pool: bit i set when member i agrees with every observation.",
         ),
     ]
 }

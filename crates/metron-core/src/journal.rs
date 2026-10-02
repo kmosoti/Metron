@@ -7,6 +7,7 @@ use crate::id::{EpisodeId, FrameId, InquiryId, ObservationId, OperatorId, ViewId
 use crate::inquiry::Question;
 use crate::operator::{OperatorKind, StepStatus};
 use crate::receipt::ResourceReceipt;
+use crate::world::ServiceAnswer;
 use serde::{Deserialize, Serialize};
 
 /// Why an episode ended.
@@ -103,6 +104,32 @@ pub enum JournalEvent {
         step: u32,
         /// The receipt.
         receipt: ResourceReceipt,
+    },
+    /// An external service answered. The full content is kept so the
+    /// episode can be replayed without the service.
+    ServiceAnswered {
+        /// Step during which it was answered.
+        step: u32,
+        /// The answer.
+        answer: ServiceAnswer,
+    },
+    /// The episode suspended waiting for an external service.
+    Suspended {
+        /// Step at which it suspended.
+        step: u32,
+        /// The operator that will be retried.
+        operator: OperatorId,
+        /// The service.
+        service: String,
+        /// The pending request.
+        request_id: String,
+    },
+    /// The episode resumed.
+    Resumed {
+        /// Step at which it resumed.
+        step: u32,
+        /// The request that was answered.
+        request_id: String,
     },
     /// A view was written.
     ViewWritten {
@@ -343,6 +370,32 @@ impl Episode {
             JournalEvent::Receipt { receipt, .. } => Some(receipt),
             _ => None,
         })
+    }
+
+    /// All service answers in the journal, in order.
+    pub fn service_answers(&self) -> impl Iterator<Item = &ServiceAnswer> {
+        self.entries.iter().filter_map(|e| match &e.event {
+            JournalEvent::ServiceAnswered { answer, .. } => Some(answer),
+            _ => None,
+        })
+    }
+
+    /// The events that describe what the system did, in order, leaving out
+    /// suspension bookkeeping and wall-clock readings. Two runs of the same
+    /// episode, one of which waited for a service and one of which replayed
+    /// the recorded answers, have equal effective events.
+    #[must_use]
+    pub fn effective_events(&self) -> Vec<JournalEvent> {
+        self.entries
+            .iter()
+            .filter(|e| {
+                !matches!(
+                    e.event,
+                    JournalEvent::Suspended { .. } | JournalEvent::Resumed { .. }
+                )
+            })
+            .map(|e| e.event.replay_projection())
+            .collect()
     }
 
     /// Total cost charged across receipts.

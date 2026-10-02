@@ -7,9 +7,9 @@ the shape of anything.
 
 Metron is a laboratory for a resource-bounded system that learns hidden
 structure through multiple representations. The repository encodes the
-experimental rules in its architecture. The current slice is deliberately
-minimal: the research objects, the four invariants, one task family, one
-fixed pipeline. See `docs/architecture/overview.md`.
+experimental rules in its architecture. Progress is tracked as outcome
+milestones with exit criteria in `docs/architecture/milestones.md`, never as
+dates (ADR 0008). See `docs/architecture/overview.md` for the crate map.
 
 ## The four invariants (do not break; extend the tests when you extend the code)
 
@@ -23,8 +23,9 @@ fixed pipeline. See `docs/architecture/overview.md`.
    port and journaled by the runner. Cost is charged from receipts. Journals
    replay to the same head hash for the same manifest and seed.
 4. Representations connect only through validated `TransformContract`s.
-   Observe writes `observations`; transform writes its contract's target
-   frame; commit writes nothing; only observe obtains observations.
+   Observe writes `observations`; consult writes `consultations`;
+   transform writes its contract's target frame; commit writes nothing;
+   only observe obtains observations; only consult calls a service.
 
 `cargo test --workspace` runs `tests/architecture`, which fails if any of
 these is violated. Details and the mechanism for each are in
@@ -38,10 +39,11 @@ crates/metron-app         use cases: registry, schedules, episode runner
 crates/metron-lab         immutable evaluator: hidden targets, oracle, judge, promotion gate, manifests
 crates/metron-operators   reference operators (one complete pipeline)
 crates/metron-adapters    effects: clock, files, results
-crates/metron-cli         composition root: metron run | verify | explain
+crates/metron-cli         composition root (library + binary): run | resume | answer | replay | headroom | verify | explain
 experiments/manifests     experiment definitions (lab property)
 experiments/fixtures      hidden targets as data (lab property)
 experiments/results       generated run directories (not committed)
+experiments/reports       committed reports (headroom, decisions)
 docs/architecture         overview and invariants
 docs/research             archived inputs (proposal, prior-art review)
 docs/adr                  decisions
@@ -54,20 +56,31 @@ tests/architecture        executable invariants
   `cargo clippy --workspace --all-targets -- -D warnings`,
   `cargo test --workspace`. CI runs the same.
 - Adding an operator: implement `metron_core::operator::Operator<W>` with
-  the narrowest `W` bound you need (`W: Oracle` only if you probe). Pick
+  the narrowest `W` bound you need (`W: Oracle` only if you probe,
+  `W: Knowledge` to read the pool, `W: ExternalService` to consult). Pick
   exactly one kind. A transform must carry a validated contract that says
   what it preserves, loses and assumes, and whether it is exact. Declare
-  `reads` and `writes`. Add it to `reference_operators` only if it belongs
-  to the reference pipeline.
+  `reads` and `writes`. Register it in the right group in
+  `metron_operators::all_operators`.
+- Language-model inference: there is no API client and none will be added
+  (ADR 0009). A consult operator calls the `llm` service; the
+  `ClaudeCodeBridge` writes `llm/requests/<id>.json` under the run directory
+  and the episode suspends. To answer as the session: read the request's
+  `prompt`, then `metron answer <run-dir> --text "<formula>" --by "<who>"`
+  and `metron resume <run-dir>`. Never write the answer into any other
+  file, never edit the journal, never read the fixture to answer.
+- Measuring: `metron headroom experiments/manifests/headroom-arity5.json`
+  produces the SBS/VBS/gap report; copy reports worth keeping to
+  `experiments/reports/` with the manifest hash in the file name.
 - Adding a task family: it goes in `metron-lab`, sealed like
   `HiddenFunction`, exposing only a `Question` and the `Oracle` port.
   Fixtures are data under `experiments/fixtures/`.
 - Changing the cost model (`metron_core::cost::Cost`) or the journal
   format is an ADR-level change.
-- Do not add, before their gates in ADR 0006 are met: hyperdimensional
-  memory, learned routing, model clients, or SBS/VBS harnesses. The order
-  is: mixed Boolean lab → headroom measurement → routing → promotion → HDC
-  → models. The prior-art review explains why (headroom first).
+- Do not add, before their gates in ADR 0006 and the milestones are met:
+  hyperdimensional memory or learned routing. Routing (M3) needs the M2
+  report's gap interval to exclude zero and a hand-authored heuristic not
+  to close it already.
 - Do not copy the deep-research proposal's architecture. It is an archived
   input, not the design (`docs/research/README.md`).
 - Record decisions as ADRs. Do not edit accepted ADRs; supersede them.
@@ -78,6 +91,7 @@ tests/architecture        executable invariants
 ## Vocabulary
 
 Inquiry, Question, View, Frame, TransformContract, Observation, Evidence,
-Operator (observe | transform | commit), ResourceReceipt, Episode, Journal,
-Verdict, CapabilityCandidate, PromotionGate. Not "capsule", not "ledger",
-not "kernel loop". See ADR 0007.
+Operator (observe | transform | consult | commit), ResourceReceipt,
+ServiceAnswer, Episode, Journal, Checkpoint, Verdict, HypothesisPool,
+TaskSet, Split, CapabilityCandidate, PromotionGate. Not "capsule", not
+"ledger", not "kernel loop". See ADR 0007.

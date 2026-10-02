@@ -5,8 +5,9 @@ mod common;
 
 use common::run_smoke;
 use metron_architecture_tests::workspace_root;
+use metron_cli::registry;
 use metron_core::journal::JournalEvent;
-use metron_lab::{BooleanFixture, Manifest};
+use metron_lab::{BooleanFixture, Manifest, TaskSet};
 use std::fs;
 
 #[test]
@@ -40,6 +41,7 @@ fn identical_runs_produce_identical_journals() {
 fn committed_manifests_and_fixtures_are_runnable() {
     let root = workspace_root();
     let manifests = root.join("experiments/manifests");
+    let registry = registry().unwrap();
     let mut seen = 0;
     for entry in fs::read_dir(&manifests).unwrap().flatten() {
         let path = entry.path();
@@ -49,23 +51,34 @@ fn committed_manifests_and_fixtures_are_runnable() {
         seen += 1;
         let manifest = Manifest::from_json(&fs::read_to_string(&path).unwrap())
             .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-        let fixture_path = root.join(&manifest.lab.fixture);
-        let fixture = BooleanFixture::from_json(&fs::read_to_string(&fixture_path).unwrap())
-            .unwrap_or_else(|e| panic!("{}: {e}", fixture_path.display()));
-        fixture.seal().unwrap();
-        for step in &manifest.system.schedule {
-            assert!(
-                metron_operators::reference_operators::<metron_lab::LabWorld>()
-                    .iter()
-                    .any(|op| op.spec().id.as_str() == step.operator),
-                "{}: unknown operator {}",
-                path.display(),
-                step.operator
-            );
+        if let Some(fixture) = manifest.lab.fixture() {
+            let fixture_path = root.join(fixture);
+            let fixture = BooleanFixture::from_json(&fs::read_to_string(&fixture_path).unwrap())
+                .unwrap_or_else(|e| panic!("{}: {e}", fixture_path.display()));
+            fixture.seal().unwrap();
+        }
+        if let Some(spec) = manifest.lab.tasks() {
+            let set = TaskSet::generate(spec, manifest.seed);
+            set.verify_split_hygiene().unwrap();
+            assert!(!set.tasks.is_empty(), "{}: empty task set", path.display());
+        }
+        for strategy in manifest.strategies() {
+            let mut ops = Vec::new();
+            for step in &strategy.schedule {
+                step.operators(&mut ops);
+            }
+            for op in ops {
+                assert!(
+                    registry.spec(&op.as_str().into()).is_some(),
+                    "{}: strategy `{}` names unknown operator {op}",
+                    path.display(),
+                    strategy.name
+                );
+            }
         }
     }
     assert!(
-        seen >= 2,
+        seen >= 4,
         "expected committed manifests under experiments/manifests"
     );
 }

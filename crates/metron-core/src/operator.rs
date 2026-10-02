@@ -6,6 +6,10 @@
 //!   the observations frame;
 //! * **transform** — moves information between frames under a
 //!   [`TransformContract`], writing only the contract's target frame;
+//! * **consult** — asks an external service (a language model session) and
+//!   records the answer in the consultations frame. What comes back is not
+//!   evidence: a transform must verify it against observations before it
+//!   can reach any other frame;
 //! * **commit** — turns a view into the inquiry's answer.
 //!
 //! Operators are generic over the world `W` they need. Bounds on `W` (such as
@@ -29,6 +33,11 @@ pub enum OperatorKind {
         /// The contract.
         contract: TransformContract,
     },
+    /// Consults an external service.
+    Consult {
+        /// Service name, e.g. `llm`.
+        service: String,
+    },
     /// Commits an answer.
     Commit,
 }
@@ -40,6 +49,7 @@ impl OperatorKind {
         match self {
             OperatorKind::Observe => "observe",
             OperatorKind::Transform { .. } => "transform",
+            OperatorKind::Consult { .. } => "consult",
             OperatorKind::Commit => "commit",
         }
     }
@@ -75,6 +85,9 @@ pub enum SpecError {
     /// A commit operator declared written views.
     #[error("commit operator {0} must not write views")]
     CommitWritesViews(OperatorId),
+    /// A consult operator named no service or no written view.
+    #[error("consult operator {0} must name a service and a written view")]
+    ConsultIncomplete(OperatorId),
 }
 
 /// Static description of an operator.
@@ -142,6 +155,11 @@ impl OperatorSpec {
             OperatorKind::Commit => {
                 if !self.writes.is_empty() {
                     return Err(SpecError::CommitWritesViews(self.id.clone()));
+                }
+            }
+            OperatorKind::Consult { service } => {
+                if service.trim().is_empty() || self.writes.is_empty() {
+                    return Err(SpecError::ConsultIncomplete(self.id.clone()));
                 }
             }
             OperatorKind::Observe => {}
@@ -243,9 +261,34 @@ pub enum OperatorError {
     /// The oracle refused.
     #[error("oracle error: {0}")]
     Oracle(#[from] crate::world::OracleError),
+    /// An external service has not answered yet; the episode suspends and
+    /// the operator is retried on resume. The operator must have changed
+    /// nothing before returning this.
+    #[error("waiting for {service} request {request_id}")]
+    Pending {
+        /// The service.
+        service: String,
+        /// The pending request.
+        request_id: String,
+    },
+    /// An external service failed.
+    #[error("service error: {0}")]
+    Service(String),
     /// Any other failure.
     #[error("operator error: {0}")]
     Internal(String),
+}
+
+impl From<crate::world::ServiceError> for OperatorError {
+    fn from(error: crate::world::ServiceError) -> Self {
+        match error {
+            crate::world::ServiceError::Pending { request_id } => OperatorError::Pending {
+                service: String::new(),
+                request_id,
+            },
+            other => OperatorError::Service(other.to_string()),
+        }
+    }
 }
 
 /// A pluggable capability.
@@ -323,5 +366,17 @@ mod tests {
             OperatorSpec::new(" ", OperatorKind::Observe, "demo").validate(),
             Err(SpecError::EmptyId)
         );
+        let consult = OperatorSpec::new(
+            "ask",
+            OperatorKind::Consult {
+                service: "llm".into(),
+            },
+            "demo",
+        );
+        assert_eq!(
+            consult.validate(),
+            Err(SpecError::ConsultIncomplete(OperatorId::from("ask")))
+        );
+        consult.writes("consultations.llm").validate().unwrap();
     }
 }

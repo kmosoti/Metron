@@ -28,6 +28,12 @@ pub struct Verdict {
     pub cost: Cost,
     /// Fingerprint of the hidden target.
     pub target_fingerprint: ContentHash,
+    /// Family of the target, revealed after the episode.
+    #[serde(default)]
+    pub target_family: Option<String>,
+    /// Description of the target, revealed after the episode.
+    #[serde(default)]
+    pub target_description: Option<String>,
     /// Why the verdict is what it is.
     #[serde(default)]
     pub reasons: Vec<String>,

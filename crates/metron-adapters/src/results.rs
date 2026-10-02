@@ -23,21 +23,36 @@ pub struct RunRecord {
     pub verdict: serde_json::Value,
 }
 
-/// Writes run directories under a root.
+/// Writes run directories under a root, or into one exact directory.
 #[derive(Clone, Debug)]
 pub struct ResultsWriter {
     root: PathBuf,
+    exact: bool,
 }
 
 impl ResultsWriter {
-    /// Creates a writer rooted at `root`.
+    /// Creates a writer that names a directory under `root` per run.
     pub fn new(root: impl Into<PathBuf>) -> Self {
-        Self { root: root.into() }
+        Self {
+            root: root.into(),
+            exact: false,
+        }
+    }
+
+    /// Creates a writer that writes every run into `dir` itself.
+    pub fn into_dir(dir: impl Into<PathBuf>) -> Self {
+        Self {
+            root: dir.into(),
+            exact: true,
+        }
     }
 
     /// The directory a run would be written to.
     #[must_use]
     pub fn run_dir(&self, record: &RunRecord) -> PathBuf {
+        if self.exact {
+            return self.root.clone();
+        }
         let name: String = record
             .name
             .chars()

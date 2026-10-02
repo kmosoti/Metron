@@ -1,0 +1,259 @@
+{
+  "cost_model": {
+    "probe_weight": 1.0,
+    "work_weight": 0.0,
+    "external_weight": 0.0,
+    "failure_cost": 64.0
+  },
+  "tasks": 300,
+  "strategies": [
+    {
+      "name": "exhaustive",
+      "mean_cost": 32.0,
+      "iqm_cost": 32.0,
+      "iqm_ci": [
+        32.0,
+        32.0
+      ],
+      "solved": 1.0,
+      "mean_probes_when_solved": 32.0,
+      "gap_closed": -9.07828282828283
+    },
+    {
+      "name": "greedy-pool",
+      "mean_cost": 8.033333333333333,
+      "iqm_cost": 8.0,
+      "iqm_ci": [
+        8.0,
+        8.0
+      ],
+      "solved": 1.0,
+      "mean_probes_when_solved": 8.033333333333333,
+      "gap_closed": 0.0
+    },
+    {
+      "name": "affine-blind",
+      "mean_cost": 53.75333333333333,
+      "iqm_cost": 64.0,
+      "iqm_ci": [
+        64.0,
+        64.0
+      ],
+      "solved": 0.17666666666666667,
+      "mean_probes_when_solved": 6.0,
+      "gap_closed": -17.31818181818182
+    },
+    {
+      "name": "affine-verified-then-greedy",
+      "mean_cost": 13.326666666666666,
+      "iqm_cost": 9.253333333333334,
+      "iqm_ci": [
+        9.013333333333334,
+        9.486666666666666
+      ],
+      "solved": 0.9233333333333333,
+      "mean_probes_when_solved": 9.11913357400722,
+      "gap_closed": -2.005050505050505
+    },
+    {
+      "name": "greedy-affine-only",
+      "mean_cost": 54.22,
+      "iqm_cost": 64.0,
+      "iqm_ci": [
+        64.0,
+        64.0
+      ],
+      "solved": 0.16666666666666666,
+      "mean_probes_when_solved": 5.32,
+      "gap_closed": -17.4949494949495
+    },
+    {
+      "name": "greedy-monotone-only",
+      "mean_cost": 54.233333333333334,
+      "iqm_cost": 64.0,
+      "iqm_ci": [
+        64.0,
+        64.0
+      ],
+      "solved": 0.16666666666666666,
+      "mean_probes_when_solved": 5.4,
+      "gap_closed": -17.500000000000004
+    },
+    {
+      "name": "greedy-read-once-only",
+      "mean_cost": 54.24333333333333,
+      "iqm_cost": 64.0,
+      "iqm_ci": [
+        64.0,
+        64.0
+      ],
+      "solved": 0.16666666666666666,
+      "mean_probes_when_solved": 5.46,
+      "gap_closed": -17.503787878787882
+    },
+    {
+      "name": "greedy-threshold-only",
+      "mean_cost": 54.22,
+      "iqm_cost": 64.0,
+      "iqm_ci": [
+        64.0,
+        64.0
+      ],
+      "solved": 0.16666666666666666,
+      "mean_probes_when_solved": 5.32,
+      "gap_closed": -17.4949494949495
+    },
+    {
+      "name": "greedy-k-term-dnf-only",
+      "mean_cost": 54.25,
+      "iqm_cost": 64.0,
+      "iqm_ci": [
+        64.0,
+        64.0
+      ],
+      "solved": 0.16666666666666666,
+      "mean_probes_when_solved": 5.5,
+      "gap_closed": -17.506313131313135
+    },
+    {
+      "name": "greedy-decision-tree-only",
+      "mean_cost": 54.22666666666667,
+      "iqm_cost": 64.0,
+      "iqm_ci": [
+        64.0,
+        64.0
+      ],
+      "solved": 0.16666666666666666,
+      "mean_probes_when_solved": 5.36,
+      "gap_closed": -17.49747474747475
+    }
+  ],
+  "sbs": "greedy-pool",
+  "sbs_cost": 8.033333333333333,
+  "vbs_cost": 5.3933333333333335,
+  "gap": 2.6399999999999997,
+  "gap_ci": [
+    2.57,
+    2.716666666666667
+  ],
+  "vbs_over_sbs": 0.6713692946058092,
+  "vbs_choices": {
+    "affine-blind": 16,
+    "greedy-affine-only": 34,
+    "greedy-decision-tree-only": 50,
+    "greedy-k-term-dnf-only": 50,
+    "greedy-monotone-only": 50,
+    "greedy-read-once-only": 50,
+    "greedy-threshold-only": 50
+  },
+  "families": [
+    {
+      "family": "affine",
+      "tasks": 50,
+      "mean_cost": {
+        "affine-blind": 6.0,
+        "affine-verified-then-greedy": 7.48,
+        "exhaustive": 32.0,
+        "greedy-affine-only": 5.32,
+        "greedy-decision-tree-only": 64.0,
+        "greedy-k-term-dnf-only": 64.0,
+        "greedy-monotone-only": 64.0,
+        "greedy-pool": 7.82,
+        "greedy-read-once-only": 64.0,
+        "greedy-threshold-only": 64.0
+      },
+      "best": "greedy-affine-only",
+      "vbs_cost": 5.32
+    },
+    {
+      "family": "decision-tree",
+      "tasks": 50,
+      "mean_cost": {
+        "affine-blind": 64.0,
+        "affine-verified-then-greedy": 14.0,
+        "exhaustive": 32.0,
+        "greedy-affine-only": 64.0,
+        "greedy-decision-tree-only": 5.36,
+        "greedy-k-term-dnf-only": 64.0,
+        "greedy-monotone-only": 64.0,
+        "greedy-pool": 7.98,
+        "greedy-read-once-only": 64.0,
+        "greedy-threshold-only": 64.0
+      },
+      "best": "greedy-decision-tree-only",
+      "vbs_cost": 5.36
+    },
+    {
+      "family": "k-term-dnf",
+      "tasks": 50,
+      "mean_cost": {
+        "affine-blind": 62.84,
+        "affine-verified-then-greedy": 12.22,
+        "exhaustive": 32.0,
+        "greedy-affine-only": 64.0,
+        "greedy-decision-tree-only": 64.0,
+        "greedy-k-term-dnf-only": 5.5,
+        "greedy-monotone-only": 64.0,
+        "greedy-pool": 8.0,
+        "greedy-read-once-only": 64.0,
+        "greedy-threshold-only": 64.0
+      },
+      "best": "greedy-k-term-dnf-only",
+      "vbs_cost": 5.5
+    },
+    {
+      "family": "monotone",
+      "tasks": 50,
+      "mean_cost": {
+        "affine-blind": 61.68,
+        "affine-verified-then-greedy": 13.08,
+        "exhaustive": 32.0,
+        "greedy-affine-only": 64.0,
+        "greedy-decision-tree-only": 64.0,
+        "greedy-k-term-dnf-only": 64.0,
+        "greedy-monotone-only": 5.4,
+        "greedy-pool": 8.08,
+        "greedy-read-once-only": 64.0,
+        "greedy-threshold-only": 64.0
+      },
+      "best": "greedy-monotone-only",
+      "vbs_cost": 5.4
+    },
+    {
+      "family": "read-once",
+      "tasks": 50,
+      "mean_cost": {
+        "affine-blind": 64.0,
+        "affine-verified-then-greedy": 14.6,
+        "exhaustive": 32.0,
+        "greedy-affine-only": 64.0,
+        "greedy-decision-tree-only": 64.0,
+        "greedy-k-term-dnf-only": 64.0,
+        "greedy-monotone-only": 64.0,
+        "greedy-pool": 8.08,
+        "greedy-read-once-only": 5.46,
+        "greedy-threshold-only": 64.0
+      },
+      "best": "greedy-read-once-only",
+      "vbs_cost": 5.46
+    },
+    {
+      "family": "threshold",
+      "tasks": 50,
+      "mean_cost": {
+        "affine-blind": 64.0,
+        "affine-verified-then-greedy": 18.58,
+        "exhaustive": 32.0,
+        "greedy-affine-only": 64.0,
+        "greedy-decision-tree-only": 64.0,
+        "greedy-k-term-dnf-only": 64.0,
+        "greedy-monotone-only": 64.0,
+        "greedy-pool": 8.24,
+        "greedy-read-once-only": 64.0,
+        "greedy-threshold-only": 5.32
+      },
+      "best": "greedy-threshold-only",
+      "vbs_cost": 5.32
+    }
+  ]
+}

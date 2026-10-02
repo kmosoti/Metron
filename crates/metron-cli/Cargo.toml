@@ -8,6 +8,10 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
+[lib]
+name = "metron_cli"
+path = "src/lib.rs"
+
 [[bin]]
 name = "metron"
 path = "src/main.rs"
@@ -18,6 +22,7 @@ metron-app = { workspace = true }
 metron-lab = { workspace = true }
 metron-operators = { workspace = true }
 metron-adapters = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 
 [lints]

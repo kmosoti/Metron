@@ -12,9 +12,10 @@ databases, files, or experiment internals. Dependencies point inward.
 **Encoding.**
 - `crates/metron-core/Cargo.toml` lists `serde`, `serde_json`, `sha2` and
   `thiserror` and nothing else.
-- The core's ports (`Oracle`, `Clock`) are traits; the core ships a
-  `ManualClock` only. `SystemClock` is in `metron-adapters` because reading
-  time is an effect.
+- The core's ports (`Oracle`, `Knowledge`, `ExternalService`, `Receipts`,
+  `Clock`) are traits; the core ships a `ManualClock` only. `SystemClock`,
+  the file protocol that talks to a Claude Code session, and replay are in
+  `metron-adapters` because they are effects.
 - `metron-app`, `metron-lab`, `metron-operators` and `metron-adapters`
   depend on `metron-core` alone. Only `metron-cli` sees them all.
 
@@ -34,7 +35,12 @@ evaluation code or promotion criteria.
 - `HiddenFunction` has private fields, no accessor for the table, no
   `Serialize`, and a redacted `Debug`.
 - The only path from the system to the target is the `Oracle` port; every
-  probe through it is receipted and capped by the lab's `Protocol`.
+  probe through it is receipted and capped by the lab's `Protocol`. The
+  hypothesis pool the question names is public knowledge served through
+  the `Knowledge` port; which member is the target is not in it.
+- Task sets split targets by NPN class (`TaskSet::verify_split_hygiene`),
+  so a held-out target is never an input-permuted, input-negated or
+  output-negated relative of a training target.
 - `LabWorld::judge` is the only judge and runs after the episode. Operators
   are generic over `W: Oracle`; `judge` is not on that trait, and no crate
   the operators can depend on exposes it.
@@ -59,11 +65,16 @@ evidence receipt, so replay and cost accounting are possible.
 **Encoding.**
 - `Oracle::probe` returns an `Observation` that names its `ReceiptId`; the
   oracle seals a `ResourceReceipt` (request hash, response hash, cost,
-  observations) at the moment of execution.
-- The runner drains `Oracle::drain_receipts` after **every** application,
-  before it reads the operator's result, and journals each receipt. An
+  observations) at the moment of execution. `ExternalService::consult`
+  seals an `ExternalCall` receipt and records a `ServiceAnswer` with the
+  full request and response.
+- The runner drains `Receipts::drain_receipts` and
+  `Receipts::drain_service_answers` after **every** application, before it
+  reads the operator's result, and journals each receipt and answer. An
   operator cannot suppress a receipt by failing, by ignoring the
   observation, or by being the wrong kind of operator.
+- A composed world draws every identifier from one `Counter`, so receipts
+  and observations are unique across ports.
 - Receipt cost is charged to the inquiry by the runner, not reported by the
   operator.
 - The journal is a hash chain; receipts are verified as part of the chain.
@@ -77,7 +88,11 @@ evidence receipt, so replay and cost accounting are possible.
   contract violation;
 - an observe operator that probes and then errors still leaves its receipt;
 - the protocol cap is enforced by the oracle;
-- two identical runs produce identical journals.
+- two identical runs produce identical journals;
+- a consultation is receipted and journaled with its content
+  (`consultation_and_resume.rs`), an unanswered one suspends the episode
+  to a checkpoint, `answer` + `resume` complete it, and `replay`
+  reproduces the effective events from the journal alone.
 
 ## 4. Representations are connected by explicit transform contracts
 
@@ -87,13 +102,17 @@ transform is exact or approximate.
 
 **Encoding.**
 - `OperatorKind::Transform { contract }` is the only way to write a frame
-  other than `observations`; `TransformContract::validate` runs at
-  registration.
+  other than `observations` and `consultations`; `TransformContract::validate`
+  runs at registration.
 - At runtime the runner checks every written view: declared in `writes`,
   in the contract's `to` frame, derived only from views in the contract's
   `from` frames. Observe operators may write only the `observations` frame;
-  commit operators write nothing; only observe operators obtain
-  observations.
+  consult operators only the `consultations` frame; commit operators write
+  nothing; only observe operators obtain observations; only consult
+  operators call a service. A language-model proposal therefore cannot
+  reach the truth-table frame except through `formula-to-table`, whose
+  contract is approximate and which refuses any proposal an observation
+  contradicts.
 - The runner stamps the contract onto each written view's `Derivation` and
   journals it with the view's transitive observation set.
 - Approximate contracts must describe what is approximate; the reference
@@ -105,8 +124,9 @@ transform is exact or approximate.
 - the registry rejects contracts with no source frame and transforms that
   write nothing;
 - the runner stops on a view written in the wrong frame, a view derived
-  from a frame the contract does not read, an undeclared write, and a
-  transform that commits;
+  from a frame the contract does not read, an undeclared write, a
+  transform that commits, and a consult operator that writes outside the
+  consultations frame;
 - journaled view writes carry the expected contract and the full
   observation provenance, and the committed answer's evidence names every
   observation and the full operator path.

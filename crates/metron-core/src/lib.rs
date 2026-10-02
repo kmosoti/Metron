@@ -23,9 +23,12 @@
 //! * [`journal::Episode`] — the hash-chained, replayable record of a run.
 //! * [`capability::CapabilityCandidate`] — a proposed reusable composition,
 //!   judged by the laboratory and never by the system itself.
+//! * [`checkpoint::EpisodeCheckpoint`] — everything needed to resume an
+//!   episode that suspended waiting for an external service.
 
 pub mod bits;
 pub mod capability;
+pub mod checkpoint;
 pub mod clock;
 pub mod cost;
 pub mod evidence;

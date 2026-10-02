@@ -1,0 +1,23 @@
+{
+  "name": "llm-consult-majority3",
+  "seed": 1,
+  "lab": {
+    "family": "hidden-boolean-function",
+    "fixture": "experiments/fixtures/hidden-boolean/majority3.json",
+    "max_probes": 8
+  },
+  "system": {
+    "schedule": [
+      { "operator": "probe-next-unobserved", "repeat": 4 },
+      { "operator": "llm-propose-formula" },
+      { "operator": "formula-to-table" },
+      { "operator": "commit-truth-table" },
+      { "operator": "probe-next-unobserved", "repeat": 4 },
+      { "operator": "observations-to-partial-table" },
+      { "operator": "complete-table-by-default" },
+      { "operator": "commit-truth-table" }
+    ],
+    "budget": { "max_oracle_probes": 8 },
+    "max_steps": 32
+  }
+}

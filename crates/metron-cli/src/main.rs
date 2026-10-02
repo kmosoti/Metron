@@ -1,36 +1,48 @@
-//! `metron`: the composition root.
-//!
-//! This binary is the only place where the laboratory, the application layer,
-//! the reference operators and the adapters meet. It reads a manifest, seals
-//! the fixture into a laboratory world, runs one episode, asks the
-//! laboratory for its verdict, and writes the run directory.
+//! `metron`: the command-line composition root.
 
-use metron_adapters::{ResultsWriter, RunRecord, SystemClock, read_text, results::read_journal};
-use metron_app::{EpisodeRunner, FixedSchedule, OperatorRegistry, RunConfig, ScheduleItem};
-use metron_core::id::{EpisodeId, InquiryId};
-use metron_core::inquiry::Inquiry;
-use metron_lab::{BooleanFixture, LabWorld, Manifest, Protocol};
-use metron_operators::reference_operators;
+use metron_adapters::results::read_journal;
+use metron_cli::run::Backend;
+use metron_cli::{
+    HeadroomOptions, RunOptions, RunStatus, answer, load_manifest, registry, replay, resume, run,
+    run_headroom,
+};
+use metron_core::journal::JournalEvent;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 const USAGE: &str = "\
 usage:
-  metron run <manifest.json> [--results <dir>] [--seed <n>]
-      Run one episode described by the manifest and write a run directory
-      (default results root: experiments/results).
+  metron run <manifest.json> [--results <dir>] [--seed <n>] [--task <id|index>]
+             [--strategy <name>] [--no-llm]
+      Run one episode. If a consult operator needs an answer, the run
+      suspends and prints the request; answer it, then `metron resume`.
+  metron resume <run-dir>
+      Continue a suspended run.
+  metron answer <run-dir> [--request <id>] --text <formula> [--by <who>]
+      Write the answer to a pending request.
+  metron replay <run-dir>
+      Re-run a completed run with its recorded answers and compare journals.
+  metron headroom <manifest.json> [--results <dir>] [--seeds <n>] [--verbose]
+      Run every strategy on every task and report SBS, VBS and gap closed.
   metron verify <episode.jsonl>
       Verify a journal's hash chain and every receipt in it.
   metron explain <manifest.json>
-      Print the schedule, the budget and every operator contract in force.
+      Print the strategies, the budget and every operator contract.
+  metron npn-classes <arity>
+      Count NPN classes by exhaustive enumeration (arity <= 4).
 ";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let result = match args.first().map(String::as_str) {
-        Some("run") => run(&args[1..]),
-        Some("verify") => verify(&args[1..]),
-        Some("explain") => explain(&args[1..]),
+        Some("run") => cmd_run(&args[1..]),
+        Some("resume") => cmd_resume(&args[1..]),
+        Some("answer") => cmd_answer(&args[1..]),
+        Some("replay") => cmd_replay(&args[1..]),
+        Some("headroom") => cmd_headroom(&args[1..]),
+        Some("verify") => cmd_verify(&args[1..]),
+        Some("explain") => cmd_explain(&args[1..]),
+        Some("npn-classes") => cmd_npn(&args[1..]),
         Some("--help" | "-h" | "help") => {
             print!("{USAGE}");
             Ok(())
@@ -49,183 +61,224 @@ fn main() -> ExitCode {
     }
 }
 
-struct RunArgs {
-    manifest: PathBuf,
-    results: PathBuf,
-    seed: Option<u64>,
+struct Flags {
+    positional: Vec<String>,
+    values: Vec<(String, String)>,
+    switches: Vec<String>,
 }
 
-fn parse_run_args(args: &[String]) -> Result<RunArgs, String> {
-    let mut manifest = None;
-    let mut results = PathBuf::from("experiments/results");
-    let mut seed = None;
+fn parse_flags(args: &[String], valued: &[&str], switches: &[&str]) -> Result<Flags, String> {
+    let mut out = Flags {
+        positional: Vec::new(),
+        values: Vec::new(),
+        switches: Vec::new(),
+    };
     let mut i = 0;
     while i < args.len() {
-        match args[i].as_str() {
-            "--results" => {
+        let a = args[i].as_str();
+        if let Some(name) = a.strip_prefix("--") {
+            if switches.contains(&name) {
+                out.switches.push(name.to_owned());
+            } else if valued.contains(&name) {
                 i += 1;
-                results = PathBuf::from(args.get(i).ok_or("--results needs a directory")?);
+                let v = args
+                    .get(i)
+                    .ok_or_else(|| format!("--{name} needs a value"))?;
+                out.values.push((name.to_owned(), v.clone()));
+            } else {
+                return Err(format!("unknown flag --{name}"));
             }
-            "--seed" => {
-                i += 1;
-                seed = Some(
-                    args.get(i)
-                        .ok_or("--seed needs a number")?
-                        .parse::<u64>()
-                        .map_err(|e| format!("--seed: {e}"))?,
-                );
-            }
-            other if other.starts_with("--") => return Err(format!("unknown flag {other}")),
-            other => {
-                if manifest.replace(PathBuf::from(other)).is_some() {
-                    return Err("only one manifest may be given".into());
-                }
-            }
+        } else {
+            out.positional.push(a.to_owned());
         }
         i += 1;
     }
-    Ok(RunArgs {
-        manifest: manifest.ok_or("a manifest path is required")?,
-        results,
-        seed,
-    })
+    Ok(out)
 }
 
-fn load_manifest(path: &Path) -> Result<Manifest, String> {
-    let text = read_text(path).map_err(|e| e.to_string())?;
-    Manifest::from_json(&text).map_err(|e| format!("{}: {e}", path.display()))
-}
-
-/// Resolves a fixture path: as given, then relative to the manifest's
-/// directory, then relative to the manifest's grandparent (the
-/// `experiments/` root when manifests live in `experiments/manifests/`).
-fn resolve_fixture(manifest_path: &Path, fixture: &str) -> Result<PathBuf, String> {
-    let direct = PathBuf::from(fixture);
-    if direct.exists() {
-        return Ok(direct);
+impl Flags {
+    fn value(&self, name: &str) -> Option<&str> {
+        self.values
+            .iter()
+            .rev()
+            .find(|(n, _)| n == name)
+            .map(|(_, v)| v.as_str())
     }
-    let mut candidates = Vec::new();
-    if let Some(dir) = manifest_path.parent() {
-        candidates.push(dir.join(fixture));
-        if let Some(up) = dir.parent() {
-            candidates.push(up.join(fixture));
-            if let Some(root) = up.parent() {
-                candidates.push(root.join(fixture));
+
+    fn has(&self, name: &str) -> bool {
+        self.switches.iter().any(|s| s == name)
+    }
+}
+
+fn print_status(status: &RunStatus) {
+    match status {
+        RunStatus::Completed {
+            dir,
+            record,
+            verdict,
+            probes_answered,
+        } => {
+            let outcome = record.episode.outcome.as_ref();
+            println!("run        {} (seed {})", record.name, record.episode.seed);
+            println!("manifest   {}", record.episode.manifest_hash);
+            if let Some(o) = outcome {
+                println!("stop       {:?}", o.stop);
+                println!(
+                    "steps      {}  cost: calls={} work={} probes={} external={}",
+                    o.steps,
+                    o.cost.operator_calls,
+                    o.cost.work_units,
+                    o.cost.oracle_probes,
+                    o.cost.external_calls
+                );
             }
+            println!(
+                "receipts   {} journaled, {probes_answered} probes answered, {} service answers",
+                record.episode.receipts().count(),
+                record.episode.service_answers().count()
+            );
+            println!(
+                "verdict    answered={} frame_accepted={} correct={} agreement={:.3} ({}/{} rows)",
+                verdict.answered,
+                verdict.frame_accepted,
+                verdict.correct,
+                verdict.agreement,
+                verdict.rows_correct,
+                verdict.rows_total
+            );
+            if let (Some(f), Some(d)) = (&verdict.target_family, &verdict.target_description) {
+                println!("target     [{f}] {d}");
+            }
+            for reason in &verdict.reasons {
+                println!("           - {reason}");
+            }
+            println!(
+                "journal    {} entries, head {}",
+                record.episode.entries.len(),
+                record.episode.head_hash()
+            );
+            println!("results    {}", dir.display());
+        }
+        RunStatus::Suspended {
+            dir,
+            request_id,
+            request_path,
+            prompt,
+        } => {
+            println!("suspended  waiting for request {request_id}");
+            println!("request    {}", request_path.display());
+            if let Some(p) = prompt {
+                println!("prompt     ---\n{p}\n           ---");
+            }
+            println!(
+                "answer     metron answer {} --text \"<formula>\" --by \"<who>\"   then   metron resume {}",
+                dir.display(),
+                dir.display()
+            );
         }
     }
-    candidates
-        .into_iter()
-        .find(|p| p.exists())
-        .ok_or_else(|| format!("fixture `{fixture}` not found"))
 }
 
-fn run(args: &[String]) -> Result<(), String> {
-    let args = parse_run_args(args)?;
-    let mut manifest = load_manifest(&args.manifest)?;
-    if let Some(seed) = args.seed {
-        manifest.seed = seed;
+fn cmd_run(args: &[String]) -> Result<(), String> {
+    let flags = parse_flags(args, &["results", "seed", "task", "strategy"], &["no-llm"])?;
+    let manifest = flags
+        .positional
+        .first()
+        .ok_or("a manifest path is required")?;
+    let mut options = RunOptions::default();
+    if let Some(r) = flags.value("results") {
+        options.results_root = PathBuf::from(r);
     }
-    let fixture_path = resolve_fixture(&args.manifest, &manifest.lab.fixture)?;
-    let fixture = BooleanFixture::from_json(&read_text(&fixture_path).map_err(|e| e.to_string())?)
-        .map_err(|e| format!("{}: {e}", fixture_path.display()))?;
-    let hidden = fixture
-        .seal()
-        .map_err(|e| format!("{}: {e}", fixture_path.display()))?;
-
-    let mut world = LabWorld::new(
-        hidden,
-        Protocol {
-            max_probes: manifest.lab.max_probes,
-        },
-    );
-    let mut inquiry =
-        Inquiry::new(InquiryId(1), world.question()).with_budget(manifest.system.budget);
-
-    let mut registry = OperatorRegistry::new();
-    registry
-        .register_all(reference_operators())
-        .map_err(|e| e.to_string())?;
-    let mut schedule = FixedSchedule::new(
-        manifest
-            .system
-            .schedule
-            .iter()
-            .map(|s| ScheduleItem::times(s.operator.as_str(), s.repeat)),
-    );
-    let runner = EpisodeRunner::new(registry, SystemClock).with_config(RunConfig {
-        max_steps: manifest.system.max_steps,
-        stall_limit: manifest.system.stall_limit,
-    });
-
-    let episode = runner
-        .run(
-            EpisodeId(1),
-            manifest.seed,
-            manifest.hash(),
-            &mut inquiry,
-            &mut world,
-            &mut schedule,
-        )
-        .map_err(|e| e.to_string())?;
-    episode.verify().map_err(|e| e.to_string())?;
-    let verdict = world.judge(&inquiry);
-
-    let record = RunRecord {
-        name: manifest.name.clone(),
-        manifest: serde_json::to_value(&manifest).map_err(|e| e.to_string())?,
-        episode: episode.clone(),
-        verdict: serde_json::to_value(&verdict).map_err(|e| e.to_string())?,
-    };
-    let dir = ResultsWriter::new(&args.results)
-        .write(&record)
-        .map_err(|e| e.to_string())?;
-
-    let outcome = episode.outcome.as_ref().ok_or("episode has no outcome")?;
-    println!("run        {} (seed {})", manifest.name, manifest.seed);
-    println!("fixture    {} ({})", fixture.name, fixture_path.display());
-    println!("manifest   {}", manifest.hash());
-    println!("stop       {:?}", outcome.stop);
-    println!(
-        "steps      {}  cost: calls={} work={} probes={} external={}",
-        outcome.steps,
-        outcome.cost.operator_calls,
-        outcome.cost.work_units,
-        outcome.cost.oracle_probes,
-        outcome.cost.external_calls
-    );
-    println!(
-        "receipts   {} journaled, {} probes answered by the oracle",
-        episode.receipts().count(),
-        world.probes_answered()
-    );
-    println!(
-        "verdict    answered={} frame_accepted={} correct={} agreement={:.3} ({}/{} rows)",
-        verdict.answered,
-        verdict.frame_accepted,
-        verdict.correct,
-        verdict.agreement,
-        verdict.rows_correct,
-        verdict.rows_total
-    );
-    for reason in &verdict.reasons {
-        println!("           - {reason}");
+    if let Some(s) = flags.value("seed") {
+        options.seed = Some(s.parse().map_err(|e| format!("--seed: {e}"))?);
     }
-    println!(
-        "journal    {} entries, head {}",
-        episode.entries.len(),
-        episode.head_hash()
-    );
-    println!("results    {}", dir.display());
+    options.task = flags.value("task").map(str::to_owned);
+    options.strategy = flags.value("strategy").map(str::to_owned);
+    if flags.has("no-llm") {
+        options.backend = Backend::None;
+    }
+    let status = run(Path::new(manifest), &options)?;
+    print_status(&status);
     Ok(())
 }
 
-fn verify(args: &[String]) -> Result<(), String> {
+fn cmd_resume(args: &[String]) -> Result<(), String> {
+    let dir = args.first().ok_or("a run directory is required")?;
+    let status = resume(Path::new(dir))?;
+    print_status(&status);
+    Ok(())
+}
+
+fn cmd_answer(args: &[String]) -> Result<(), String> {
+    let flags = parse_flags(args, &["request", "text", "by"], &[])?;
+    let dir = flags
+        .positional
+        .first()
+        .ok_or("a run directory is required")?;
+    let text = flags.value("text").ok_or("--text is required")?;
+    let path = answer(
+        Path::new(dir),
+        flags.value("request"),
+        text,
+        flags.value("by").unwrap_or("claude-code"),
+    )?;
+    println!("answered   {}", path.display());
+    Ok(())
+}
+
+fn cmd_replay(args: &[String]) -> Result<(), String> {
+    let dir = args.first().ok_or("a run directory is required")?;
+    let report = replay(Path::new(dir))?;
+    println!(
+        "replay     {}: {} recorded vs {} replayed effective events; answer {}",
+        if report.matches { "match" } else { "MISMATCH" },
+        report.recorded_events,
+        report.replayed_events,
+        if report.answer_matches {
+            "matches"
+        } else {
+            "DIFFERS"
+        }
+    );
+    println!("recorded   {}", report.recorded_head);
+    println!("replayed   {}", report.replayed_head);
+    if let Some(i) = report.first_difference {
+        println!("differs    at effective event {i}");
+    }
+    if report.matches && report.answer_matches {
+        Ok(())
+    } else {
+        Err("replay does not match".into())
+    }
+}
+
+fn cmd_headroom(args: &[String]) -> Result<(), String> {
+    let flags = parse_flags(args, &["results", "seeds"], &["verbose"])?;
+    let manifest = flags
+        .positional
+        .first()
+        .ok_or("a manifest path is required")?;
+    let mut options = HeadroomOptions::default();
+    if let Some(r) = flags.value("results") {
+        options.results_root = PathBuf::from(r);
+    }
+    if let Some(s) = flags.value("seeds") {
+        options.seeds = Some(s.parse().map_err(|e| format!("--seeds: {e}"))?);
+    }
+    options.verbose = flags.has("verbose");
+    let outcome = run_headroom(Path::new(manifest), &options)?;
+    print!("{}", outcome.markdown);
+    println!("\nepisodes   {}", outcome.episodes);
+    println!("results    {}", outcome.dir.display());
+    Ok(())
+}
+
+fn cmd_verify(args: &[String]) -> Result<(), String> {
     let path = args.first().ok_or("a journal path is required")?;
     let entries = read_journal(path).map_err(|e| e.to_string())?;
     let receipts = entries
         .iter()
-        .filter(|e| matches!(e.event, metron_core::journal::JournalEvent::Receipt { .. }))
+        .filter(|e| matches!(e.event, JournalEvent::Receipt { .. }))
         .count();
     let head = entries
         .last()
@@ -237,14 +290,23 @@ fn verify(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-fn explain(args: &[String]) -> Result<(), String> {
+fn cmd_explain(args: &[String]) -> Result<(), String> {
     let path = PathBuf::from(args.first().ok_or("a manifest path is required")?);
     let manifest = load_manifest(&path)?;
     println!("experiment {} (seed {})", manifest.name, manifest.seed);
     println!("manifest   {}", manifest.hash());
     println!(
-        "lab        family={} fixture={} max_probes={:?}",
-        manifest.lab.family, manifest.lab.fixture, manifest.lab.max_probes
+        "lab        family={} fixture={:?} tasks={} max_probes={:?}",
+        manifest.lab.family(),
+        manifest.lab.fixture(),
+        manifest.lab.tasks().map_or("none".to_owned(), |t| format!(
+            "arity {} / {} families x {} pool / {} targets",
+            t.arity,
+            t.pool.families.len(),
+            t.pool.per_family,
+            t.targets_per_family
+        )),
+        manifest.lab.max_probes()
     );
     println!(
         "budget     calls={:?} work={:?} probes={:?} external={:?}; max_steps={} stall_limit={}",
@@ -255,14 +317,19 @@ fn explain(args: &[String]) -> Result<(), String> {
         manifest.system.max_steps,
         manifest.system.stall_limit
     );
-    println!("schedule");
-    for step in &manifest.system.schedule {
-        println!("  {} x{}", step.operator, step.repeat);
+    let registry = registry()?;
+    for strategy in manifest.strategies() {
+        let mut ops = Vec::new();
+        for step in &strategy.schedule {
+            step.operators(&mut ops);
+        }
+        println!("strategy   {} ({} applications)", strategy.name, ops.len());
+        for op in ops.iter().collect::<std::collections::BTreeSet<_>>() {
+            if registry.spec(&op.as_str().into()).is_none() {
+                println!("  warning: unknown operator `{op}`");
+            }
+        }
     }
-    let mut registry: OperatorRegistry<LabWorld> = OperatorRegistry::new();
-    registry
-        .register_all(reference_operators())
-        .map_err(|e| e.to_string())?;
     println!("operators");
     for spec in registry.specs() {
         let reads: Vec<&str> = spec.reads.iter().map(|v| v.as_str()).collect();
@@ -286,13 +353,18 @@ fn explain(args: &[String]) -> Result<(), String> {
             }
         }
     }
-    for step in &manifest.system.schedule {
-        if registry.spec(&step.operator.as_str().into()).is_none() {
-            println!(
-                "warning: schedule names unknown operator `{}`",
-                step.operator
-            );
-        }
+    Ok(())
+}
+
+fn cmd_npn(args: &[String]) -> Result<(), String> {
+    let arity: u8 = args
+        .first()
+        .ok_or("an arity is required")?
+        .parse()
+        .map_err(|e| format!("arity: {e}"))?;
+    if arity > 4 {
+        return Err("exhaustive enumeration is only feasible for arity <= 4".into());
     }
+    println!("{}", metron_lab::npn::class_count(arity));
     Ok(())
 }

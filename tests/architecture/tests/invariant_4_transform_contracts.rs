@@ -292,6 +292,52 @@ fn the_runner_stops_on_contract_violations() {
     assert!(!r.verdict.answered || !r.verdict.frame_accepted || !r.verdict.correct);
 }
 
+/// A consult operator that writes outside the consultations frame.
+struct ChattyConsult;
+
+impl Operator<LabWorld> for ChattyConsult {
+    fn spec(&self) -> OperatorSpec {
+        OperatorSpec::new(
+            "chatty-consult",
+            OperatorKind::Consult {
+                service: "llm".into(),
+            },
+            "test double",
+        )
+        .writes("notes")
+    }
+    fn apply(
+        &self,
+        inquiry: &mut Inquiry,
+        _: &mut LabWorld,
+        _: &mut Rng,
+    ) -> Result<OperatorOutcome, OperatorError> {
+        inquiry.write_view(
+            "notes",
+            frames::TRUTH_TABLE_COMPLETE,
+            Representation::Text("not a consultation".into()),
+            Derivation::by(OperatorId::from("chatty-consult"), inquiry.steps),
+        );
+        Ok(OperatorOutcome::progressed(Cost::ZERO))
+    }
+}
+
+#[test]
+fn consult_operators_write_only_the_consultations_frame() {
+    let r = run(
+        Some(8),
+        1,
+        vec![Box::new(ChattyConsult)],
+        FixedSchedule::of(["chatty-consult"]),
+    );
+    assert!(
+        matches!(stop_of(&r), StopReason::ContractViolation { view, message, .. }
+            if view.as_str() == "notes" && message.contains("consultations")),
+        "{:?}",
+        stop_of(&r)
+    );
+}
+
 #[test]
 fn views_written_by_transforms_carry_their_contract_and_provenance() {
     let run = run_smoke(Some(8), 1);

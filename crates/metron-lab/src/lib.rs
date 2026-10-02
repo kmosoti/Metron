@@ -17,18 +17,29 @@
 //! The laboratory depends on `metron-core` only. It does no I/O; fixtures
 //! and manifests are parsed from strings that the composition root reads.
 
+pub mod bounds;
+pub mod families;
 pub mod fixture;
+pub mod headroom;
 pub mod hidden;
 pub mod manifest;
+pub mod npn;
+pub mod pool;
 pub mod promotion;
+pub mod stats;
+pub mod tasks;
 pub mod truth_table;
 pub mod verdict;
 pub mod world;
 
+pub use families::{Family, FamilyParams, Target};
 pub use fixture::{BooleanFixture, FixtureError};
+pub use headroom::{CostModel, CostTable, HeadroomReport, Score, TaskKey};
 pub use hidden::HiddenFunction;
 pub use manifest::{LabConfig, Manifest, ManifestError, ScheduleStep, SystemPlan};
+pub use pool::{HypothesisPool, PoolSpec};
 pub use promotion::{PromotionCriteria, PromotionGate};
+pub use tasks::{Split, Task, TaskSet, TaskSetSpec};
 pub use truth_table::{TruthTable, TruthTableError};
 pub use verdict::Verdict;
 pub use world::{LabWorld, Protocol};

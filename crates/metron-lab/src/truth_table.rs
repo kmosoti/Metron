@@ -149,6 +149,98 @@ impl TruthTable {
     }
 }
 
+impl TruthTable {
+    /// Number of rows where the function is `true`.
+    #[must_use]
+    pub fn ones(&self) -> usize {
+        self.bits.count_ones()
+    }
+
+    /// Whether the function is constant.
+    #[must_use]
+    pub fn is_constant(&self) -> bool {
+        let ones = self.ones();
+        ones == 0 || ones == self.rows()
+    }
+
+    /// The function with its output negated.
+    #[must_use]
+    pub fn negate_output(&self) -> Self {
+        Self {
+            arity: self.arity,
+            bits: self.bits.not(),
+        }
+    }
+
+    /// The function with input `i` negated: `g(x) = f(x with x_i flipped)`.
+    #[must_use]
+    pub fn negate_input(&self, i: usize) -> Self {
+        let mask = 1usize << i;
+        Self {
+            arity: self.arity,
+            bits: BitVector::from_fn(self.rows(), |row| self.bits.bit(row ^ mask)),
+        }
+    }
+
+    /// The function with inputs relabelled: variable `j` of the result is
+    /// variable `perm[j]` of `self`.
+    #[must_use]
+    pub fn permute_inputs(&self, perm: &[usize]) -> Self {
+        debug_assert_eq!(perm.len(), usize::from(self.arity));
+        Self {
+            arity: self.arity,
+            bits: BitVector::from_fn(self.rows(), |row| {
+                let mut src = 0usize;
+                for (j, &p) in perm.iter().enumerate() {
+                    if (row >> j) & 1 == 1 {
+                        src |= 1 << p;
+                    }
+                }
+                self.bits.bit(src)
+            }),
+        }
+    }
+
+    /// The function with inputs `i` and `j` swapped.
+    #[must_use]
+    pub fn swap_inputs(&self, i: usize, j: usize) -> Self {
+        let mut perm: Vec<usize> = (0..usize::from(self.arity)).collect();
+        perm.swap(i, j);
+        self.permute_inputs(&perm)
+    }
+
+    /// Number of `true` rows in the cofactor `x_i = value`.
+    #[must_use]
+    pub fn cofactor_ones(&self, i: usize, value: bool) -> usize {
+        let mask = 1usize << i;
+        (0..self.rows())
+            .filter(|&row| ((row & mask) != 0) == value && self.bits.bit(row))
+            .count()
+    }
+
+    /// Whether `x_i` affects the function.
+    #[must_use]
+    pub fn depends_on(&self, i: usize) -> bool {
+        let mask = 1usize << i;
+        (0..self.rows())
+            .any(|row| row & mask == 0 && self.bits.bit(row) != self.bits.bit(row | mask))
+    }
+}
+
+impl PartialOrd for TruthTable {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for TruthTable {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.arity
+            .cmp(&other.arity)
+            .then_with(|| self.to_rows_string().cmp(&other.to_rows_string()))
+    }
+}
+
 impl fmt::Debug for TruthTable {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
@@ -178,6 +270,22 @@ mod tests {
         assert_eq!(t.agreement(t.bits()), Some(8));
         assert_eq!(t.agreement(&BitVector::zeros(8)), Some(4));
         assert_eq!(t.agreement(&BitVector::zeros(4)), None);
+    }
+
+    #[test]
+    fn npn_helpers_behave() {
+        let t = TruthTable::parse_rows(3, "00010111").unwrap(); // maj3, symmetric
+        assert_eq!(t.swap_inputs(0, 2), t);
+        assert_eq!(t.negate_output().ones(), 4);
+        assert_eq!(t.negate_input(0).negate_input(0), t);
+        assert_eq!(t.cofactor_ones(0, true), 3);
+        assert_eq!(t.cofactor_ones(0, false), 1);
+        assert!(t.depends_on(1));
+        let x0 = TruthTable::parse_rows(2, "0101").unwrap(); // f = x0
+        let x1 = x0.permute_inputs(&[1, 0]);
+        assert_eq!(x1.to_rows_string(), "0011"); // f = x1
+        assert!(!x1.depends_on(0));
+        assert!(x1 < x0, "rows strings order: 0011 before 0101");
     }
 
     #[test]

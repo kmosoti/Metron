@@ -80,7 +80,9 @@ pub fn run(
             &mut world,
             &mut schedule,
         )
-        .expect("run completes");
+        .expect("run completes")
+        .completed()
+        .expect("episode completes without suspending");
     let verdict = world.judge(&inquiry);
     Run {
         episode,

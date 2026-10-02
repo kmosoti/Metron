@@ -100,6 +100,7 @@ version = "0.1.0"
 dependencies = [
  "metron-adapters",
  "metron-app",
+ "metron-cli",
  "metron-core",
  "metron-lab",
  "metron-operators",
@@ -115,6 +116,7 @@ dependencies = [
  "metron-core",
  "metron-lab",
  "metron-operators",
+ "serde",
  "serde_json",
 ]
 
@@ -144,6 +146,7 @@ version = "0.1.0"
 dependencies = [
  "metron-core",
  "serde_json",
+ "thiserror",
 ]
 
 [[package]]
