@@ -184,6 +184,49 @@ mod tests {
     }
 
     #[test]
+    fn greedy_is_near_optimal_on_random_small_classes() {
+        // Prior from Dasgupta (2004) and Golovin & Krause (2010): greedy
+        // splitting is near-optimal. Measured here as the ratio of greedy
+        // worst-case depth to the exact optimal depth over random explicit
+        // classes drawn from mixed families.
+        let params = FamilyParams::default();
+        let mut rng = Rng::seed_from_u64(77);
+        let mut ratios = Vec::new();
+        let mut equal = 0;
+        let trials = 60;
+        for t in 0..trials {
+            let arity = if t % 2 == 0 { 4 } else { 5 };
+            let size = 8 + rng.below_usize(9);
+            let mut tables = Vec::new();
+            let mut guard = 0;
+            while tables.len() < size && guard < 500 {
+                guard += 1;
+                let family = Family::ALL[rng.below_usize(Family::ALL.len())];
+                let table = sample(family, arity, &params, &mut rng).table;
+                if !tables.contains(&table) {
+                    tables.push(table);
+                }
+            }
+            let Some(optimal) = optimal_query_depth(&tables) else {
+                continue;
+            };
+            let greedy = *greedy_depths(&tables).iter().max().unwrap();
+            if greedy == optimal {
+                equal += 1;
+            }
+            ratios.push(greedy as f64 / optimal.max(1) as f64);
+        }
+        let mean = ratios.iter().sum::<f64>() / ratios.len() as f64;
+        let max = ratios.iter().cloned().fold(0.0, f64::max);
+        println!(
+            "greedy/optimal worst-case depth over {} classes: mean {mean:.3}, max {max:.3}, equal in {equal}",
+            ratios.len()
+        );
+        assert!(mean <= 1.25, "mean ratio {mean}");
+        assert!(max <= 2.0, "max ratio {max}");
+    }
+
+    #[test]
     fn affine_class_is_identified_in_about_log_queries() {
         let mut tables = Vec::new();
         // All 32 affine functions on 4 inputs.

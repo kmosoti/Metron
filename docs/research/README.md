@@ -10,5 +10,6 @@ ADR, the architecture documents win.
 | `prior-art-review-2026-10.md` | A source-verified prior-art review of the same design against the literature (query learning, algorithm selection, rational metareasoning, Soar/ACT-R, oracle-guided synthesis, library learning, VSA capacity). | The stronger of the two. Its central recommendations shape the roadmap: measure SBS–VBS headroom before building adaptive routing; redesign the Boolean laboratory for n = 5–8 with mixed families and NPN-deduplicated splits; treat HDC as a replaceable retrieval experiment; report rliable-style. See ADR 0006. |
 
 Citations in the review were verified by its author to the extent stated in
-its own "Verification table" and "Caveats" sections; nothing here re-verifies
-them.
+its own "Verification table" and "Caveats" sections. `priors.md` is the
+priors ledger (ADR 0014): every prior the design relies on, its source, the
+test or primary source that checks it, the observation, and its status.

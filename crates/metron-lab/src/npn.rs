@@ -200,8 +200,77 @@ pub fn random_transform(table: &TruthTable, rng: &mut Rng) -> TruthTable {
     if rng.bool() { t.negate_output() } else { t }
 }
 
+/// Number of NPN classes of functions on `arity` inputs, by Burnside's
+/// lemma: the mean, over the group of input permutations, input negations
+/// and output negation, of the number of functions each element fixes.
+///
+/// An element acts on the `2^arity` input points as a bijection `σ`. With
+/// the output kept, a fixed function is constant on each cycle of `σ`, so
+/// `2^(cycles)` functions are fixed. With the output negated, a fixed
+/// function alternates along each cycle, which is consistent only when
+/// every cycle has even length. This is an independent derivation, not a
+/// recalled value, and it is what [`class_count`] is checked against.
+/// Feasible for `arity <= 7`.
+#[must_use]
+pub fn class_count_burnside(arity: u8) -> u128 {
+    assert!(
+        arity <= 7,
+        "the group grows as 2^n n!; arity <= 7 is enough here"
+    );
+    let n = usize::from(arity);
+    let points = 1usize << n;
+    let mut perm: Vec<usize> = (0..n).collect();
+    let mut total: u128 = 0;
+    let mut elements: u128 = 0;
+    loop {
+        for negation in 0..points {
+            // σ(x): permute the bits of x by `perm`, then negate by `negation`.
+            let sigma = |x: usize| -> usize {
+                let mut y = 0usize;
+                for (j, &p) in perm.iter().enumerate() {
+                    if (x >> p) & 1 == 1 {
+                        y |= 1 << j;
+                    }
+                }
+                y ^ negation
+            };
+            let mut seen = vec![false; points];
+            let mut cycles = 0u32;
+            let mut all_even = true;
+            for start in 0..points {
+                if seen[start] {
+                    continue;
+                }
+                cycles += 1;
+                let mut len = 0usize;
+                let mut x = start;
+                while !seen[x] {
+                    seen[x] = true;
+                    x = sigma(x);
+                    len += 1;
+                }
+                if len % 2 == 1 {
+                    all_even = false;
+                }
+            }
+            let fixed = 1u128 << cycles;
+            total += fixed; // output kept
+            if all_even {
+                total += fixed; // output negated
+            }
+            elements += 2;
+        }
+        if !next_permutation(&mut perm) {
+            break;
+        }
+    }
+    total / elements
+}
+
 /// Number of NPN classes of functions on `arity` inputs, by exhaustive
-/// enumeration. Feasible for `arity <= 4` (OEIS A000370: 2, 4, 14, 222).
+/// enumeration under [`canonical`]. Feasible for `arity <= 4`. Agreement
+/// with [`class_count_burnside`] validates the canonicaliser, since an
+/// invariant that merged too little or too much would miss the count.
 #[must_use]
 pub fn class_count(arity: u8) -> usize {
     assert!(
@@ -222,15 +291,36 @@ mod tests {
     use super::*;
 
     #[test]
-    fn class_counts_match_oeis_a000370_for_small_arity() {
-        assert_eq!(class_count(1), 2);
-        assert_eq!(class_count(2), 4);
-        assert_eq!(class_count(3), 14);
+    fn burnside_reproduces_the_small_counts_and_the_canonicaliser_agrees() {
+        // Derived, not recalled: Burnside over the NPN group.
+        assert_eq!(class_count_burnside(0), 1);
+        assert_eq!(class_count_burnside(1), 2);
+        assert_eq!(class_count_burnside(2), 4);
+        assert_eq!(class_count_burnside(3), 14);
+        assert_eq!(class_count_burnside(4), 222);
+        // Exhaustive enumeration under the canonicaliser agrees with the
+        // derivation, which is the check that the canonical form is exact.
+        for arity in 1..=3 {
+            assert_eq!(
+                u128::try_from(class_count(arity)).unwrap(),
+                class_count_burnside(arity)
+            );
+        }
     }
 
     #[test]
     fn class_count_at_arity_four_is_222() {
         assert_eq!(class_count(4), 222);
+        assert_eq!(class_count_burnside(4), 222);
+    }
+
+    #[test]
+    fn burnside_at_arity_five_and_six() {
+        // Values this test was written to pin: 616,126 and
+        // 200,253,952,527,184. They were recalled from OEIS A000370 before
+        // being computed; the computation below is the independent check.
+        assert_eq!(class_count_burnside(5), 616_126);
+        assert_eq!(class_count_burnside(6), 200_253_952_527_184);
     }
 
     #[test]

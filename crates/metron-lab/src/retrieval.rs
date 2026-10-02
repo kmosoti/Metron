@@ -255,13 +255,20 @@ pub struct BloomPerTable {
 }
 
 impl BloomPerTable {
+    /// Independent hash positions for a key: one SHA-256 per (key, index).
+    ///
+    /// Double hashing (`a + i·b mod m`) was tried first and measured a
+    /// false-positive rate of 0.032 against the textbook 0.022 at
+    /// `m = 512, n = 64, h = 6`; see `docs/research/priors.md`.
     fn positions(bits: usize, hashes: usize, row: usize, value: bool) -> Vec<usize> {
         let key = ((row as u64) << 1) | u64::from(value);
-        let h = ContentHash::of_bytes(&key.to_le_bytes());
-        let a = u64::from_le_bytes(h.0[..8].try_into().expect("8 bytes"));
-        let b = u64::from_le_bytes(h.0[8..16].try_into().expect("8 bytes")) | 1;
         (0..hashes as u64)
-            .map(|i| (a.wrapping_add(i.wrapping_mul(b)) % bits as u64) as usize)
+            .map(|i| {
+                let mut bytes = key.to_le_bytes().to_vec();
+                bytes.extend_from_slice(&i.to_le_bytes());
+                let h = ContentHash::of_bytes(&bytes);
+                (u64::from_le_bytes(h.0[..8].try_into().expect("8 bytes")) % bits as u64) as usize
+            })
             .collect()
     }
 
@@ -603,6 +610,53 @@ mod tests {
                 "a Bloom filter has no false negatives"
             );
         }
+    }
+
+    #[test]
+    fn bloom_false_positive_rate_matches_the_textbook_formula() {
+        // Prior: with m bits, n inserted keys and h hashes, the false
+        // positive rate is about (1 - e^(-h n / m))^h, minimised near
+        // h = (m / n) ln 2.
+        let mut rng = Rng::seed_from_u64(13);
+        let store = Store::build(
+            &RetrievalSpec {
+                arity: 6,
+                families: Family::ALL.to_vec(),
+                store_per_family: 60,
+                queries: 1,
+                observed_rows: vec![1],
+                dimensions: vec![64],
+                bloom_bits_per_pair: 8,
+                params: FamilyParams::default(),
+            },
+            &mut rng,
+        );
+        let bloom = BloomPerTable::build(&store, 8);
+        let rows = store.rows();
+        let (m, n, h) = (bloom.bits as f64, rows as f64, bloom.hashes as f64);
+        let predicted = (1.0 - (-h * n / m).exp()).powf(h);
+        let mut tested = 0usize;
+        let mut passed = 0usize;
+        for (i, table) in store.tables().iter().enumerate() {
+            for row in 0..rows {
+                // (row, !value) is never in this table's filter.
+                let positions =
+                    BloomPerTable::positions(bloom.bits, bloom.hashes, row, !table.bit(row));
+                tested += 1;
+                if positions.iter().all(|&p| bloom.filters[i].bit(p)) {
+                    passed += 1;
+                }
+            }
+        }
+        let measured = passed as f64 / tested as f64;
+        println!(
+            "bloom: m {} n {} h {}: predicted FPR {predicted:.4}, measured {measured:.4} over {tested} absent keys",
+            bloom.bits, rows, bloom.hashes
+        );
+        assert!(
+            (measured - predicted).abs() < 0.01,
+            "predicted {predicted}, measured {measured}"
+        );
     }
 
     #[test]

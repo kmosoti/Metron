@@ -94,6 +94,26 @@ mod tests {
     }
 
     #[test]
+    fn percentile_bootstrap_intervals_have_about_nominal_coverage() {
+        // Prior: a 95% percentile bootstrap interval for a mean covers the
+        // true mean about 95% of the time (a little less at small n).
+        let mut rng = Rng::seed_from_u64(2024);
+        let reps = 300;
+        let n = 40;
+        let mut covered = 0;
+        for r in 0..reps {
+            let sample: Vec<f64> = (0..n).map(|_| rng.next_f64()).collect();
+            let (_, lo, hi) = stratified_bootstrap(&[sample], mean, 400, 0.05, 1_000 + r);
+            if lo <= 0.5 && 0.5 <= hi {
+                covered += 1;
+            }
+        }
+        let coverage = covered as f64 / reps as f64;
+        println!("percentile bootstrap, n = {n}, {reps} replications: coverage {coverage:.3}");
+        assert!((0.88..=0.99).contains(&coverage), "coverage {coverage}");
+    }
+
+    #[test]
     fn bootstrap_interval_contains_the_point_and_is_deterministic() {
         let groups = vec![
             vec![1.0, 2.0, 3.0, 4.0, 5.0],

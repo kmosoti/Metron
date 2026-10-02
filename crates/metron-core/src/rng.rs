@@ -139,6 +139,27 @@ mod tests {
     }
 
     #[test]
+    fn below_is_uniform_for_a_non_power_of_two() {
+        // Prior: Lemire's nearly divisionless method is unbiased. Chi-square
+        // over 1,000 bins with 1,000,000 draws; the 0.1% critical value for
+        // 999 degrees of freedom is about 1,144.
+        let mut r = Rng::seed_from_u64(99);
+        let bins = 1_000u64;
+        let draws = 1_000_000u64;
+        let mut counts = vec![0u64; bins as usize];
+        for _ in 0..draws {
+            counts[r.below(bins) as usize] += 1;
+        }
+        let expected = draws as f64 / bins as f64;
+        let chi2: f64 = counts
+            .iter()
+            .map(|&c| (c as f64 - expected).powi(2) / expected)
+            .sum();
+        println!("chi-square over {bins} bins: {chi2:.1} (df {})", bins - 1);
+        assert!(chi2 < 1_144.0, "chi-square {chi2}");
+    }
+
+    #[test]
     fn shuffle_is_a_permutation() {
         let mut r = Rng::seed_from_u64(1);
         let mut v: Vec<u32> = (0..20).collect();

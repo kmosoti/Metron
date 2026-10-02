@@ -18,3 +18,4 @@ mark them superseded. Template: context, decision, consequences.
 | 0011 | Family selection does not realise the measured gap; M3 is closed on this configuration | accepted |
 | 0012 | Capability candidates are proposed by the system and judged by the laboratory on held-out targets | accepted |
 | 0013 | Hyperdimensional retrieval is dropped for the laboratory's native objects | accepted |
+| 0014 | Every prior the design relies on is a hypothesis with a test | accepted |

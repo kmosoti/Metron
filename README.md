@@ -62,7 +62,7 @@ session.
 | `crates/metron-cli` | Composition root (`metron run`, `verify`, `explain`) |
 | `experiments/` | Manifests, fixtures, generated results, committed reports |
 | `docs/architecture` | Overview and the invariants with their enforcement |
-| `docs/research` | Archived inputs: the proposal and the prior-art review |
+| `docs/research` | Archived inputs and the priors ledger: every prior the design relies on, with its test |
 | `docs/adr` | Architecture decision records |
 | `tests/architecture` | Executable invariants |
 

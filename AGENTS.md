@@ -97,6 +97,14 @@ tests/architecture        executable invariants
 - Do not copy the deep-research proposal's architecture. It is an archived
   input, not the design (`docs/research/README.md`).
 - Record decisions as ADRs. Do not edit accepted ADRs; supersede them.
+- Priors are hypotheses (ADR 0014). Anything a change relies on that
+  was recalled, taken from the review, or derived in your head goes into
+  `docs/research/priors.md` with a test or a primary source before the
+  change is merged. When the laboratory contradicts a prior, the code
+  follows the measurement and the ledger records the falsification. Look
+  at every result from more than one perspective (information, Bayesian,
+  algorithm selection, cost, identifiability, implementation) and write
+  down where the perspectives disagree.
 - Keep wall-clock time out of decisions and out of hashes.
 - Never give the system a way to read `experiments/fixtures/`, a `Verdict`
   during an episode, or `PromotionCriteria` values.

@@ -18,6 +18,7 @@
 //! and manifests are parsed from strings that the composition root reads.
 
 pub mod bounds;
+pub mod diagnostics;
 pub mod families;
 pub mod fixture;
 pub mod headroom;

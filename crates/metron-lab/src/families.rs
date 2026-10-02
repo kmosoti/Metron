@@ -444,6 +444,52 @@ pub fn is_monotone(table: &TruthTable) -> bool {
     })
 }
 
+/// How many functions carrying each label satisfy the testable structural
+/// predicates. A label is the generator a function came from; whether the
+/// function is affine or monotone is a property of the function. When the
+/// two disagree, the label is not identifiable from probes.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LabelCrosstab {
+    /// The label.
+    pub label: String,
+    /// Functions carrying it.
+    pub count: usize,
+    /// Of those, how many are affine.
+    pub affine: usize,
+    /// Of those, how many are monotone.
+    pub monotone: usize,
+}
+
+/// Cross-tabulates labels against the testable predicates.
+#[must_use]
+pub fn label_crosstab<'a>(
+    members: impl IntoIterator<Item = (&'a str, &'a TruthTable)>,
+) -> Vec<LabelCrosstab> {
+    let mut rows: Vec<LabelCrosstab> = Vec::new();
+    for (label, table) in members {
+        let row = match rows.iter_mut().find(|r| r.label == label) {
+            Some(r) => r,
+            None => {
+                rows.push(LabelCrosstab {
+                    label: label.to_owned(),
+                    count: 0,
+                    affine: 0,
+                    monotone: 0,
+                });
+                rows.last_mut().expect("just pushed")
+            }
+        };
+        row.count += 1;
+        if is_affine(table) {
+            row.affine += 1;
+        }
+        if is_monotone(table) {
+            row.monotone += 1;
+        }
+    }
+    rows
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
