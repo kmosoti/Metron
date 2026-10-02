@@ -56,6 +56,8 @@ fn task_set(arity: u8, seed: u64) -> TaskSet {
             },
             targets_per_family: 2,
             split: Default::default(),
+            publish_pool: true,
+            class_hash_splits: false,
         },
         seed,
     )

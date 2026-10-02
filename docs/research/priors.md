@@ -34,6 +34,8 @@ not removed.
 | 20 | An always-correct adaptive strategy averages at least the entropy of the target distribution in queries (Shannon; Kraft's inequality on the query tree's leaves) | weights | `bounds::expected_queries_are_bounded_below_by_entropy`: exact optimal expected depth by DP on 40 random explicit classes of 6–14 members at arity 4–5, uniform and skewed weights | The optimum is never below the entropy; mean slack 0.066 bits; greedy's mean depth equals the optimum on average (ratio 1.000) | validated |
 | 21 | The SBS–VBS gap measures the headroom a router can realise (the ASlib convention used in ADR 0010) | review | entropy floor attached to the committed headroom and selector reports: floor 7.907 at both arities (log2 240) | The single best solver sits 0.126 (arity 5) and 0.070 (arity 6) above the floor, while the gap is 2.64 and 2.62. At most 4.8% and 2.7% of the gap is reachable by any strategy that is not told the family; the virtual best sits 2.5 probes below the floor | falsified as a measure of realisable headroom: the gap measures the value of the label. Realisable headroom is SBS minus the floor. ADR 0011's negative result follows from it without running a selector |
 | 22 | Bigger pools would reopen routing (ADR 0011's first reopening candidate) | derivation (ADR 0011) | the entropy floor with entry 4: greedy over the published union stays within a fraction of a probe of the floor at any pool size | Ruled out: a larger published pool raises the floor and the greedy cost together | falsified by derivation; ADR 0015 replaces the candidate with a structure-keyed task set that publishes no pool |
+| 23 | Adding a field with a serde default to the manifest schema leaves existing manifests' hashes, and so the reports named by them, unchanged | design | `every_committed_report_names_the_hash_of_its_manifest`: recompute each committed report's manifest hash | Five of six reports no longer matched. `selector` and `extra_cost_models` moved the two M2 reports; `retrieval` moved the M3 control and M4 reports. No single serialisation reproduces all six | falsified, then fixed: empty `retrieval` is skipped again, which restores four; the two M2 reports carry a verified record in `experiments/reports/provenance.json`; new fields serialise only when set, and the test catches any future drift |
+| 24 | NPN-clean splits within each task set are clean enough to pool seeds for learning | design | `class_hash_splits_stay_clean_when_seeds_are_pooled`; the arity-8 structure-keyed sets | Structural classes have few NPN classes (eight affine, nine junta types at arity 8), so a class dealt to train under one seed lands in test under another. Pooled hygiene fails | falsified before it could contaminate a result; the structure-keyed task sets assign splits by hashing each class's canonical form, and pooled hygiene is checked |
 
 ## Citation checks (entry 5)
 
@@ -79,6 +81,10 @@ repository relies on it.
   of arithmetic per task set, predicts ADR 0011's negative result to
   within a tenth of a probe; the selector sweep that established it cost
   thousands of episodes. Before building a router, compute the floor.
+- Two silent failures were in bookkeeping, not science: report names
+  drifting away from their manifests' hashes, and split hygiene that held
+  per seed but not pooled. Both would have stayed invisible because every
+  number in every report was still right. Provenance needs its own tests.
 - A virtual best solver can sit below what any honest strategy can
   reach. When the per-task best is keyed by something the strategies are
   never told, the gap prices that something, not the router.

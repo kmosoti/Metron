@@ -1,0 +1,10 @@
+{
+  "headroom-arity5-a7988cb29cc7.json": {
+    "manifest_hash_now": "3633285fca76",
+    "reason": "Produced at M2, before strategies gained `selector` and headroom specs gained `extra_cost_models`. Those fields now serialise for this manifest, which moved its hash. Regenerated with the current code on 2026-10-02: every number is unchanged; only the entropy floor was added."
+  },
+  "headroom-arity6-0e6e2ae3ccfa.json": {
+    "manifest_hash_now": "a0166a9d777e",
+    "reason": "Produced at M2, before strategies gained `selector` and headroom specs gained `extra_cost_models`. Those fields now serialise for this manifest, which moved its hash. Regenerated with the current code on 2026-10-02: every number is unchanged; only the entropy floor was added."
+  }
+}

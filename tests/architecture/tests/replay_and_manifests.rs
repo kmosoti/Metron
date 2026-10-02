@@ -82,3 +82,61 @@ fn committed_manifests_and_fixtures_are_runnable() {
         "expected committed manifests under experiments/manifests"
     );
 }
+
+#[test]
+fn every_committed_report_names_the_hash_of_its_manifest() {
+    // A report's file name carries the short hash of the manifest that
+    // produced it. If a code change alters how a manifest serialises, the
+    // hash moves and this fails, so old reports cannot silently lose their
+    // provenance. A report produced before such a change is listed in
+    // `experiments/reports/provenance.json` with the hash its manifest has
+    // now and why it moved; that entry must stay current too.
+    let root = workspace_root();
+    let provenance: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(root.join("experiments/reports/provenance.json"))
+            .expect("provenance.json"),
+    )
+    .expect("provenance.json parses");
+    let mut checked = 0;
+    let mut moved = Vec::new();
+    for entry in fs::read_dir(root.join("experiments/reports")).expect("reports dir") {
+        let name = entry
+            .expect("entry")
+            .file_name()
+            .to_string_lossy()
+            .into_owned();
+        let Some(stem) = name.strip_suffix(".json") else {
+            continue;
+        };
+        if name == "provenance.json" {
+            continue;
+        }
+        let Some((manifest_name, hash)) = stem.rsplit_once('-') else {
+            continue;
+        };
+        let path = root.join(format!("experiments/manifests/{manifest_name}.json"));
+        let text = fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("{name}: no manifest at {}: {e}", path.display()));
+        let manifest = Manifest::from_json(&text).expect("manifest parses");
+        let now = manifest.hash().short();
+        let alias = provenance
+            .get(&name)
+            .and_then(|e| e.get("manifest_hash_now"))
+            .and_then(serde_json::Value::as_str);
+        match alias {
+            _ if now == hash => {}
+            Some(recorded) if recorded == now => {}
+            _ => moved.push(format!("{name}: manifest now hashes to {now}")),
+        }
+        checked += 1;
+    }
+    assert!(
+        checked >= 6,
+        "expected the committed reports, found {checked}"
+    );
+    assert!(
+        moved.is_empty(),
+        "reports whose manifests now hash differently:\n{}",
+        moved.join("\n")
+    );
+}

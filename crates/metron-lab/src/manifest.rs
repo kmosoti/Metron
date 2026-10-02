@@ -176,14 +176,25 @@ pub struct Strategy {
     /// The selector, for adaptive strategies.
     #[serde(default)]
     pub selector: Option<SelectorSpec>,
+    /// A reference column: reported, but never a candidate for the single
+    /// best or the virtual best solver (ADR 0015). For strategies that are
+    /// correct only when told the family. Serialised only when set.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub reference: bool,
 }
 
 impl Strategy {
-    /// Whether this is a fixed schedule (a candidate for the single best
-    /// solver) rather than a selector.
+    /// Whether this is a fixed schedule rather than a selector.
     #[must_use]
     pub fn is_fixed(&self) -> bool {
         self.selector.is_none()
+    }
+
+    /// Whether this strategy is a candidate for the single best and the
+    /// virtual best solver: a fixed schedule that is not a reference.
+    #[must_use]
+    pub fn is_candidate(&self) -> bool {
+        self.is_fixed() && !self.reference
     }
 }
 
@@ -246,7 +257,7 @@ pub struct Manifest {
     pub headroom: Option<HeadroomSpec>,
     /// Retrieval workload settings, when the manifest is a retrieval
     /// measurement.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retrieval: Option<crate::retrieval::RetrievalSpec>,
 }
 
@@ -267,19 +278,20 @@ impl Manifest {
                 name: "default".into(),
                 schedule: self.system.schedule.clone(),
                 selector: None,
+                reference: false,
             }]
         } else {
             self.system.strategies.clone()
         }
     }
 
-    /// Names of the fixed strategies, the candidates for the single best
-    /// solver.
+    /// Names of the candidates for the single best and the virtual best
+    /// solver: fixed strategies that are not references.
     #[must_use]
     pub fn fixed_strategy_names(&self) -> Vec<String> {
         self.strategies()
             .into_iter()
-            .filter(Strategy::is_fixed)
+            .filter(Strategy::is_candidate)
             .map(|s| s.name)
             .collect()
     }
@@ -313,6 +325,17 @@ impl Manifest {
                     "task set needs targets and pool members".into(),
                 ));
             }
+            if !tasks.publish_pool
+                && let Some(f) = tasks
+                    .pool
+                    .families
+                    .iter()
+                    .find(|f| f.class_size(tasks.arity, &tasks.pool.params).is_none())
+            {
+                return Err(ManifestError::Invalid(format!(
+                    "a task set without a published pool needs structure-keyed classes; `{f}` is a generator family"
+                )));
+            }
         }
         let strategies = self.strategies();
         for s in &strategies {
@@ -342,9 +365,9 @@ impl Manifest {
                 )));
             }
         }
-        if self.headroom.is_some() && !strategies.iter().any(Strategy::is_fixed) {
+        if self.headroom.is_some() && !strategies.iter().any(Strategy::is_candidate) {
             return Err(ManifestError::Invalid(
-                "headroom needs at least one fixed strategy".into(),
+                "headroom needs at least one fixed strategy that is not a reference".into(),
             ));
         }
         for s in &strategies {

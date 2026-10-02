@@ -151,6 +151,8 @@ mod tests {
                 },
                 targets_per_family: 5,
                 split: SplitFractionsSpec::default(),
+                publish_pool: true,
+                class_hash_splits: false,
             },
             seed,
         )

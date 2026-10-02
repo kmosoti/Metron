@@ -48,6 +48,7 @@ pub struct LabWorld {
     counter: Counter,
     knowledge: BTreeMap<String, Representation>,
     pool_params: Option<serde_json::Value>,
+    structure: Option<serde_json::Value>,
 }
 
 impl LabWorld {
@@ -64,16 +65,30 @@ impl LabWorld {
             counter: Counter::default(),
             knowledge: BTreeMap::new(),
             pool_params: None,
+            structure: None,
         }
     }
 
     /// Creates a world for one task of a task set: the task's target,
-    /// sealed, with the set's pool as public knowledge.
+    /// sealed, with the set's pool as public knowledge, or, for a pool-free
+    /// set, the structure promise.
     #[must_use]
     pub fn for_task(set: &TaskSet, task: &Task, protocol: Protocol) -> Self {
-        Self::new(HiddenFunction::new(task.target.table.clone()), protocol)
-            .with_pool(&set.pool)
-            .with_target_info(task.target.family, task.target.description.clone())
+        let world = Self::new(HiddenFunction::new(task.target.table.clone()), protocol);
+        let world = if set.publish_pool {
+            world.with_pool(&set.pool)
+        } else {
+            world.with_structure(set.structure_promise())
+        };
+        world.with_target_info(task.target.family, task.target.description.clone())
+    }
+
+    /// Publishes a structure promise (ADR 0015) instead of a pool: the
+    /// classes the target may belong to and the prior over them.
+    #[must_use]
+    pub fn with_structure(mut self, promise: serde_json::Value) -> Self {
+        self.structure = Some(promise);
+        self
     }
 
     /// Attaches a hypothesis pool as public knowledge.
@@ -108,8 +123,13 @@ impl LabWorld {
         if let Some(pool) = &self.pool_params {
             params["pool"] = pool.clone();
         }
+        if let Some(structure) = &self.structure {
+            params["structure"] = structure.clone();
+        }
         let pool_sentence = if self.pool_params.is_some() {
             " The function is a member of the published hypothesis pool (see the `pool` parameter and the documents it names)."
+        } else if self.structure.is_some() {
+            " The function belongs to one of the structural classes in the `structure` parameter, drawn uniformly over the classes and then uniformly within its class."
         } else {
             ""
         };
@@ -416,6 +436,8 @@ mod tests {
             },
             targets_per_family: 2,
             split: Default::default(),
+            publish_pool: true,
+            class_hash_splits: false,
         };
         let set = TaskSet::generate(&spec, 1);
         let task = &set.tasks[0];

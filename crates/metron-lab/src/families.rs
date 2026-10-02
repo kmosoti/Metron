@@ -28,10 +28,17 @@ pub enum Family {
     KTermDnf,
     /// Shallow decision trees.
     DecisionTree,
+    /// Functions of the number of ones only: not constant, not affine.
+    Symmetric,
+    /// Functions with exactly `junta_size` relevant variables, not affine.
+    Junta,
 }
 
 impl Family {
-    /// Every family, in canonical order.
+    /// The six generator families of the mixed laboratory (M1 to M3 on the
+    /// family-labelled task sets), in canonical order. Their labels name a
+    /// generator, not a property: a monotone function can also be a
+    /// threshold function.
     pub const ALL: [Family; 6] = [
         Family::Affine,
         Family::Monotone,
@@ -39,6 +46,22 @@ impl Family {
         Family::Threshold,
         Family::KTermDnf,
         Family::DecisionTree,
+    ];
+
+    /// The structure-keyed classes of ADR 0015: each a property of the
+    /// function, disjoint by construction, each with an exact size.
+    pub const STRUCTURE_KEYED: [Family; 3] = [Family::Affine, Family::Symmetric, Family::Junta];
+
+    /// Every family, mixed and structure-keyed.
+    pub const EVERY: [Family; 8] = [
+        Family::Affine,
+        Family::Monotone,
+        Family::ReadOnce,
+        Family::Threshold,
+        Family::KTermDnf,
+        Family::DecisionTree,
+        Family::Symmetric,
+        Family::Junta,
     ];
 
     /// The label used in manifests, pool documents and reports.
@@ -51,14 +74,75 @@ impl Family {
             Family::Threshold => "threshold",
             Family::KTermDnf => "k-term-dnf",
             Family::DecisionTree => "decision-tree",
+            Family::Symmetric => "symmetric",
+            Family::Junta => "junta",
         }
     }
 
     /// Parses a label.
     #[must_use]
     pub fn parse(label: &str) -> Option<Family> {
-        Family::ALL.into_iter().find(|f| f.label() == label)
+        Family::EVERY.into_iter().find(|f| f.label() == label)
     }
+
+    /// The class's definition as the question publishes it, for the
+    /// structure-keyed classes.
+    #[must_use]
+    pub fn definition(self, params: &FamilyParams) -> Option<String> {
+        match self {
+            Family::Affine => {
+                Some("a·x ⊕ b over GF(2) with a ≠ 0 (parity and its complement included)".into())
+            }
+            Family::Symmetric => {
+                Some("depends only on the number of ones in x; not constant and not affine".into())
+            }
+            Family::Junta => Some(format!(
+                "exactly {} relevant variables; not affine",
+                params.junta_size
+            )),
+            _ => None,
+        }
+    }
+
+    /// Exact number of functions in the class on `arity` inputs, for the
+    /// structure-keyed classes; `None` for generator families, whose
+    /// sampling distribution is not uniform over a defined class.
+    #[must_use]
+    pub fn class_size(self, arity: u8, params: &FamilyParams) -> Option<f64> {
+        let n = i32::from(arity);
+        match self {
+            Family::Affine => Some(2.0 * (2f64.powi(n) - 1.0)),
+            Family::Symmetric => Some((2f64.powi(n + 1) - 4.0).max(0.0)),
+            Family::Junta => {
+                let k = params.junta_size;
+                if k == 0 || k > usize::from(arity) {
+                    return Some(0.0);
+                }
+                let affine_on_all = 2.0;
+                Some(binomial(usize::from(arity), k) * (depends_on_all(k) - affine_on_all))
+            }
+            _ => None,
+        }
+    }
+}
+
+/// `C(n, k)` as a float.
+fn binomial(n: usize, k: usize) -> f64 {
+    if k > n {
+        return 0.0;
+    }
+    (0..k).fold(1.0, |acc, i| acc * (n - i) as f64 / (i + 1) as f64)
+}
+
+/// Number of Boolean functions of `k` variables that depend on all `k`, by
+/// inclusion and exclusion over the variables they ignore.
+fn depends_on_all(k: usize) -> f64 {
+    (0..=k)
+        .map(|j| {
+            let sign = if (k - j).is_multiple_of(2) { 1.0 } else { -1.0 };
+            sign * binomial(k, j) * 2f64.powf(2f64.powi(j as i32))
+        })
+        .sum()
 }
 
 impl fmt::Display for Family {
@@ -85,6 +169,14 @@ pub struct FamilyParams {
     /// Largest absolute weight of a threshold function.
     #[serde(default = "default_max_weight")]
     pub max_weight: i32,
+    /// Relevant variables of a `junta` function. Serialised only when it
+    /// differs from the default, so manifests written before it existed
+    /// keep their hashes.
+    #[serde(
+        default = "default_junta_size",
+        skip_serializing_if = "is_default_junta_size"
+    )]
+    pub junta_size: usize,
 }
 
 const fn default_k_terms() -> usize {
@@ -102,6 +194,13 @@ const fn default_minimal_points() -> usize {
 const fn default_max_weight() -> i32 {
     3
 }
+const fn default_junta_size() -> usize {
+    3
+}
+#[allow(clippy::trivially_copy_pass_by_ref)]
+const fn is_default_junta_size(k: &usize) -> bool {
+    *k == default_junta_size()
+}
 
 impl Default for FamilyParams {
     fn default() -> Self {
@@ -111,6 +210,7 @@ impl Default for FamilyParams {
             tree_depth: default_tree_depth(),
             minimal_points: default_minimal_points(),
             max_weight: default_max_weight(),
+            junta_size: default_junta_size(),
         }
     }
 }
@@ -140,6 +240,8 @@ pub fn sample(family: Family, arity: u8, params: &FamilyParams, rng: &mut Rng) -
             Family::Threshold => threshold(arity, params, rng),
             Family::KTermDnf => k_term_dnf(arity, params, rng),
             Family::DecisionTree => decision_tree(arity, params, rng),
+            Family::Symmetric => symmetric(arity, rng),
+            Family::Junta => junta(arity, params, rng),
         };
         if !target.table.is_constant() {
             return target;
@@ -423,6 +525,105 @@ fn decision_tree(arity: u8, params: &FamilyParams, rng: &mut Rng) -> Target {
     }
 }
 
+/// Uniform over symmetric functions that are neither constant nor affine:
+/// the weight profile `g` is drawn uniformly and redrawn when it is
+/// constant or alternating (parity and its complement).
+fn symmetric(arity: u8, rng: &mut Rng) -> Target {
+    let n = usize::from(arity);
+    if n < 2 {
+        // No symmetric function on one input is both non-constant and
+        // non-affine; fall back to the affine generator.
+        return affine(arity, rng);
+    }
+    let profile: Vec<bool> = loop {
+        let g: Vec<bool> = (0..=n).map(|_| rng.bool()).collect();
+        let constant = g.iter().all(|&b| b == g[0]);
+        let alternating = g.windows(2).all(|w| w[0] != w[1]);
+        if !constant && !alternating {
+            break g;
+        }
+    };
+    let table = TruthTable::from_fn(arity, |row| profile[row.count_ones() as usize])
+        .expect("arity validated by caller");
+    let ones: Vec<String> = (0..=n)
+        .filter(|&w| profile[w])
+        .map(|w| w.to_string())
+        .collect();
+    Target {
+        table,
+        family: Family::Symmetric,
+        description: format!(
+            "true exactly when the number of ones is in {{{}}}",
+            ones.join(", ")
+        ),
+    }
+}
+
+/// Uniform over functions with exactly `junta_size` relevant variables that
+/// are not affine: a uniformly random set of variables and a uniformly
+/// random table on them, redrawn when the table ignores a variable or is
+/// affine.
+fn junta(arity: u8, params: &FamilyParams, rng: &mut Rng) -> Target {
+    let n = usize::from(arity);
+    let k = params.junta_size.clamp(1, n);
+    let mut vars: Vec<usize> = (0..n).collect();
+    rng.shuffle(&mut vars);
+    let mut chosen: Vec<usize> = vars[..k].to_vec();
+    chosen.sort_unstable();
+    let cells = 1usize << k;
+    let inner: Vec<bool> = loop {
+        let t: Vec<bool> = (0..cells).map(|_| rng.bool()).collect();
+        let depends_on_all = (0..k).all(|j| (0..cells).any(|c| t[c] != t[c ^ (1 << j)]));
+        let f0 = t[0];
+        let affine = (0..cells).all(|x| (0..cells).all(|y| t[x ^ y] ^ f0 == t[x] ^ t[y]));
+        if depends_on_all && !affine {
+            break t;
+        }
+    };
+    let project = |row: usize| -> usize {
+        chosen
+            .iter()
+            .enumerate()
+            .fold(0, |acc, (j, &v)| acc | (((row >> v) & 1) << j))
+    };
+    let table =
+        TruthTable::from_fn(arity, |row| inner[project(row)]).expect("arity validated by caller");
+    let names: Vec<String> = chosen.iter().map(|&v| var(v)).collect();
+    let bits: String = inner.iter().map(|&b| if b { '1' } else { '0' }).collect();
+    Target {
+        table,
+        family: Family::Junta,
+        description: format!("on {{{}}} with table {bits}", names.join(", ")),
+    }
+}
+
+/// Whether `table` depends only on the number of ones in its input.
+#[must_use]
+pub fn is_symmetric(table: &TruthTable) -> bool {
+    let n = usize::from(table.arity());
+    let mut seen: Vec<Option<bool>> = vec![None; n + 1];
+    (0..table.rows()).all(|row| {
+        let w = row.count_ones() as usize;
+        let v = table.eval(row);
+        match seen[w] {
+            Some(prev) => prev == v,
+            None => {
+                seen[w] = Some(v);
+                true
+            }
+        }
+    })
+}
+
+/// The variables `table` depends on, in increasing order.
+#[must_use]
+pub fn relevant_variables(table: &TruthTable) -> Vec<usize> {
+    let n = usize::from(table.arity());
+    (0..n)
+        .filter(|&i| (0..table.rows()).any(|row| table.eval(row) != table.eval(row ^ (1 << i))))
+        .collect()
+}
+
 /// Whether `table` is affine over GF(2).
 #[must_use]
 pub fn is_affine(table: &TruthTable) -> bool {
@@ -521,8 +722,94 @@ mod tests {
     }
 
     #[test]
+    fn structure_keyed_generators_produce_disjoint_class_members() {
+        let params = FamilyParams::default();
+        let mut rng = Rng::seed_from_u64(5);
+        for arity in [4u8, 6, 8] {
+            for _ in 0..40 {
+                let a = sample(Family::Affine, arity, &params, &mut rng);
+                assert!(is_affine(&a.table) && !a.table.is_constant());
+                let s = sample(Family::Symmetric, arity, &params, &mut rng);
+                assert_eq!(s.family, Family::Symmetric);
+                assert!(is_symmetric(&s.table), "{}", s.description);
+                assert!(!is_affine(&s.table) && !s.table.is_constant());
+                let j = sample(Family::Junta, arity, &params, &mut rng);
+                assert_eq!(j.family, Family::Junta);
+                assert_eq!(relevant_variables(&j.table).len(), 3, "{}", j.description);
+                assert!(!is_affine(&j.table));
+            }
+        }
+    }
+
+    #[test]
+    fn class_sizes_match_exhaustive_enumeration() {
+        // Prior: the closed forms for the class sizes. Checked by
+        // classifying every function on four inputs.
+        let params = FamilyParams::default();
+        let arity = 4u8;
+        let (mut affine, mut symmetric, mut junta) = (0usize, 0usize, 0usize);
+        for bits in 0..(1u32 << 16) {
+            let t = TruthTable::from_fn(arity, |row| (bits >> row) & 1 == 1).unwrap();
+            if t.is_constant() {
+                continue;
+            }
+            let aff = is_affine(&t);
+            if aff {
+                affine += 1;
+            }
+            if is_symmetric(&t) && !aff {
+                symmetric += 1;
+            }
+            if relevant_variables(&t).len() == 3 && !aff {
+                junta += 1;
+            }
+        }
+        assert_eq!(
+            Family::Affine.class_size(arity, &params),
+            Some(affine as f64)
+        );
+        assert_eq!(
+            Family::Symmetric.class_size(arity, &params),
+            Some(symmetric as f64)
+        );
+        assert_eq!(Family::Junta.class_size(arity, &params), Some(junta as f64));
+        assert_eq!((affine, symmetric, junta), (30, 28, 864));
+        assert_eq!(Family::Junta.class_size(8, &params), Some(12_096.0));
+        assert_eq!(Family::Affine.class_size(8, &params), Some(510.0));
+        assert_eq!(Family::Symmetric.class_size(8, &params), Some(508.0));
+        assert_eq!(depends_on_all(4), 64_594.0);
+        assert_eq!(Family::Monotone.class_size(8, &params), None);
+    }
+
+    #[test]
+    fn structure_keyed_generators_are_uniform_over_their_classes() {
+        // Prior: rejection sampling from a uniform proposal is uniform over
+        // the accepted set. Chi-square over the 28 symmetric functions on
+        // four inputs and over the 30 non-constant affine functions.
+        let params = FamilyParams::default();
+        let mut rng = Rng::seed_from_u64(77);
+        for (family, classes) in [(Family::Symmetric, 28usize), (Family::Affine, 30)] {
+            let draws = 28_000usize;
+            let mut counts: std::collections::BTreeMap<String, usize> =
+                std::collections::BTreeMap::new();
+            for _ in 0..draws {
+                let t = sample(family, 4, &params, &mut rng).table.to_rows_string();
+                *counts.entry(t).or_insert(0) += 1;
+            }
+            assert_eq!(counts.len(), classes, "{family}: every member is drawn");
+            let expected = draws as f64 / classes as f64;
+            let chi2: f64 = counts
+                .values()
+                .map(|&c| (c as f64 - expected).powi(2) / expected)
+                .sum();
+            // 0.1% critical value for 27 or 29 degrees of freedom is about 56.
+            assert!(chi2 < 56.0, "{family}: chi-square {chi2:.1}");
+        }
+    }
+
+    #[test]
     fn labels_round_trip() {
-        for f in Family::ALL {
+        for f in Family::EVERY {
             assert_eq!(Family::parse(f.label()), Some(f));
             let json = serde_json::to_string(&f).unwrap();
             assert_eq!(json, format!("\"{}\"", f.label()));
