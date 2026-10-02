@@ -21,6 +21,7 @@ cargo run -p metron-cli -- explain experiments/manifests/smoke-majority3.json
 | `smoke-majority3-capped` | Caps the oracle at four probes; the approximate `complete-table-by-default` contract fills the rest and the verdict reports the disagreement. |
 | `llm-consult-majority3` | Probes four rows, suspends with a prompt for the language-model service, verifies the proposal on resume, commits if consistent, otherwise falls back to the exhaustive pipeline. |
 | `headroom-arity5`, `headroom-arity6` | Ten task-set seeds, six families, strategies from exhaustive to family-restricted version spaces; `metron headroom` reports SBS, VBS and gap closed. |
+| `selectors-arity5`, `selectors-arity6` | The same, plus `survivor-count` selector columns (rule `most` with prefix 0 to 6, and `fewest` as the negative control) and two extra cost models. The M3 control measurement (ADR 0011). |
 
 All runs are deterministic for a given manifest and seed; consultation runs
 replay from their journals.

@@ -1,7 +1,7 @@
 //! Headroom measurement: every strategy on every task of every task-set
 //! seed, scored under the manifest's cost model.
 
-use crate::compose::{load_manifest, registry, schedule_from};
+use crate::compose::{load_manifest, registry, scheduler_for};
 use crate::world::ComposedWorld;
 use metron_adapters::{SystemClock, write_json_pretty};
 use metron_app::{EpisodeRunner, RunConfig, RunOutcome};
@@ -76,6 +76,7 @@ pub fn run_headroom(
     let splits: Vec<Split> = headroom.splits.iter().filter_map(|s| split_of(s)).collect();
     let strategies = manifest.strategies();
     let names: Vec<String> = strategies.iter().map(|s| s.name.clone()).collect();
+    let fixed = manifest.fixed_strategy_names();
     let mut table = CostTable::new(names.clone());
     let runner = EpisodeRunner::new(registry()?, SystemClock).with_config(RunConfig {
         max_steps: manifest.system.max_steps,
@@ -106,7 +107,7 @@ pub fn run_headroom(
                 let mut world = ComposedWorld::new(LabWorld::for_task(&set, task, protocol));
                 let mut inquiry = Inquiry::new(InquiryId(1), world.lab().question())
                     .with_budget(manifest.system.budget);
-                let mut schedule = schedule_from(&strategy.schedule);
+                let mut scheduler = scheduler_for(strategy);
                 let outcome = runner
                     .run(
                         EpisodeId(1),
@@ -114,7 +115,7 @@ pub fn run_headroom(
                         manifest.hash(),
                         &mut inquiry,
                         &mut world,
-                        &mut schedule,
+                        scheduler.as_mut(),
                     )
                     .map_err(|e| e.to_string())?;
                 let episode = match outcome {
@@ -152,7 +153,7 @@ pub fn run_headroom(
     let report = analyze(
         &table,
         &headroom.cost_model,
-        Some(&names),
+        Some(&fixed),
         headroom.resamples,
         manifest.seed,
     );
@@ -160,7 +161,7 @@ pub fn run_headroom(
         "Headroom: {} ({} seeds, arity {})",
         manifest.name, seeds, spec.arity
     );
-    let markdown = render_markdown(&report, &title);
+    let mut markdown = render_markdown(&report, &title);
     let dir = options.results_root.join(format!(
         "headroom-{}-{}",
         manifest.name,
@@ -170,6 +171,21 @@ pub fn run_headroom(
     write_json_pretty(dir.join("manifest.json"), &manifest).map_err(|e| e.to_string())?;
     write_json_pretty(dir.join("cost-table.json"), &table).map_err(|e| e.to_string())?;
     write_json_pretty(dir.join("headroom.json"), &report).map_err(|e| e.to_string())?;
+    for (name, model) in &headroom.extra_cost_models {
+        let extra = analyze(
+            &table,
+            model,
+            Some(&fixed),
+            headroom.resamples,
+            manifest.seed,
+        );
+        let extra_md = render_markdown(&extra, &format!("{title}, cost model `{name}`"));
+        write_json_pretty(dir.join(format!("headroom-{name}.json")), &extra)
+            .map_err(|e| e.to_string())?;
+        fs::write(dir.join(format!("headroom-{name}.md")), &extra_md).map_err(|e| e.to_string())?;
+        markdown.push_str("\n\n");
+        markdown.push_str(&extra_md);
+    }
     fs::write(dir.join("headroom.md"), &markdown).map_err(|e| e.to_string())?;
     Ok(HeadroomOutcome {
         dir,

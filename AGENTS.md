@@ -78,9 +78,13 @@ tests/architecture        executable invariants
 - Changing the cost model (`metron_core::cost::Cost`) or the journal
   format is an ADR-level change.
 - Do not add, before their gates in ADR 0006 and the milestones are met:
-  hyperdimensional memory or learned routing. Routing (M3) needs the M2
-  report's gap interval to exclude zero and a hand-authored heuristic not
-  to close it already.
+  hyperdimensional memory or learned routing. Routing (M3) is closed as a
+  negative result on the current laboratory configuration (ADR 0011):
+  the family label that defines the virtual best solver is not
+  identifiable from probes. Any routing claim needs a task set whose
+  per-task best is keyed by verifiable structure, a fresh headroom
+  report, and a selector column that beats the fixed strategies and the
+  `survivor-count` control on an NPN-clean test split.
 - Do not copy the deep-research proposal's architecture. It is an archived
   input, not the design (`docs/research/README.md`).
 - Record decisions as ADRs. Do not edit accepted ADRs; supersede them.

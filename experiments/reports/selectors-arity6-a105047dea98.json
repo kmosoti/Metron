@@ -1,0 +1,402 @@
+{
+  "cost_model": {
+    "probe_weight": 1.0,
+    "work_weight": 0.0,
+    "external_weight": 0.0,
+    "failure_cost": 128.0
+  },
+  "tasks": 300,
+  "strategies": [
+    {
+      "name": "exhaustive",
+      "mean_cost": 64.0,
+      "iqm_cost": 64.0,
+      "iqm_ci": [
+        64.0,
+        64.0
+      ],
+      "solved": 1.0,
+      "mean_probes_when_solved": 64.0,
+      "gap_closed": -21.38295165394402
+    },
+    {
+      "name": "greedy-pool",
+      "mean_cost": 7.976666666666667,
+      "iqm_cost": 8.0,
+      "iqm_ci": [
+        8.0,
+        8.0
+      ],
+      "solved": 1.0,
+      "mean_probes_when_solved": 7.976666666666667,
+      "gap_closed": 0.0
+    },
+    {
+      "name": "affine-verified-then-greedy",
+      "mean_cost": 30.483333333333334,
+      "iqm_cost": 10.746666666666666,
+      "iqm_ci": [
+        10.446666666666667,
+        11.08
+      ],
+      "solved": 0.8266666666666667,
+      "mean_probes_when_solved": 10.036290322580646,
+      "gap_closed": -8.59033078880407
+    },
+    {
+      "name": "greedy-affine-only",
+      "mean_cost": 107.54666666666667,
+      "iqm_cost": 128.0,
+      "iqm_ci": [
+        128.0,
+        128.0
+      ],
+      "solved": 0.16666666666666666,
+      "mean_probes_when_solved": 5.28,
+      "gap_closed": -38.00381679389312
+    },
+    {
+      "name": "greedy-monotone-only",
+      "mean_cost": 107.54666666666667,
+      "iqm_cost": 128.0,
+      "iqm_ci": [
+        128.0,
+        128.0
+      ],
+      "solved": 0.16666666666666666,
+      "mean_probes_when_solved": 5.28,
+      "gap_closed": -38.00381679389312
+    },
+    {
+      "name": "greedy-read-once-only",
+      "mean_cost": 107.55666666666667,
+      "iqm_cost": 128.0,
+      "iqm_ci": [
+        128.0,
+        128.0
+      ],
+      "solved": 0.16666666666666666,
+      "mean_probes_when_solved": 5.34,
+      "gap_closed": -38.007633587786266
+    },
+    {
+      "name": "greedy-threshold-only",
+      "mean_cost": 107.56333333333333,
+      "iqm_cost": 128.0,
+      "iqm_ci": [
+        128.0,
+        128.0
+      ],
+      "solved": 0.16666666666666666,
+      "mean_probes_when_solved": 5.38,
+      "gap_closed": -38.01017811704835
+    },
+    {
+      "name": "greedy-k-term-dnf-only",
+      "mean_cost": 107.57333333333334,
+      "iqm_cost": 128.0,
+      "iqm_ci": [
+        128.0,
+        128.0
+      ],
+      "solved": 0.16666666666666666,
+      "mean_probes_when_solved": 5.44,
+      "gap_closed": -38.01399491094147
+    },
+    {
+      "name": "greedy-decision-tree-only",
+      "mean_cost": 107.57,
+      "iqm_cost": 128.0,
+      "iqm_ci": [
+        128.0,
+        128.0
+      ],
+      "solved": 0.16666666666666666,
+      "mean_probes_when_solved": 5.42,
+      "gap_closed": -38.01272264631043
+    },
+    {
+      "name": "select-most-survivors-k0",
+      "mean_cost": 107.57,
+      "iqm_cost": 128.0,
+      "iqm_ci": [
+        128.0,
+        128.0
+      ],
+      "solved": 0.16666666666666666,
+      "mean_probes_when_solved": 5.42,
+      "gap_closed": -38.01272264631043
+    },
+    {
+      "name": "select-most-survivors-k1",
+      "mean_cost": 96.66,
+      "iqm_cost": 126.38666666666667,
+      "iqm_ci": [
+        117.44666666666667,
+        128.0
+      ],
+      "solved": 0.25666666666666665,
+      "mean_probes_when_solved": 5.896103896103896,
+      "gap_closed": -33.848600508905854
+    },
+    {
+      "name": "select-most-survivors-k2",
+      "mean_cost": 92.66666666666667,
+      "iqm_cost": 118.34,
+      "iqm_ci": [
+        107.78666666666666,
+        128.0
+      ],
+      "solved": 0.29,
+      "mean_probes_when_solved": 6.160919540229885,
+      "gap_closed": -32.32442748091603
+    },
+    {
+      "name": "select-most-survivors-k3",
+      "mean_cost": 87.89666666666666,
+      "iqm_cost": 108.68666666666667,
+      "iqm_ci": [
+        96.59333333333333,
+        120.76
+      ],
+      "solved": 0.33,
+      "mean_probes_when_solved": 6.474747474747475,
+      "gap_closed": -30.503816793893122
+    },
+    {
+      "name": "select-most-survivors-k4",
+      "mean_cost": 81.49,
+      "iqm_cost": 95.83333333333333,
+      "iqm_ci": [
+        83.74,
+        107.92
+      ],
+      "solved": 0.38333333333333336,
+      "mean_probes_when_solved": 6.6695652173913045,
+      "gap_closed": -28.058524173027983
+    },
+    {
+      "name": "select-most-survivors-k5",
+      "mean_cost": 77.19,
+      "iqm_cost": 87.09333333333333,
+      "iqm_ci": [
+        74.18666666666667,
+        99.93333333333334
+      ],
+      "solved": 0.42,
+      "mean_probes_when_solved": 7.023809523809524,
+      "gap_closed": -26.41730279898219
+    },
+    {
+      "name": "select-most-survivors-k6",
+      "mean_cost": 68.81666666666666,
+      "iqm_cost": 70.26,
+      "iqm_ci": [
+        56.666666666666664,
+        83.16
+      ],
+      "solved": 0.49,
+      "mean_probes_when_solved": 7.217687074829932,
+      "gap_closed": -23.221374045801525
+    },
+    {
+      "name": "select-fewest-survivors-k0",
+      "mean_cost": 107.54666666666667,
+      "iqm_cost": 128.0,
+      "iqm_ci": [
+        128.0,
+        128.0
+      ],
+      "solved": 0.16666666666666666,
+      "mean_probes_when_solved": 5.28,
+      "gap_closed": -38.00381679389312
+    },
+    {
+      "name": "select-fewest-survivors-k3",
+      "mean_cost": 120.58333333333333,
+      "iqm_cost": 128.0,
+      "iqm_ci": [
+        128.0,
+        128.0
+      ],
+      "solved": 0.06,
+      "mean_probes_when_solved": 4.388888888888889,
+      "gap_closed": -42.979643765903305
+    }
+  ],
+  "sbs": "greedy-pool",
+  "sbs_cost": 7.976666666666667,
+  "vbs_cost": 5.3566666666666665,
+  "gap": 2.62,
+  "gap_ci": [
+    2.55,
+    2.69
+  ],
+  "vbs_over_sbs": 0.671541997492687,
+  "vbs_choices": {
+    "greedy-affine-only": 50,
+    "greedy-decision-tree-only": 50,
+    "greedy-k-term-dnf-only": 50,
+    "greedy-monotone-only": 50,
+    "greedy-read-once-only": 50,
+    "greedy-threshold-only": 50
+  },
+  "families": [
+    {
+      "family": "affine",
+      "tasks": 50,
+      "mean_cost": {
+        "affine-verified-then-greedy": 7.52,
+        "exhaustive": 64.0,
+        "greedy-affine-only": 5.28,
+        "greedy-decision-tree-only": 128.0,
+        "greedy-k-term-dnf-only": 128.0,
+        "greedy-monotone-only": 128.0,
+        "greedy-pool": 7.82,
+        "greedy-read-once-only": 128.0,
+        "greedy-threshold-only": 128.0,
+        "select-fewest-survivors-k0": 5.28,
+        "select-fewest-survivors-k3": 118.16,
+        "select-most-survivors-k0": 128.0,
+        "select-most-survivors-k1": 120.66,
+        "select-most-survivors-k2": 108.48,
+        "select-most-survivors-k3": 108.48,
+        "select-most-survivors-k4": 108.58,
+        "select-most-survivors-k5": 96.46,
+        "select-most-survivors-k6": 89.34
+      },
+      "best": "greedy-affine-only",
+      "vbs_cost": 5.28
+    },
+    {
+      "family": "decision-tree",
+      "tasks": 50,
+      "mean_cost": {
+        "affine-verified-then-greedy": 37.8,
+        "exhaustive": 64.0,
+        "greedy-affine-only": 128.0,
+        "greedy-decision-tree-only": 5.42,
+        "greedy-k-term-dnf-only": 128.0,
+        "greedy-monotone-only": 128.0,
+        "greedy-pool": 7.92,
+        "greedy-read-once-only": 128.0,
+        "greedy-threshold-only": 128.0,
+        "select-fewest-survivors-k0": 128.0,
+        "select-fewest-survivors-k3": 123.02,
+        "select-most-survivors-k0": 5.42,
+        "select-most-survivors-k1": 110.92,
+        "select-most-survivors-k2": 115.78,
+        "select-most-survivors-k3": 110.94,
+        "select-most-survivors-k4": 91.48,
+        "select-most-survivors-k5": 81.88,
+        "select-most-survivors-k6": 52.72
+      },
+      "best": "greedy-decision-tree-only",
+      "vbs_cost": 5.42
+    },
+    {
+      "family": "k-term-dnf",
+      "tasks": 50,
+      "mean_cost": {
+        "affine-verified-then-greedy": 40.76,
+        "exhaustive": 64.0,
+        "greedy-affine-only": 128.0,
+        "greedy-decision-tree-only": 128.0,
+        "greedy-k-term-dnf-only": 5.44,
+        "greedy-monotone-only": 128.0,
+        "greedy-pool": 7.96,
+        "greedy-read-once-only": 128.0,
+        "greedy-threshold-only": 128.0,
+        "select-fewest-survivors-k0": 128.0,
+        "select-fewest-survivors-k3": 128.0,
+        "select-most-survivors-k0": 128.0,
+        "select-most-survivors-k1": 42.48,
+        "select-most-survivors-k2": 74.38,
+        "select-most-survivors-k3": 79.32,
+        "select-most-survivors-k4": 76.88,
+        "select-most-survivors-k5": 72.18,
+        "select-most-survivors-k6": 69.92
+      },
+      "best": "greedy-k-term-dnf-only",
+      "vbs_cost": 5.44
+    },
+    {
+      "family": "monotone",
+      "tasks": 50,
+      "mean_cost": {
+        "affine-verified-then-greedy": 21.68,
+        "exhaustive": 64.0,
+        "greedy-affine-only": 128.0,
+        "greedy-decision-tree-only": 128.0,
+        "greedy-k-term-dnf-only": 128.0,
+        "greedy-monotone-only": 5.28,
+        "greedy-pool": 8.02,
+        "greedy-read-once-only": 128.0,
+        "greedy-threshold-only": 128.0,
+        "select-fewest-survivors-k0": 128.0,
+        "select-fewest-survivors-k3": 118.1,
+        "select-most-survivors-k0": 128.0,
+        "select-most-survivors-k1": 49.9,
+        "select-most-survivors-k2": 47.6,
+        "select-most-survivors-k3": 45.44,
+        "select-most-survivors-k4": 35.88,
+        "select-most-survivors-k5": 43.44,
+        "select-most-survivors-k6": 43.66
+      },
+      "best": "greedy-monotone-only",
+      "vbs_cost": 5.28
+    },
+    {
+      "family": "read-once",
+      "tasks": 50,
+      "mean_cost": {
+        "affine-verified-then-greedy": 36.4,
+        "exhaustive": 64.0,
+        "greedy-affine-only": 128.0,
+        "greedy-decision-tree-only": 128.0,
+        "greedy-k-term-dnf-only": 128.0,
+        "greedy-monotone-only": 128.0,
+        "greedy-pool": 7.98,
+        "greedy-read-once-only": 5.34,
+        "greedy-threshold-only": 128.0,
+        "select-fewest-survivors-k0": 128.0,
+        "select-fewest-survivors-k3": 120.58,
+        "select-most-survivors-k0": 128.0,
+        "select-most-survivors-k1": 128.0,
+        "select-most-survivors-k2": 110.98,
+        "select-most-survivors-k3": 91.54,
+        "select-most-survivors-k4": 98.9,
+        "select-most-survivors-k5": 96.6,
+        "select-most-survivors-k6": 82.12
+      },
+      "best": "greedy-read-once-only",
+      "vbs_cost": 5.34
+    },
+    {
+      "family": "threshold",
+      "tasks": 50,
+      "mean_cost": {
+        "affine-verified-then-greedy": 38.74,
+        "exhaustive": 64.0,
+        "greedy-affine-only": 128.0,
+        "greedy-decision-tree-only": 128.0,
+        "greedy-k-term-dnf-only": 128.0,
+        "greedy-monotone-only": 128.0,
+        "greedy-pool": 8.16,
+        "greedy-read-once-only": 128.0,
+        "greedy-threshold-only": 5.38,
+        "select-fewest-survivors-k0": 128.0,
+        "select-fewest-survivors-k3": 115.64,
+        "select-most-survivors-k0": 128.0,
+        "select-most-survivors-k1": 128.0,
+        "select-most-survivors-k2": 98.78,
+        "select-most-survivors-k3": 91.66,
+        "select-most-survivors-k4": 77.22,
+        "select-most-survivors-k5": 72.58,
+        "select-most-survivors-k6": 75.14
+      },
+      "best": "greedy-threshold-only",
+      "vbs_cost": 5.38
+    }
+  ]
+}

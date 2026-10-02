@@ -2,10 +2,17 @@
 
 use crate::world::ComposedWorld;
 use metron_adapters::read_text;
-use metron_app::{FixedSchedule, OperatorRegistry, ScheduleItem};
-use metron_lab::manifest::ScheduleStep;
+use metron_app::{
+    FixedSchedule, OperatorRegistry, ScheduleItem, Scheduler, SurvivorCountSelector, SurvivorRule,
+    Vocabulary,
+};
+use metron_core::id::{OperatorId, ViewId};
+use metron_lab::manifest::{ScheduleStep, SelectorSpec, Strategy};
 use metron_lab::{Family, Manifest};
-use metron_operators::all_operators;
+use metron_operators::{
+    CommitTruthTable, GreedySplitProbe, SingleSurvivorToTable, VersionSpaceFilter, all_operators,
+    views,
+};
 use std::path::{Path, PathBuf};
 
 /// Labels of every laboratory family, for the restricted filters.
@@ -68,4 +75,41 @@ fn item(step: &ScheduleStep) -> ScheduleItem {
 #[must_use]
 pub fn schedule_from(steps: &[ScheduleStep]) -> FixedSchedule {
     FixedSchedule::new(steps.iter().map(item))
+}
+
+/// The operator and view names selectors schedule, taken from the
+/// registered operators rather than spelled out.
+#[must_use]
+pub fn vocabulary() -> Vocabulary {
+    Vocabulary {
+        filter: OperatorId::from(VersionSpaceFilter::ID),
+        restricted_filter_prefix: format!("{}:", VersionSpaceFilter::ID),
+        probe: OperatorId::from(GreedySplitProbe::ID),
+        survivor_to_table: OperatorId::from(SingleSurvivorToTable::ID),
+        commit: OperatorId::from(CommitTruthTable::ID),
+        version_space_view: ViewId::from(views::VERSION_SPACE),
+    }
+}
+
+/// The scheduler for a strategy: a fixed schedule or a selector.
+#[must_use]
+pub fn scheduler_for(strategy: &Strategy) -> Box<dyn Scheduler> {
+    match &strategy.selector {
+        Some(SelectorSpec::SurvivorCount {
+            rule,
+            prefix_probes,
+            rounds,
+        }) => Box::new(SurvivorCountSelector::new(
+            vocabulary(),
+            family_labels().into_iter().map(str::to_owned).collect(),
+            if rule == "fewest" {
+                SurvivorRule::Fewest
+            } else {
+                SurvivorRule::Most
+            },
+            *prefix_probes,
+            *rounds,
+        )),
+        None => Box::new(schedule_from(&strategy.schedule)),
+    }
 }

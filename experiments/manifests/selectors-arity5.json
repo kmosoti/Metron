@@ -1,0 +1,381 @@
+{
+  "name": "selectors-arity5",
+  "seed": 101,
+  "lab": {
+    "family": "hidden-boolean-function",
+    "tasks": {
+      "arity": 5,
+      "pool": {
+        "families": [
+          "affine",
+          "monotone",
+          "read-once",
+          "threshold",
+          "k-term-dnf",
+          "decision-tree"
+        ],
+        "per_family": 40
+      },
+      "targets_per_family": 5,
+      "split": {
+        "train": 0.5,
+        "validation": 0.2,
+        "test": 0.3
+      }
+    },
+    "max_probes": 32
+  },
+  "system": {
+    "strategies": [
+      {
+        "name": "exhaustive",
+        "schedule": [
+          {
+            "operator": "probe-next-unobserved",
+            "repeat": 32
+          },
+          {
+            "operator": "observations-to-partial-table"
+          },
+          {
+            "operator": "complete-table-by-default"
+          },
+          {
+            "operator": "commit-truth-table"
+          }
+        ]
+      },
+      {
+        "name": "greedy-pool",
+        "schedule": [
+          {
+            "operator": "version-space-filter"
+          },
+          {
+            "sequence": [
+              {
+                "operator": "greedy-split-probe"
+              },
+              {
+                "operator": "version-space-filter"
+              }
+            ],
+            "repeat": 32
+          },
+          {
+            "operator": "single-survivor-to-table"
+          },
+          {
+            "operator": "commit-truth-table"
+          }
+        ]
+      },
+      {
+        "name": "affine-verified-then-greedy",
+        "schedule": [
+          {
+            "operator": "affine-probe"
+          },
+          {
+            "operator": "version-space-filter"
+          },
+          {
+            "sequence": [
+              {
+                "operator": "greedy-split-probe"
+              },
+              {
+                "operator": "version-space-filter"
+              }
+            ],
+            "repeat": 4
+          },
+          {
+            "operator": "affine-solve"
+          },
+          {
+            "operator": "commit-truth-table"
+          },
+          {
+            "sequence": [
+              {
+                "operator": "greedy-split-probe"
+              },
+              {
+                "operator": "version-space-filter"
+              }
+            ],
+            "repeat": 32
+          },
+          {
+            "operator": "single-survivor-to-table"
+          },
+          {
+            "operator": "commit-truth-table"
+          }
+        ]
+      },
+      {
+        "name": "greedy-affine-only",
+        "schedule": [
+          {
+            "operator": "version-space-filter:affine"
+          },
+          {
+            "sequence": [
+              {
+                "operator": "greedy-split-probe"
+              },
+              {
+                "operator": "version-space-filter:affine"
+              }
+            ],
+            "repeat": 32
+          },
+          {
+            "operator": "single-survivor-to-table"
+          },
+          {
+            "operator": "commit-truth-table"
+          }
+        ]
+      },
+      {
+        "name": "greedy-monotone-only",
+        "schedule": [
+          {
+            "operator": "version-space-filter:monotone"
+          },
+          {
+            "sequence": [
+              {
+                "operator": "greedy-split-probe"
+              },
+              {
+                "operator": "version-space-filter:monotone"
+              }
+            ],
+            "repeat": 32
+          },
+          {
+            "operator": "single-survivor-to-table"
+          },
+          {
+            "operator": "commit-truth-table"
+          }
+        ]
+      },
+      {
+        "name": "greedy-read-once-only",
+        "schedule": [
+          {
+            "operator": "version-space-filter:read-once"
+          },
+          {
+            "sequence": [
+              {
+                "operator": "greedy-split-probe"
+              },
+              {
+                "operator": "version-space-filter:read-once"
+              }
+            ],
+            "repeat": 32
+          },
+          {
+            "operator": "single-survivor-to-table"
+          },
+          {
+            "operator": "commit-truth-table"
+          }
+        ]
+      },
+      {
+        "name": "greedy-threshold-only",
+        "schedule": [
+          {
+            "operator": "version-space-filter:threshold"
+          },
+          {
+            "sequence": [
+              {
+                "operator": "greedy-split-probe"
+              },
+              {
+                "operator": "version-space-filter:threshold"
+              }
+            ],
+            "repeat": 32
+          },
+          {
+            "operator": "single-survivor-to-table"
+          },
+          {
+            "operator": "commit-truth-table"
+          }
+        ]
+      },
+      {
+        "name": "greedy-k-term-dnf-only",
+        "schedule": [
+          {
+            "operator": "version-space-filter:k-term-dnf"
+          },
+          {
+            "sequence": [
+              {
+                "operator": "greedy-split-probe"
+              },
+              {
+                "operator": "version-space-filter:k-term-dnf"
+              }
+            ],
+            "repeat": 32
+          },
+          {
+            "operator": "single-survivor-to-table"
+          },
+          {
+            "operator": "commit-truth-table"
+          }
+        ]
+      },
+      {
+        "name": "greedy-decision-tree-only",
+        "schedule": [
+          {
+            "operator": "version-space-filter:decision-tree"
+          },
+          {
+            "sequence": [
+              {
+                "operator": "greedy-split-probe"
+              },
+              {
+                "operator": "version-space-filter:decision-tree"
+              }
+            ],
+            "repeat": 32
+          },
+          {
+            "operator": "single-survivor-to-table"
+          },
+          {
+            "operator": "commit-truth-table"
+          }
+        ]
+      },
+      {
+        "name": "select-most-survivors-k0",
+        "selector": {
+          "kind": "survivor-count",
+          "rule": "most",
+          "prefix_probes": 0,
+          "rounds": 32
+        }
+      },
+      {
+        "name": "select-most-survivors-k1",
+        "selector": {
+          "kind": "survivor-count",
+          "rule": "most",
+          "prefix_probes": 1,
+          "rounds": 32
+        }
+      },
+      {
+        "name": "select-most-survivors-k2",
+        "selector": {
+          "kind": "survivor-count",
+          "rule": "most",
+          "prefix_probes": 2,
+          "rounds": 32
+        }
+      },
+      {
+        "name": "select-most-survivors-k3",
+        "selector": {
+          "kind": "survivor-count",
+          "rule": "most",
+          "prefix_probes": 3,
+          "rounds": 32
+        }
+      },
+      {
+        "name": "select-most-survivors-k4",
+        "selector": {
+          "kind": "survivor-count",
+          "rule": "most",
+          "prefix_probes": 4,
+          "rounds": 32
+        }
+      },
+      {
+        "name": "select-most-survivors-k5",
+        "selector": {
+          "kind": "survivor-count",
+          "rule": "most",
+          "prefix_probes": 5,
+          "rounds": 32
+        }
+      },
+      {
+        "name": "select-most-survivors-k6",
+        "selector": {
+          "kind": "survivor-count",
+          "rule": "most",
+          "prefix_probes": 6,
+          "rounds": 32
+        }
+      },
+      {
+        "name": "select-fewest-survivors-k0",
+        "selector": {
+          "kind": "survivor-count",
+          "rule": "fewest",
+          "prefix_probes": 0,
+          "rounds": 32
+        }
+      },
+      {
+        "name": "select-fewest-survivors-k3",
+        "selector": {
+          "kind": "survivor-count",
+          "rule": "fewest",
+          "prefix_probes": 3,
+          "rounds": 32
+        }
+      }
+    ],
+    "budget": {
+      "max_oracle_probes": 32
+    },
+    "max_steps": 128,
+    "stall_limit": 0
+  },
+  "headroom": {
+    "seeds": 10,
+    "cost_model": {
+      "probe_weight": 1.0,
+      "work_weight": 0.0,
+      "external_weight": 0.0,
+      "failure_cost": 64.0
+    },
+    "resamples": 2000,
+    "splits": [],
+    "extra_cost_models": {
+      "probes-plus-work": {
+        "probe_weight": 1.0,
+        "work_weight": 0.001,
+        "external_weight": 0.0,
+        "failure_cost": 64.0
+      },
+      "no-penalty-probes-only": {
+        "probe_weight": 1.0,
+        "work_weight": 0.0,
+        "external_weight": 0.0,
+        "failure_cost": 32.0
+      }
+    }
+  }
+}

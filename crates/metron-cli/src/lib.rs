@@ -13,7 +13,10 @@ pub mod headroom;
 pub mod run;
 pub mod world;
 
-pub use compose::{family_labels, load_manifest, registry, resolve_fixture, schedule_from};
+pub use compose::{
+    family_labels, load_manifest, registry, resolve_fixture, schedule_from, scheduler_for,
+    vocabulary,
+};
 pub use headroom::{HeadroomOptions, HeadroomOutcome, run_headroom};
 pub use run::{Backend, ReplayReport, RunOptions, RunStatus, answer, replay, resume, run};
 pub use world::ComposedWorld;

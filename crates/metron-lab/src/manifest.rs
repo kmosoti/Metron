@@ -137,13 +137,54 @@ const fn default_max_steps() -> u32 {
     1_000
 }
 
-/// A named fixed strategy.
+/// A selector strategy: an adaptive scheduler rather than a fixed schedule.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum SelectorSpec {
+    /// Probe a prefix, measure each family's survivors, commit to a family
+    /// by `rule` (`most`, the Bayes rule under a uniform prior, or `fewest`,
+    /// the negative control).
+    SurvivorCount {
+        /// `most` or `fewest`.
+        #[serde(default = "default_rule")]
+        rule: String,
+        /// Greedy probes before measuring.
+        #[serde(default)]
+        prefix_probes: u32,
+        /// Probe rounds after choosing.
+        #[serde(default = "default_rounds")]
+        rounds: u32,
+    },
+}
+
+fn default_rule() -> String {
+    "most".into()
+}
+
+const fn default_rounds() -> u32 {
+    64
+}
+
+/// A named strategy: a fixed schedule or a selector.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Strategy {
     /// Name used in reports.
     pub name: String,
-    /// The schedule.
+    /// The schedule, for fixed strategies.
+    #[serde(default)]
     pub schedule: Vec<ScheduleStep>,
+    /// The selector, for adaptive strategies.
+    #[serde(default)]
+    pub selector: Option<SelectorSpec>,
+}
+
+impl Strategy {
+    /// Whether this is a fixed schedule (a candidate for the single best
+    /// solver) rather than a selector.
+    #[must_use]
+    pub fn is_fixed(&self) -> bool {
+        self.selector.is_none()
+    }
 }
 
 /// System side of a manifest.
@@ -180,6 +221,9 @@ pub struct HeadroomSpec {
     /// Splits to include (`train`, `validation`, `test`); empty means all.
     #[serde(default)]
     pub splits: Vec<String>,
+    /// Further cost models to report under, by name.
+    #[serde(default)]
+    pub extra_cost_models: std::collections::BTreeMap<String, CostModel>,
 }
 
 const fn default_resamples() -> usize {
@@ -218,10 +262,22 @@ impl Manifest {
             vec![Strategy {
                 name: "default".into(),
                 schedule: self.system.schedule.clone(),
+                selector: None,
             }]
         } else {
             self.system.strategies.clone()
         }
+    }
+
+    /// Names of the fixed strategies, the candidates for the single best
+    /// solver.
+    #[must_use]
+    pub fn fixed_strategy_names(&self) -> Vec<String> {
+        self.strategies()
+            .into_iter()
+            .filter(Strategy::is_fixed)
+            .map(|s| s.name)
+            .collect()
     }
 
     /// Checks the manifest describes something runnable.
@@ -255,8 +311,37 @@ impl Manifest {
             }
         }
         let strategies = self.strategies();
-        if strategies.iter().any(|s| s.schedule.is_empty()) {
-            return Err(ManifestError::Invalid("a schedule is empty".into()));
+        for s in &strategies {
+            match (&s.selector, s.schedule.is_empty()) {
+                (None, true) => {
+                    return Err(ManifestError::Invalid(format!(
+                        "strategy `{}` has an empty schedule",
+                        s.name
+                    )));
+                }
+                (Some(_), false) => {
+                    return Err(ManifestError::Invalid(format!(
+                        "strategy `{}` has both a schedule and a selector",
+                        s.name
+                    )));
+                }
+                _ => {}
+            }
+        }
+        for s in &strategies {
+            if let Some(SelectorSpec::SurvivorCount { rule, .. }) = &s.selector
+                && !["most", "fewest"].contains(&rule.as_str())
+            {
+                return Err(ManifestError::Invalid(format!(
+                    "strategy `{}`: unknown survivor rule `{rule}`",
+                    s.name
+                )));
+            }
+        }
+        if self.headroom.is_some() && !strategies.iter().any(Strategy::is_fixed) {
+            return Err(ManifestError::Invalid(
+                "headroom needs at least one fixed strategy".into(),
+            ));
         }
         for s in &strategies {
             if s.name.trim().is_empty() {
@@ -358,6 +443,29 @@ mod tests {
         assert_eq!(h.seeds, 3);
         assert_eq!(h.resamples, 2_000);
         assert_eq!(h.cost_model.probe_weight, 1.0);
+    }
+
+    #[test]
+    fn selector_strategies_parse() {
+        let text = TASKS.replace(
+            r#"{"name": "s2", "schedule": [{"operator": "b"}]}"#,
+            r#"{"name": "s2", "selector": {"kind": "survivor-count", "prefix_probes": 2}}"#,
+        );
+        let m = Manifest::from_json(&text).unwrap();
+        assert_eq!(m.fixed_strategy_names(), vec!["s1".to_owned()]);
+        assert!(matches!(
+            &m.strategies()[1].selector,
+            Some(SelectorSpec::SurvivorCount {
+                rule,
+                prefix_probes: 2,
+                rounds: 64
+            }) if rule == "most"
+        ));
+        let both = TASKS.replace(
+            r#"{"name": "s2", "schedule": [{"operator": "b"}]}"#,
+            r#"{"name": "s2", "schedule": [{"operator": "b"}], "selector": {"kind": "survivor-count"}}"#,
+        );
+        assert!(Manifest::from_json(&both).is_err());
     }
 
     #[test]

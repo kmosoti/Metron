@@ -182,7 +182,9 @@ fn headroom_harness_runs_from_a_manifest() {
   "system": {"strategies": [
       {"name": "greedy", "schedule": [{"operator": "version-space-filter"}, {"sequence": [{"operator": "greedy-split-probe"}, {"operator": "version-space-filter"}], "repeat": 32}, {"operator": "single-survivor-to-table"}, {"operator": "commit-truth-table"}]},
       {"name": "affine-first", "schedule": [{"operator": "affine-probe"}, {"operator": "affine-solve"}, {"operator": "commit-truth-table"}, {"operator": "version-space-filter"}, {"sequence": [{"operator": "greedy-split-probe"}, {"operator": "version-space-filter"}], "repeat": 32}, {"operator": "single-survivor-to-table"}, {"operator": "commit-truth-table"}]},
-      {"name": "affine-only", "schedule": [{"operator": "version-space-filter:affine"}, {"sequence": [{"operator": "greedy-split-probe"}, {"operator": "version-space-filter:affine"}], "repeat": 32}, {"operator": "single-survivor-to-table"}, {"operator": "commit-truth-table"}]}
+      {"name": "affine-only", "schedule": [{"operator": "version-space-filter:affine"}, {"sequence": [{"operator": "greedy-split-probe"}, {"operator": "version-space-filter:affine"}], "repeat": 32}, {"operator": "single-survivor-to-table"}, {"operator": "commit-truth-table"}]},
+      {"name": "select-most-k3", "selector": {"kind": "survivor-count", "rule": "most", "prefix_probes": 3, "rounds": 32}},
+      {"name": "select-fewest-k3", "selector": {"kind": "survivor-count", "rule": "fewest", "prefix_probes": 3, "rounds": 32}}
   ], "budget": {"max_oracle_probes": 32}, "max_steps": 128},
   "headroom": {"seeds": 2, "cost_model": {"failure_cost": 64.0}, "resamples": 200}
 }"#,
@@ -197,11 +199,34 @@ fn headroom_harness_runs_from_a_manifest() {
         },
     )
     .unwrap();
-    assert_eq!(outcome.table.strategies.len(), 3);
+    assert_eq!(outcome.table.strategies.len(), 5);
     assert!(outcome.table.tasks.len() >= 6);
-    assert_eq!(outcome.episodes, outcome.table.tasks.len() * 3);
+    assert_eq!(outcome.episodes, outcome.table.tasks.len() * 5);
     let report = &outcome.report;
     assert!(report.vbs_cost <= report.sbs_cost);
+    assert!(
+        ["greedy", "affine-first", "affine-only"].contains(&report.sbs.as_str()),
+        "selectors are scored but never the single best solver: {}",
+        report.sbs
+    );
+    let most = report
+        .strategies
+        .iter()
+        .find(|s| s.name == "select-most-k3")
+        .unwrap();
+    let fewest = report
+        .strategies
+        .iter()
+        .find(|s| s.name == "select-fewest-k3")
+        .unwrap();
+    assert!(
+        most.gap_closed.is_some(),
+        "selector columns get a gap-closed score"
+    );
+    assert!(
+        most.solved >= fewest.solved,
+        "the Bayes rule should not lose to the negative control"
+    );
     assert!(outcome.dir.join("headroom.md").exists());
     assert!(outcome.dir.join("cost-table.json").exists());
     let affine_only = report

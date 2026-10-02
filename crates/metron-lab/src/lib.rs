@@ -36,7 +36,9 @@ pub use families::{Family, FamilyParams, Target};
 pub use fixture::{BooleanFixture, FixtureError};
 pub use headroom::{CostModel, CostTable, HeadroomReport, Score, TaskKey};
 pub use hidden::HiddenFunction;
-pub use manifest::{LabConfig, Manifest, ManifestError, ScheduleStep, SystemPlan};
+pub use manifest::{
+    LabConfig, Manifest, ManifestError, ScheduleStep, SelectorSpec, Strategy, SystemPlan,
+};
 pub use pool::{HypothesisPool, PoolSpec};
 pub use promotion::{PromotionCriteria, PromotionGate};
 pub use tasks::{Split, Task, TaskSet, TaskSetSpec};

@@ -1,6 +1,6 @@
 //! Single-episode commands: run, resume, replay, answer.
 
-use crate::compose::{load_manifest, registry, resolve_fixture, schedule_from};
+use crate::compose::{load_manifest, registry, resolve_fixture, scheduler_for};
 use crate::world::{ComposedState, ComposedWorld};
 use metron_adapters::claude_code::ResponseFile;
 use metron_adapters::{
@@ -328,7 +328,7 @@ pub fn run(manifest_path: &Path, options: &RunOptions) -> Result<RunStatus, Stri
     }
     let mut inquiry =
         Inquiry::new(InquiryId(1), world.lab().question()).with_budget(manifest.system.budget);
-    let mut schedule = schedule_from(&strategy.schedule);
+    let mut scheduler = scheduler_for(&strategy);
     let runner = runner(&manifest)?;
     let outcome = runner
         .run(
@@ -337,10 +337,10 @@ pub fn run(manifest_path: &Path, options: &RunOptions) -> Result<RunStatus, Stri
             manifest.hash(),
             &mut inquiry,
             &mut world,
-            &mut schedule,
+            scheduler.as_mut(),
         )
         .map_err(|e| e.to_string())?;
-    let scheduler_state = metron_app::Scheduler::state(&schedule);
+    let scheduler_state = scheduler.state();
     finish(&dir, &meta, outcome, &inquiry, &mut world, scheduler_state)
 }
 
@@ -367,14 +367,14 @@ pub fn resume(dir: &Path) -> Result<RunStatus, String> {
     let state: ComposedState =
         serde_json::from_value(checkpoint.world_state.clone()).map_err(|e| e.to_string())?;
     world.restore(state);
-    let mut schedule = schedule_from(&strategy.schedule);
-    metron_app::Scheduler::restore(&mut schedule, &checkpoint.scheduler_state)?;
+    let mut scheduler = scheduler_for(&strategy);
+    scheduler.restore(&checkpoint.scheduler_state)?;
     let mut inquiry = checkpoint.inquiry.clone();
     let runner = runner(&meta.manifest)?;
     let outcome = runner
-        .resume(checkpoint, &mut inquiry, &mut world, &mut schedule)
+        .resume(checkpoint, &mut inquiry, &mut world, scheduler.as_mut())
         .map_err(|e| e.to_string())?;
-    let scheduler_state = metron_app::Scheduler::state(&schedule);
+    let scheduler_state = scheduler.state();
     finish(dir, &meta, outcome, &inquiry, &mut world, scheduler_state)
 }
 
@@ -450,7 +450,7 @@ pub fn replay(dir: &Path) -> Result<ReplayReport, String> {
     ));
     let mut inquiry =
         Inquiry::new(InquiryId(1), world.lab().question()).with_budget(meta.manifest.system.budget);
-    let mut schedule = schedule_from(&strategy.schedule);
+    let mut scheduler = scheduler_for(&strategy);
     let runner = runner(&meta.manifest)?;
     let outcome = runner
         .run(
@@ -459,7 +459,7 @@ pub fn replay(dir: &Path) -> Result<ReplayReport, String> {
             recorded.manifest_hash,
             &mut inquiry,
             &mut world,
-            &mut schedule,
+            scheduler.as_mut(),
         )
         .map_err(|e| e.to_string())?;
     let replayed = match outcome {

@@ -11,7 +11,7 @@ milestones are gated on earlier ones; a gate can close a milestone as
 | M0 | The rules are executable | reached |
 | M1 | The laboratory can tell strategies apart | reached |
 | M2 | We know whether routing can pay | reached: ADR 0010, `experiments/reports/headroom-arity{5,6}-*.md` |
-| M3 | A selector closes measured headroom under matched budgets | open; gate passed in ADR 0010 |
+| M3 | A selector closes measured headroom under matched budgets | closed as a negative result on this configuration (ADR 0011); reopens with an identifiable-structure task set |
 | M4 | Candidates are judged, not trusted | open |
 | M5 | Retrieval earns its place or leaves | open |
 | M6 | An LLM can propose, never decide | reached |
@@ -72,6 +72,15 @@ the untouched test split with matched budgets.
 **Exit criteria.** The selector's gap-closed interval excludes zero and
 beats the best hand-authored heuristic, or the negative result is written
 up with the same rigour.
+
+**Result.** The hand-authored control (`metron-app::selector`, measured in
+`experiments/reports/selectors-arity{5,6}-*.md`) solves at most 55% of
+tasks at any prefix length and spends about as many probes per solved task
+as the single best fixed strategy. The family label that defines the
+per-task best is not identifiable from probes, so the gap is an upper
+bound, not a target. M3 is closed on this configuration (ADR 0011) and
+reopens only with a task set whose per-task best is keyed by structure
+that can be verified for fewer probes than it saves.
 
 ## M4 — Candidates are judged, not trusted
 
