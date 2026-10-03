@@ -27,6 +27,9 @@ usage:
   metron promote <manifest.json> [--results <dir>] [--strategy <name>] [--rounds <n>]
       Propose capability candidates from the train split and let the
       laboratory's gate judge them on the test split.
+  metron route <manifest.json> [--results <dir>] [--seeds <n>] [--verbose]
+      Fit routers on the train split, choose on validation, judge once on
+      test, and replay the control and the selected router (ADR 0015).
   metron retrieval <manifest.json> [--results <dir>]
       Measure retrieval methods (exact scan, bitmask index, Bloom filter,
       hyperdimensional codes) on a store of solved functions.
@@ -51,6 +54,7 @@ fn main() -> ExitCode {
         Some("headroom") => cmd_headroom(&args[1..]),
         Some("promote") => cmd_promote(&args[1..]),
         Some("retrieval") => cmd_retrieval(&args[1..]),
+        Some("route") => cmd_route(&args[1..]),
         Some("verify") => cmd_verify(&args[1..]),
         Some("explain") => cmd_explain(&args[1..]),
         Some("npn-classes") => cmd_npn(&args[1..]),
@@ -438,4 +442,28 @@ fn cmd_figures(args: &[String]) -> Result<(), String> {
         }
         Ok(())
     }
+}
+
+fn cmd_route(args: &[String]) -> Result<(), String> {
+    let flags = parse_flags(args, &["results", "seeds"], &["verbose"])?;
+    let manifest = flags
+        .positional
+        .first()
+        .ok_or("route needs a manifest path")?;
+    let mut options = metron_cli::RouteOptions {
+        verbose: flags.has("verbose"),
+        ..metron_cli::RouteOptions::default()
+    };
+    if let Some(r) = flags.value("results") {
+        options.results_root = PathBuf::from(r);
+    }
+    if let Some(n) = flags.value("seeds") {
+        options.seeds = Some(n.parse().map_err(|e| format!("--seeds: {e}"))?);
+    }
+    let outcome = metron_cli::run_route(Path::new(manifest), &options)?;
+    print!("{}", outcome.markdown);
+    println!("episodes   {}", outcome.episodes);
+    println!("replayed   {}", outcome.replayed);
+    println!("results    {}", outcome.dir.display());
+    Ok(())
 }

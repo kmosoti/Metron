@@ -4,11 +4,13 @@
 use crate::compose::{load_manifest, registry, scheduler_for};
 use crate::world::ComposedWorld;
 use metron_adapters::{SystemClock, write_json_pretty};
-use metron_app::{EpisodeRunner, RunConfig, RunOutcome};
+use metron_app::{EpisodeRunner, RunConfig, RunOutcome, Scheduler};
+use metron_core::cost::Budget;
+use metron_core::hash::ContentHash;
 use metron_core::id::{EpisodeId, InquiryId};
 use metron_core::inquiry::Inquiry;
 use metron_lab::headroom::{CostTable, HeadroomReport, Score, TaskKey, analyze, render_markdown};
-use metron_lab::{LabWorld, Protocol, Split, TaskSet};
+use metron_lab::{LabWorld, Protocol, Split, Task, TaskSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -57,18 +59,74 @@ fn split_of(label: &str) -> Option<Split> {
     }
 }
 
+/// What every scored episode of a measurement shares.
+pub(crate) struct EpisodeContext<'a> {
+    pub runner: &'a EpisodeRunner<ComposedWorld>,
+    pub manifest_hash: ContentHash,
+    pub budget: Budget,
+    pub protocol: Protocol,
+}
+
+/// Runs one episode of `scheduler` on `task`, judges it, and scores it.
+/// Shared by the headroom and routing measurements.
+pub(crate) fn run_scored(
+    context: &EpisodeContext<'_>,
+    set: &TaskSet,
+    task: &Task,
+    seed: u64,
+    scheduler: &mut dyn Scheduler,
+) -> Result<(Score, Inquiry), String> {
+    let mut world = ComposedWorld::new(LabWorld::for_task(set, task, context.protocol));
+    let mut inquiry =
+        Inquiry::new(InquiryId(1), world.lab().question()).with_budget(context.budget);
+    let outcome = context
+        .runner
+        .run(
+            EpisodeId(1),
+            seed,
+            context.manifest_hash,
+            &mut inquiry,
+            &mut world,
+            scheduler,
+        )
+        .map_err(|e| e.to_string())?;
+    let episode = match outcome {
+        RunOutcome::Completed(e) => e,
+        RunOutcome::Suspended(_) => {
+            return Err("it consults a service; measurement runs have no service".into());
+        }
+    };
+    let verdict = world.lab().judge(&inquiry);
+    let cost = episode.outcome.as_ref().map_or(inquiry.spent, |o| o.cost);
+    Ok((
+        Score {
+            answered: verdict.answered,
+            correct: verdict.correct,
+            probes: cost.oracle_probes,
+            work: cost.work_units,
+            calls: cost.operator_calls,
+            external: cost.external_calls,
+        },
+        inquiry,
+    ))
+}
+
 /// The mean entropy floor over the task-set seeds, with the failure cost
 /// (in probes) at or above which the floor binds: a wrong answer must cost
 /// more than finishing the identification would, which holds once it
-/// exceeds the probe cap plus `log2` of the pool size.
-fn entropy_floor(floors: &[(f64, usize)], cap: Option<u64>, arity: u8) -> Option<(f64, f64)> {
+/// exceeds the probe cap plus `log2` of the support's size.
+pub(crate) fn entropy_floor(
+    floors: &[(f64, f64)],
+    cap: Option<u64>,
+    arity: u8,
+) -> Option<(f64, f64)> {
     if floors.is_empty() {
         return None;
     }
     let h = floors.iter().map(|(h, _)| h).sum::<f64>() / floors.len() as f64;
-    let largest = floors.iter().map(|&(_, n)| n).max().unwrap_or(1).max(1);
+    let largest = floors.iter().map(|&(_, n)| n).fold(1.0, f64::max);
     let cap = cap.unwrap_or(1u64 << arity) as f64;
-    Some((h, cap + (largest as f64).log2()))
+    Some((h, cap + largest.log2()))
 }
 
 /// Runs the headroom measurement described by a manifest.
@@ -99,13 +157,19 @@ pub fn run_headroom(
     let protocol = Protocol {
         max_probes: manifest.lab.max_probes(),
     };
+    let context = EpisodeContext {
+        runner: &runner,
+        manifest_hash: manifest.hash(),
+        budget: manifest.system.budget,
+        protocol,
+    };
     let mut episodes = 0usize;
-    let mut floors: Vec<(f64, usize)> = Vec::new();
+    let mut floors: Vec<(f64, f64)> = Vec::new();
     for offset in 0..u64::from(seeds) {
         let seed = manifest.seed.wrapping_add(offset);
         let set = TaskSet::generate(&spec, seed);
         set.verify_split_hygiene()?;
-        floors.push((set.entropy_floor(), set.pool.len()));
+        floors.push((set.entropy_floor(), set.support_size()));
         if options.verbose {
             eprintln!(
                 "seed {seed}: pool {} members, {} tasks, {} NPN classes",
@@ -120,40 +184,11 @@ pub fn run_headroom(
             }
             let mut scores = Vec::with_capacity(strategies.len());
             for strategy in &strategies {
-                let mut world = ComposedWorld::new(LabWorld::for_task(&set, task, protocol));
-                let mut inquiry = Inquiry::new(InquiryId(1), world.lab().question())
-                    .with_budget(manifest.system.budget);
                 let mut scheduler = scheduler_for(strategy);
-                let outcome = runner
-                    .run(
-                        EpisodeId(1),
-                        seed,
-                        manifest.hash(),
-                        &mut inquiry,
-                        &mut world,
-                        scheduler.as_mut(),
-                    )
-                    .map_err(|e| e.to_string())?;
-                let episode = match outcome {
-                    RunOutcome::Completed(e) => e,
-                    RunOutcome::Suspended(_) => {
-                        return Err(format!(
-                            "strategy `{}` consults a service; headroom runs have no service",
-                            strategy.name
-                        ));
-                    }
-                };
+                let (score, _) = run_scored(&context, &set, task, seed, scheduler.as_mut())
+                    .map_err(|e| format!("strategy `{}`: {e}", strategy.name))?;
                 episodes += 1;
-                let verdict = world.lab().judge(&inquiry);
-                let cost = episode.outcome.as_ref().map_or(inquiry.spent, |o| o.cost);
-                scores.push(Score {
-                    answered: verdict.answered,
-                    correct: verdict.correct,
-                    probes: cost.oracle_probes,
-                    work: cost.work_units,
-                    calls: cost.operator_calls,
-                    external: cost.external_calls,
-                });
+                scores.push(score);
             }
             table.push(
                 TaskKey {

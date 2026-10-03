@@ -14,6 +14,7 @@ pub mod figures;
 pub mod headroom;
 pub mod promote;
 pub mod retrieval;
+pub mod route;
 pub mod run;
 pub mod world;
 
@@ -25,5 +26,6 @@ pub use figures::{Figure, render_figures, stale_figures, write_figures};
 pub use headroom::{HeadroomOptions, HeadroomOutcome, run_headroom};
 pub use promote::{PromoteOptions, PromoteOutcome, run_promote};
 pub use retrieval::{RetrievalOptions, RetrievalOutcome, run_retrieval};
+pub use route::{RouteOptions, RouteOutcome, run_route};
 pub use run::{Backend, ReplayReport, RunOptions, RunStatus, answer, replay, resume, run};
 pub use world::ComposedWorld;

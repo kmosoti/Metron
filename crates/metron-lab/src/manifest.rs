@@ -198,6 +198,57 @@ impl Strategy {
     }
 }
 
+/// One prefix a router spends before it reads the posterior.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RoutePrefix {
+    /// Name used in reports.
+    pub name: String,
+    /// The operators, as schedule steps.
+    pub steps: Vec<ScheduleStep>,
+}
+
+/// A strategy a router may choose, with the order in which it tries the
+/// classes.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RouteCandidate {
+    /// Name of a fixed strategy in `system.strategies`.
+    pub strategy: String,
+    /// Classes in the order the strategy tries them.
+    pub order: Vec<String>,
+}
+
+/// A routing experiment (ADR 0015): prefixes, the candidates routers choose
+/// among, and the learned routers' settings. It uses the headroom section's
+/// seeds, cost model and resamples.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RouteSpec {
+    /// Prefixes; the first is the primary one, the rest are secondary.
+    pub prefixes: Vec<RoutePrefix>,
+    /// The candidates.
+    pub candidates: Vec<RouteCandidate>,
+    /// The view the routers read the posterior from.
+    #[serde(default = "default_profile_view")]
+    pub profile_view: String,
+    /// Upper edges of the tabular router's confidence bins.
+    #[serde(default = "default_bins")]
+    pub tabular_bins: Vec<f64>,
+    /// Ridge penalties; validation chooses one.
+    #[serde(default = "default_lambdas")]
+    pub ridge_lambdas: Vec<f64>,
+}
+
+fn default_profile_view() -> String {
+    "structure-profile".into()
+}
+
+fn default_bins() -> Vec<f64> {
+    vec![0.6, 0.9, 0.99]
+}
+
+fn default_lambdas() -> Vec<f64> {
+    vec![0.01, 0.1, 1.0, 10.0]
+}
+
 /// System side of a manifest.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SystemPlan {
@@ -259,6 +310,10 @@ pub struct Manifest {
     /// measurement.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retrieval: Option<crate::retrieval::RetrievalSpec>,
+    /// Routing settings, when the manifest is a routing experiment.
+    /// Serialised only when set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub route: Option<RouteSpec>,
 }
 
 impl Manifest {
@@ -417,6 +472,40 @@ impl Manifest {
                 return Err(ManifestError::Invalid(
                     "retrieval dimensions must be at least 64".into(),
                 ));
+            }
+        }
+        if let Some(r) = &self.route {
+            if self.headroom.is_none() {
+                return Err(ManifestError::Invalid(
+                    "route needs a headroom section for its seeds and cost model".into(),
+                ));
+            }
+            if r.prefixes.is_empty() || r.prefixes.iter().any(|p| p.steps.is_empty()) {
+                return Err(ManifestError::Invalid(
+                    "route needs at least one prefix, each with steps".into(),
+                ));
+            }
+            if r.candidates.len() < 2 {
+                return Err(ManifestError::Invalid(
+                    "route needs at least two candidates".into(),
+                ));
+            }
+            for c in &r.candidates {
+                if !strategies
+                    .iter()
+                    .any(|s| s.name == c.strategy && s.is_fixed())
+                {
+                    return Err(ManifestError::Invalid(format!(
+                        "route candidate `{}` is not a fixed strategy",
+                        c.strategy
+                    )));
+                }
+                if c.order.is_empty() {
+                    return Err(ManifestError::Invalid(format!(
+                        "route candidate `{}` has no class order",
+                        c.strategy
+                    )));
+                }
             }
         }
         if let Some(h) = &self.headroom {

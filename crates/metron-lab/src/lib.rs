@@ -28,6 +28,7 @@ pub mod npn;
 pub mod pool;
 pub mod promotion;
 pub mod retrieval;
+pub mod routing;
 pub mod stats;
 pub mod tasks;
 pub mod truth_table;

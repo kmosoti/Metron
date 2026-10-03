@@ -111,9 +111,17 @@ fn every_committed_report_names_the_hash_of_its_manifest() {
         if name == "provenance.json" {
             continue;
         }
-        let Some((manifest_name, hash)) = stem.rsplit_once('-') else {
+        // `<manifest>-<hash>` or `<manifest>-<hash>-<kind>`, the hash being
+        // the last twelve-hex-digit segment.
+        let parts: Vec<&str> = stem.split('-').collect();
+        let Some(at) = parts
+            .iter()
+            .rposition(|p| p.len() == 12 && p.chars().all(|c| c.is_ascii_hexdigit()))
+        else {
             continue;
         };
+        let manifest_name = parts[..at].join("-");
+        let hash = parts[at];
         let path = root.join(format!("experiments/manifests/{manifest_name}.json"));
         let text = fs::read_to_string(&path)
             .unwrap_or_else(|e| panic!("{name}: no manifest at {}: {e}", path.display()));

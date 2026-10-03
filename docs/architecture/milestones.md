@@ -11,7 +11,7 @@ milestones are gated on earlier ones; a gate can close a milestone as
 | M0 | The rules are executable | reached |
 | M1 | The laboratory can tell strategies apart | reached |
 | M2 | We know whether routing can pay | reached: ADR 0010, `experiments/reports/headroom-arity{5,6}-*.md` |
-| M3 | A selector closes measured headroom under matched budgets | closed on the family-labelled lab (ADR 0011, explained by the entropy floor); reopened on a structure-keyed task set (ADR 0015), in progress |
+| M3 | A selector closes measured headroom under matched budgets | closed on the family-labelled lab (ADR 0011, explained by the entropy floor); on the structure-keyed lab, not reached on the pre-registered prefix (ADR 0016); confirmatory run pre-registered |
 | M4 | Candidates are judged, not trusted | reached: ADR 0012, `experiments/reports/promotion-arity5-7f5ef8af8c7d.md` |
 | M5 | Retrieval earns its place or leaves | reached, HDC dropped: ADR 0013, `experiments/reports/retrieval-arity6-e59c328070b5.md` |
 | M6 | An LLM can propose, never decide | reached |
@@ -96,6 +96,18 @@ Headroom is measured over label-free strategies only; the floor (about
 12.1 probes) sits far below the best cascade, so routing is not ruled out
 by arithmetic. The protocol, the controls, the success criteria and four
 predictions are pre-registered in ADR 0015.
+
+**Result on the structure-keyed lab (ADR 0016).** Headroom is real: a
+label-free gap of 16.2 probes (95% CI 12.3 to 21.5) above a floor of 12.1.
+On the pre-registered prefix (the affine anchors) no router's gap-closed
+interval on the test split excludes zero. The hand-authored Bayes ranking
+closes 0.18, and the learned tabular and ridge routers close 0.41 and
+0.38, all with intervals through zero. Two wrong answers at 512 each
+outweigh the saving. On a secondary prefix (the anchors plus one row per
+weight) the Bayes ranking closes 0.50 (CI 0.09 to 0.74). With eight
+intervals in play that is a hypothesis, so a confirmatory run on fresh
+seeds 401 to 410 is pre-registered with that prefix as primary and a
+single comparison.
 
 ## M4 — Candidates are judged, not trusted
 

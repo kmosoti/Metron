@@ -20,3 +20,4 @@ mark them superseded. Template: context, decision, consequences.
 | 0013 | Hyperdimensional retrieval is dropped for the laboratory's native objects | accepted |
 | 0014 | Every prior the design relies on is a hypothesis with a test | accepted |
 | 0015 | The routing floor; M3 reopens on a structure-keyed task set | accepted; supersedes ADR 0011, decision 2 |
+| 0016 | Routing does not pay on the pre-registered prefix; a confirmatory run is pre-registered | accepted |

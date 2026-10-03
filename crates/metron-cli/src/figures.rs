@@ -11,6 +11,7 @@ use metron_lab::HeadroomReport;
 use metron_lab::headroom::StrategySummary;
 use metron_lab::promotion::PromotionReport;
 use metron_lab::retrieval::RetrievalReport;
+use metron_lab::routing::RouteReport;
 use serde::de::DeserializeOwned;
 use std::fmt::Write as _;
 use std::fs;
@@ -45,6 +46,8 @@ pub fn render_figures(root: &Path) -> Result<Vec<Figure>, String> {
     let selectors6: HeadroomReport = load(&find_report(&reports, "selectors-arity6")?)?;
     let retrieval: RetrievalReport = load(&find_report(&reports, "retrieval-arity6")?)?;
     let promotion: Vec<PromotionReport> = load(&find_report(&reports, "promotion-arity5")?)?;
+    let routing: Vec<RouteReport> =
+        load(&find_report_kind(&reports, "structure-arity8", "-route")?)?;
     let ledger_path = root.join(PRIORS_LEDGER);
     let ledger =
         fs::read_to_string(&ledger_path).map_err(|e| format!("{}: {e}", ledger_path.display()))?;
@@ -64,6 +67,10 @@ pub fn render_figures(root: &Path) -> Result<Vec<Figure>, String> {
         Figure {
             file: "promotion.svg",
             svg: promotion_figure(&promotion)?,
+        },
+        Figure {
+            file: "routing.svg",
+            svg: routing_figure(&routing)?,
         },
         Figure {
             file: "priors.svg",
@@ -104,6 +111,11 @@ pub fn stale_figures(root: &Path, out: &Path) -> Result<Vec<String>, String> {
 }
 
 fn find_report(dir: &Path, prefix: &str) -> Result<PathBuf, String> {
+    find_report_kind(dir, prefix, "")
+}
+
+/// A report named `<prefix>-<hash>[-<kind>].json`.
+fn find_report_kind(dir: &Path, prefix: &str, kind: &str) -> Result<PathBuf, String> {
     let entries = fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let mut found = Vec::new();
     for entry in entries {
@@ -111,7 +123,8 @@ fn find_report(dir: &Path, prefix: &str) -> Result<PathBuf, String> {
         let name = entry.file_name().to_string_lossy().into_owned();
         if let Some(rest) = name.strip_prefix(prefix)
             && let Some(rest) = rest.strip_prefix('-')
-            && let Some(hash) = rest.strip_suffix(".json")
+            && let Some(rest) = rest.strip_suffix(".json")
+            && let Some(hash) = rest.strip_suffix(kind)
             && hash.len() == 12
             && hash.chars().all(|c| c.is_ascii_hexdigit())
         {
@@ -122,11 +135,11 @@ fn find_report(dir: &Path, prefix: &str) -> Result<PathBuf, String> {
     match found.as_slice() {
         [one] => Ok(one.clone()),
         [] => Err(format!(
-            "no report named {prefix}-<hash>.json in {}",
+            "no report named {prefix}-<hash>{kind}.json in {}",
             dir.display()
         )),
         _ => Err(format!(
-            "more than one report named {prefix}-<hash>.json: {found:?}"
+            "more than one report named {prefix}-<hash>{kind}.json: {found:?}"
         )),
     }
 }
@@ -921,6 +934,185 @@ fn promotion_figure(reports: &[PromotionReport]) -> Result<String, String> {
             cases.len()
         ),
     );
+    Ok(svg.finish())
+}
+
+// ---------------------------------------------------------------------------
+// Routing: the structure-keyed lab's test split.
+
+fn routing_figure(reports: &[RouteReport]) -> Result<String, String> {
+    let r = reports
+        .first()
+        .ok_or("the routing report has no prefixes")?;
+    let router = |name: &str| r.routers.iter().find(|x| x.name.starts_with(name));
+    let gap_note = |x: &metron_lab::routing::RouterResult| -> String {
+        match (x.gap_closed, x.gap_closed_ci) {
+            (Some(g), Some((lo, hi))) => {
+                format!("closes {g:.2} of the gap (95% CI {lo:.2} to {hi:.2})")
+            }
+            (Some(g), None) => format!("closes {g:.2} of the gap"),
+            _ => String::new(),
+        }
+    };
+    struct Row {
+        label: String,
+        sub: String,
+        value: f64,
+        color: &'static str,
+        note: String,
+    }
+    let mut rows = vec![Row {
+        label: "Single best cascade".into(),
+        sub: format!(
+            "{}, chosen on train",
+            r.sbs.trim_start_matches("cascade-").replace('-', " → ")
+        ),
+        value: r.sbs_cost["test"],
+        color: GREY,
+        note: String::new(),
+    }];
+    for (prefix, label, sub, color) in [
+        (
+            "posterior-order",
+            "Bayes ranking, hand-authored",
+            "try classes in posterior order",
+            BLUE,
+        ),
+        (
+            "tabular",
+            "Tabular router, learned",
+            "cheapest cascade per posterior bucket",
+            ORANGE,
+        ),
+        (
+            "ridge",
+            "Ridge router, learned",
+            "lowest predicted cost",
+            ORANGE,
+        ),
+        (
+            "posterior-reverse",
+            "Reverse ranking",
+            "negative control",
+            RED,
+        ),
+    ] {
+        if let Some(x) = router(prefix) {
+            let selected = if x.name == r.selected {
+                "; selected on validation"
+            } else {
+                ""
+            };
+            rows.push(Row {
+                label: label.into(),
+                sub: format!("{sub}{selected}"),
+                value: x.cost["test"],
+                color,
+                note: gap_note(x),
+            });
+        }
+    }
+    rows.push(Row {
+        label: "Best router possible".into(),
+        sub: "per-task best cascade after the anchors".into(),
+        value: r.oracle_router_test,
+        color: SKY,
+        note: String::new(),
+    });
+    rows.push(Row {
+        label: "Virtual best".into(),
+        sub: "told each target's class".into(),
+        value: r.vbs_test,
+        color: SKY,
+        note: String::new(),
+    });
+    let (left, right, top, row_h) = (290.0, 716.0, 100.0, 44.0);
+    let bottom = top + row_h * rows.len() as f64;
+    let mut svg = Svg::new(
+        bottom + 78.0,
+        "Routing among structural learners",
+        &format!(
+            "Structure-keyed lab at arity 8 (ADR 0015): mean cost on the {} test tasks; routers first spend nine anchor probes",
+            r.tasks["test"]
+        ),
+    );
+    let max = rows
+        .iter()
+        .map(|row| row.value)
+        .fold(0.0, f64::max)
+        .max(1.0);
+    let scale = (max * 1.15 / 10.0).ceil() * 10.0;
+    let x = |v: f64| left + v / scale * (right - left);
+    let step = if scale > 60.0 { 20.0 } else { 10.0 };
+    let mut tick = 0.0;
+    while tick <= scale + 1e-9 {
+        svg.line((x(tick), top - 4.0), (x(tick), bottom), GRID, 1.0, false);
+        svg.text(
+            (x(tick), bottom + 16.0),
+            Style::new(11.0, MUTED).middle(),
+            &num(tick),
+        );
+        tick += step;
+    }
+    for (i, row) in rows.iter().enumerate() {
+        let y0 = top + row_h * i as f64;
+        svg.text(
+            (left - 14.0, y0 + 17.0),
+            Style::new(12.5, INK).end().bold(),
+            &row.label,
+        );
+        svg.text(
+            (left - 14.0, y0 + 32.0),
+            Style::new(11.0, MUTED).end(),
+            &row.sub,
+        );
+        svg.rect((left, y0 + 8.0), (x(row.value) - left, 16.0), row.color);
+        svg.text(
+            (x(row.value) + 6.0, y0 + 20.5),
+            Style::new(11.5, INK).bold(),
+            &format!("{:.1}", row.value),
+        );
+        if !row.note.is_empty() {
+            svg.text((left + 2.0, y0 + 38.0), Style::new(10.5, MUTED), &row.note);
+        }
+    }
+    if let Some(h) = r.entropy_floor {
+        let fx = x(h);
+        svg.line((fx, top - 8.0), (fx, bottom), INK, 1.5, true);
+        svg.text(
+            (fx + 5.0, top - 8.0),
+            Style::new(11.0, INK).bold(),
+            &format!("entropy floor {h:.1}"),
+        );
+    }
+    svg.text(
+        ((left + right) / 2.0, bottom + 36.0),
+        Style::new(11.5, MUTED).middle(),
+        "probes per task; a wrong answer costs twice the probe cap",
+    );
+    if let Some(control) = router("posterior-order") {
+        let paying: Vec<&str> = r
+            .routers
+            .iter()
+            .filter(|x| x.name != "posterior-reverse")
+            .filter(|x| x.gap_closed_ci.is_some_and(|(lo, _)| lo > 0.0))
+            .map(|x| x.name.as_str())
+            .collect();
+        let failures = ((1.0 - control.test_solved) * r.tasks["test"] as f64).round();
+        let caption = if paying.is_empty() {
+            format!(
+                "No router's interval clears zero. {failures:.0} wrong answers at {:.0} each add {:.1} to the Bayes ranking's mean.",
+                r.cost_model.failure_cost,
+                failures * r.cost_model.failure_cost / r.tasks["test"].max(1) as f64
+            )
+        } else {
+            format!(
+                "Routing pays: {} closes the gap with an interval that clears zero, on tasks no router saw in training.",
+                paying.join(", ")
+            )
+        };
+        svg.text((24.0, bottom + 62.0), Style::new(12.5, INK), &caption);
+    }
     Ok(svg.finish())
 }
 

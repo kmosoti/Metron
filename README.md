@@ -82,6 +82,17 @@ prefix only walks it back to the single best strategy.
 
 ![Solved rate of the most-survivors router against prefix length](docs/figures/selectors.svg)
 
+**Where the structure is in the function, routing has room.** In a
+laboratory with no published pool, each class (affine, symmetric,
+three-variable juntas) learned by its own representation, the virtual
+best sits well above the entropy floor. Routers fitted on train and judged
+once on unseen test tasks have not yet shown a gain that clears zero:
+wrong answers are expensive, and a router that tries the likely class
+first needs to be careful. A confirmatory run on fresh seeds is
+pre-registered.
+
+![Routers against the single best cascade on the structure-keyed laboratory](docs/figures/routing.svg)
+
 **Exact beats hyperdimensional for these objects.** Retrieving every stored
 function consistent with a few observed rows, the bitmask index is complete,
 smallest and fastest.
@@ -109,7 +120,7 @@ flowchart LR
     M0["M0<br/>the rules are executable"]:::reached
     M1["M1<br/>the lab tells strategies apart"]:::reached
     M2["M2<br/>headroom measured"]:::reached
-    M3["M3<br/>routing<br/>closed: the gap was the free label"]:::closed
+    M3["M3<br/>routing<br/>family lab: the gap was the free label<br/>structure lab: confirmatory run pending"]:::open
     M4["M4<br/>candidates judged on held-out targets"]:::reached
     M5["M5<br/>retrieval<br/>hyperdimensional codes dropped"]:::dropped
     M6["M6<br/>an LLM proposes, never decides"]:::reached
@@ -119,6 +130,7 @@ flowchart LR
     M0 --> M6
     classDef reached fill:#d3f2e3,stroke:#009E73,color:#0b3d2a
     classDef closed fill:#fde4d6,stroke:#D55E00,color:#5a1e00
+    classDef open fill:#fff1cc,stroke:#E69F00,color:#4d3800
     classDef dropped fill:#eceff1,stroke:#8c959f,color:#24292f
 ```
 
