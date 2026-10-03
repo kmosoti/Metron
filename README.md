@@ -72,7 +72,9 @@ model a question.
 
 **A perfect router would save probes.** Six structural families, ten
 task-set seeds. A clairvoyant per-task router beats the best fixed strategy
-by about log2 6 probes: exactly the information in the family label.
+by about log2 6 probes: exactly the information in the family label. It
+sits below the entropy floor, so no router that has to find the label for
+itself could get there.
 
 ![Cost ladder: exhaustive, verified affine, greedy over the pool, perfect router](docs/figures/headroom.svg)
 
