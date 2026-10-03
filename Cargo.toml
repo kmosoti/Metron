@@ -37,3 +37,9 @@ missing_docs = "warn"
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
+
+# The laboratory's NPN canonicalisation and counting dominate test time at
+# arity 8; optimise that one crate in dev and test builds. Behaviour is
+# unchanged; only speed.
+[profile.dev.package.metron-lab]
+opt-level = 2

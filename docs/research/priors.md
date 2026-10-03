@@ -44,6 +44,9 @@ not removed.
 | 30 | Choosing the verification count by the best fixed cascade is neutral between fixed strategies and routers (ADR 0015's pilot rule) | design | ADR 0016 | The best cascade is junta-first and fails safe, so the rule picked the least verification. Routers, which try the likely class first, needed more | falsified: the rule tilted the design toward the single best solver; recorded as a design lesson, not rerun |
 | 31 | Routing by the posterior's ranking of classes is the right hand-authored rule (the survivor rule of ADR 0011, generalised) | derivation | `experiments/reports/structure-arity8-810f8aa80f03-route.md` | It routes affine and symmetric targets perfectly, but ignores what a wrong route costs; 2 wrong answers in 116 test tasks erase its saving. The learned routers learned to fail safe | refined: with heavy failure costs the Bayes decision has to weigh the cost of a wrong route, not only its probability |
 | 32 | ADR 0015's predictions: (1) the label-free gap is positive; (2) the floor sits far below the single best; (3) the control closes at least a third of the gap; (4) learned routers do not beat it | derivation | the structure-keyed headroom and routing reports | (1) 16.2, CI 12.3 to 21.5. (2) Floor 12.1 against 32.9. (3) 0.18 on the primary prefix. (4) Held | (1), (2), (4) validated; (3) falsified on the pre-registered prefix. A secondary prefix gave 0.50 (CI 0.09 to 0.74), which ADR 0016 sends to a confirmatory run |
+| 33 | ADR 0016's confirmatory prediction: on fresh seeds, the Bayes ranking after the anchors and weights closes a positive share of the gap with an interval excluding zero | derivation (from the exploratory run) | `experiments/reports/structure-confirm-arity8-*-route.md`, seeds 401 to 410 | 0.55 (95% CI 0.23 to 0.75), every test task solved | validated |
+| 34 | A router's prefix only informs the choice; comparing routers with fixed strategies that never spend it isolates the value of routing (implicit in ADR 0015's design) | design | the reverse ranking in the confirmatory run; the post-hoc fixed-order-after-prefix comparison | The reverse ranking, which routes as badly as it can, also improved on the single best (0.33), because the prefix's rows double as verification | falsified: part of the confirmed gain was the prefix. The fair baseline is the best fixed order run after the same prefix, now in every routing report |
+| 35 | ADR 0017's prediction: the choice pays beyond its prefix, by a few probes per task | derivation (from the exploratory run) | `experiments/reports/structure-ordering-arity8-*-route.md`, thirty seeds 501 to 530 | −3.39 probes per task against the best fixed order after the same prefix (95% CI −4.84 to −0.59); the reverse ranking closes 0.03 | validated: M3 reached (ADR 0018) |
 
 ## Citation checks (entry 5)
 
@@ -89,6 +92,14 @@ repository relies on it.
   of arithmetic per task set, predicts ADR 0011's negative result to
   within a tenth of a probe; the selector sweep that established it cost
   thousands of episodes. Before building a router, compute the floor.
+- The negative control earned its keep. Without the reverse ranking, the
+  confirmed gain would have been credited entirely to routing. A third of
+  it was the prefix's rows doing verification work, and only the control
+  that routes as badly as possible could show that.
+- Three runs, each pre-registered against the previous run's surprise,
+  converged: an exploratory negative with a promising secondary, a
+  confirmation, then a decomposition. Each surprise became the next
+  experiment's single primary comparison.
 - A pre-registered rule can carry a hidden preference. The pilot chose
   the verification count by what was best for the fixed strategies, and
   that quietly made the routers' job harder. Pre-registration protects

@@ -21,6 +21,7 @@ cargo run -p metron-cli -- run experiments/manifests/llm-consult-majority3.json 
 cargo run -p metron-cli -- answer <run-dir> --text "(x0 & x1) | (x0 & x2) | (x1 & x2)" --by "me"
 cargo run -p metron-cli -- resume <run-dir>
 cargo run -p metron-cli -- replay <run-dir>
+cargo run --release -p metron-cli -- route experiments/manifests/structure-ordering-arity8.json
 cargo run -p metron-cli -- figures                          # redraw docs/figures from reports/
 ```
 
@@ -46,7 +47,9 @@ report changes and its figure does not.
 | `retrieval-arity6` | A store of about 5,000 solved functions; `metron retrieval` compares exact scan, bitmask index, Bloom filters and hyperdimensional codes on recall, bytes and nanoseconds (ADR 0013). |
 | `selectors-arity5`, `selectors-arity6` | The same, plus `survivor-count` selector columns (rule `most` with prefix 0 to 6, and `fewest` as the negative control) and two extra cost models. The M3 control measurement (ADR 0011). |
 | `structure-pilot-arity8` | The pre-registered pilot of ADR 0015 on seeds 900 to 904: every cascade of the three structural learners at verification counts 4, 8, 12 and 16. It fixed the count at 4. |
-| `structure-arity8` | The structure-keyed laboratory of ADR 0015: affine, symmetric and three-variable junta targets at arity 8, no pool, the structure promise published instead. Label-free cascades, single learners with the truth table as fallback, and blind learners as reference columns. Ten seeds, 300 tasks. |
+| `structure-arity8` | The structure-keyed laboratory of ADR 0015: affine, symmetric and three-variable junta targets at arity 8, no pool, the structure promise published instead. Label-free cascades, single learners with the truth table as fallback, and blind learners as reference columns. Ten seeds, 300 tasks. `metron headroom` measures the gap; `metron route` fits routers on train, chooses on validation, judges on test (ADR 0016). |
+| `structure-confirm-arity8` | The confirmatory run pre-registered in ADR 0016: fresh seeds 401 to 410, the anchors-and-weights prefix as primary. |
+| `structure-ordering-arity8` | The run pre-registered in ADR 0017: thirty fresh seeds, the router against the best fixed order run after the same prefix. M3's deciding measurement (ADR 0018). |
 
 All runs are deterministic for a given manifest and seed; consultation runs
 replay from their journals.

@@ -11,7 +11,7 @@ milestones are gated on earlier ones; a gate can close a milestone as
 | M0 | The rules are executable | reached |
 | M1 | The laboratory can tell strategies apart | reached |
 | M2 | We know whether routing can pay | reached: ADR 0010, `experiments/reports/headroom-arity{5,6}-*.md` |
-| M3 | A selector closes measured headroom under matched budgets | closed on the family-labelled lab (ADR 0011, explained by the entropy floor); on the structure-keyed lab, not reached on the pre-registered prefix (ADR 0016); confirmatory run pre-registered |
+| M3 | A selector closes measured headroom under matched budgets | reached on the structure-keyed lab (ADR 0018): the hand-authored Bayes router pays; learned routing closed negative. Closed on the family-labelled lab (ADR 0011) |
 | M4 | Candidates are judged, not trusted | reached: ADR 0012, `experiments/reports/promotion-arity5-7f5ef8af8c7d.md` |
 | M5 | Retrieval earns its place or leaves | reached, HDC dropped: ADR 0013, `experiments/reports/retrieval-arity6-e59c328070b5.md` |
 | M6 | An LLM can propose, never decide | reached |
@@ -108,6 +108,20 @@ weight) the Bayes ranking closes 0.50 (CI 0.09 to 0.74). With eight
 intervals in play that is a hypothesis, so a confirmatory run on fresh
 seeds 401 to 410 is pre-registered with that prefix as primary and a
 single comparison.
+
+**Reached (ADR 0017, ADR 0018).** The confirmatory run (seeds 401 to 410)
+met its criterion: the Bayes ranking after the anchors and weights closes
+0.55 of the gap (CI 0.23 to 0.75). Its negative control showed that part
+of that gain is the prefix, whose rows double as verification. A third
+pre-registered run on thirty fresh seeds therefore compared the router
+with the best fixed order run after the same prefix. The router wins by
+3.4 probes per task (CI 0.6 to 4.8) and closes 0.47 of the gap (CI 0.21
+to 0.64). The reverse ranking closes 0.03. No learned router beat the
+Bayes ranking in any run, so learned routing is closed negative on this
+laboratory: the posterior after a structural prefix is close to a
+sufficient statistic. Open: whether a system that can afford to search
+the union of the classes beats the router in probes (the compute
+question, ADR 0015 decision 5).
 
 ## M4 — Candidates are judged, not trusted
 

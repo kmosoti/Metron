@@ -2,9 +2,9 @@
   <title>Every prior is a hypothesis</title>
   <rect x="0.5" y="0.5" width="759" height="383" rx="10" fill="#ffffff" stroke="#d0d7de"/>
   <text x="24" y="36" font-size="18" fill="#24292f" font-weight="600">Every prior is a hypothesis</text>
-  <text x="24" y="58" font-size="12.5" fill="#57606a">31 priors the design relies on, each with a test or a primary source (docs/research/priors.md)</text>
+  <text x="24" y="58" font-size="12.5" fill="#57606a">34 priors the design relies on, each with a test or a primary source (docs/research/priors.md)</text>
   <text x="24" y="112" font-size="13" fill="#009E73" font-weight="600">validated</text>
-  <text x="24" y="128" font-size="11" fill="#57606a">18 priors</text>
+  <text x="24" y="128" font-size="11" fill="#57606a">20 priors</text>
   <rect x="150" y="96" width="34" height="34" rx="2" fill="#009E73"/>
   <text x="167" y="117.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">1</text>
   <rect x="190" y="96" width="34" height="34" rx="2" fill="#009E73"/>
@@ -41,6 +41,10 @@
   <text x="247" y="157.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">27</text>
   <rect x="270" y="136" width="34" height="34" rx="2" fill="#009E73"/>
   <text x="287" y="157.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">28</text>
+  <rect x="310" y="136" width="34" height="34" rx="2" fill="#009E73"/>
+  <text x="327" y="157.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">33</text>
+  <rect x="350" y="136" width="34" height="34" rx="2" fill="#009E73"/>
+  <text x="367" y="157.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">35</text>
   <text x="24" y="204" font-size="13" fill="#56B4E9" font-weight="600">refined</text>
   <text x="24" y="220" font-size="11" fill="#57606a">3 priors</text>
   <rect x="150" y="188" width="34" height="34" rx="2" fill="#56B4E9"/>
@@ -50,7 +54,7 @@
   <rect x="230" y="188" width="34" height="34" rx="2" fill="#56B4E9"/>
   <text x="247" y="209.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">31</text>
   <text x="24" y="256" font-size="13" fill="#D55E00" font-weight="600">falsified</text>
-  <text x="24" y="272" font-size="11" fill="#57606a">10 priors</text>
+  <text x="24" y="272" font-size="11" fill="#57606a">11 priors</text>
   <rect x="150" y="240" width="34" height="34" rx="2" fill="#D55E00"/>
   <text x="167" y="261.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">9</text>
   <rect x="190" y="240" width="34" height="34" rx="2" fill="#D55E00"/>
@@ -71,6 +75,8 @@
   <text x="487" y="261.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">24</text>
   <rect x="510" y="240" width="34" height="34" rx="2" fill="#D55E00"/>
   <text x="527" y="261.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">30</text>
+  <rect x="550" y="240" width="34" height="34" rx="2" fill="#D55E00"/>
+  <text x="567" y="261.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">34</text>
   <text x="24" y="308" font-size="13" fill="#8c959f" font-weight="600">untested</text>
   <text x="24" y="324" font-size="11" fill="#57606a">0 priors</text>
   <text x="150" y="314" font-size="12" fill="#57606a">none</text>

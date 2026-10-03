@@ -118,6 +118,11 @@ pub struct RouteReport {
     /// Its mean cost per split.
     #[serde(default)]
     pub prefixed_sbs_cost: BTreeMap<String, f64>,
+    /// Whether the comparison with the best fixed order after the prefix
+    /// was pre-registered as the primary comparison (ADR 0017) rather than
+    /// run post hoc.
+    #[serde(default)]
+    pub ordering_is_primary: bool,
 }
 
 fn split_rows(table: &RouteTable, split: &str) -> Vec<usize> {
@@ -352,6 +357,7 @@ pub fn analyze_routes(
         entropy_floor: None,
         routers: results,
         selected,
+        ordering_is_primary: false,
         prefixed_sbs: table.candidates.get(prefixed_sbs_index).cloned(),
         prefixed_sbs_cost: splits
             .iter()
@@ -422,7 +428,12 @@ pub fn render_route_markdown(report: &RouteReport) -> String {
     if let Some(name) = &report.prefixed_sbs {
         let _ = writeln!(
             out,
-            "\n**Post hoc (ADR 0017, not pre-registered).** The best fixed order run after the same prefix, chosen on train, is `{name}` (train {:.3}, test {:.3}). Each router's test cost minus it:\n",
+            "\n**{}** The best fixed order run after the same prefix, chosen on train, is `{name}` (train {:.3}, test {:.3}). Each router's test cost minus it:\n",
+            if report.ordering_is_primary {
+                "Pre-registered primary comparison (ADR 0017)."
+            } else {
+                "Post hoc (ADR 0017, not pre-registered)."
+            },
             report
                 .prefixed_sbs_cost
                 .get("train")

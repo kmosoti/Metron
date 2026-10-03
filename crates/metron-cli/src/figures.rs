@@ -46,8 +46,11 @@ pub fn render_figures(root: &Path) -> Result<Vec<Figure>, String> {
     let selectors6: HeadroomReport = load(&find_report(&reports, "selectors-arity6")?)?;
     let retrieval: RetrievalReport = load(&find_report(&reports, "retrieval-arity6")?)?;
     let promotion: Vec<PromotionReport> = load(&find_report(&reports, "promotion-arity5")?)?;
-    let routing: Vec<RouteReport> =
-        load(&find_report_kind(&reports, "structure-arity8", "-route")?)?;
+    let routing: Vec<RouteReport> = load(&find_report_kind(
+        &reports,
+        "structure-ordering-arity8",
+        "-route",
+    )?)?;
     let ledger_path = root.join(PRIORS_LEDGER);
     let ledger =
         fs::read_to_string(&ledger_path).map_err(|e| format!("{}: {e}", ledger_path.display()))?;
@@ -961,16 +964,23 @@ fn routing_figure(reports: &[RouteReport]) -> Result<String, String> {
         color: &'static str,
         note: String,
     }
+    let order = |name: &str| name.trim_start_matches("cascade-").replace('-', " → ");
     let mut rows = vec![Row {
         label: "Single best cascade".into(),
-        sub: format!(
-            "{}, chosen on train",
-            r.sbs.trim_start_matches("cascade-").replace('-', " → ")
-        ),
+        sub: format!("{}, chosen on train", order(&r.sbs)),
         value: r.sbs_cost["test"],
         color: GREY,
         note: String::new(),
     }];
+    if let (Some(name), Some(&cost)) = (&r.prefixed_sbs, r.prefixed_sbs_cost.get("test")) {
+        rows.push(Row {
+            label: "Best fixed order after the prefix".into(),
+            sub: format!("{}, chosen on train", order(name)),
+            value: cost,
+            color: GREY,
+            note: String::new(),
+        });
+    }
     for (prefix, label, sub, color) in [
         (
             "posterior-order",
@@ -1014,7 +1024,7 @@ fn routing_figure(reports: &[RouteReport]) -> Result<String, String> {
     }
     rows.push(Row {
         label: "Best router possible".into(),
-        sub: "per-task best cascade after the anchors".into(),
+        sub: "per-task best cascade after the prefix".into(),
         value: r.oracle_router_test,
         color: SKY,
         note: String::new(),
@@ -1026,14 +1036,26 @@ fn routing_figure(reports: &[RouteReport]) -> Result<String, String> {
         color: SKY,
         note: String::new(),
     });
-    let (left, right, top, row_h) = (290.0, 716.0, 100.0, 44.0);
+    let (left, right, top, row_h) = (290.0, 716.0, 108.0, 44.0);
     let bottom = top + row_h * rows.len() as f64;
     let mut svg = Svg::new(
         bottom + 78.0,
         "Routing among structural learners",
         &format!(
-            "Structure-keyed lab at arity 8 (ADR 0015): mean cost on the {} test tasks; routers first spend nine anchor probes",
+            "Structure-keyed lab at arity 8 (ADR 0018): mean cost on {} unseen test tasks",
             r.tasks["test"]
+        ),
+    );
+    svg.text(
+        (24.0, 76.0),
+        Style::new(12.5, MUTED),
+        &format!(
+            "Routers first probe {}, then try the classes in an order",
+            match r.prefix.as_str() {
+                "anchors" => "the nine anchor rows".to_owned(),
+                "anchors-and-weights" => "the anchors and one row per weight".to_owned(),
+                other => format!("the `{other}` prefix"),
+            }
         ),
     );
     let max = rows
@@ -1099,7 +1121,14 @@ fn routing_figure(reports: &[RouteReport]) -> Result<String, String> {
             .map(|x| x.name.as_str())
             .collect();
         let failures = ((1.0 - control.test_solved) * r.tasks["test"] as f64).round();
-        let caption = if paying.is_empty() {
+        let caption = if let (true, Some((d, lo, hi))) =
+            (r.ordering_is_primary, control.minus_prefixed_sbs)
+        {
+            format!(
+                "The Bayes ranking beats the best fixed order after the same prefix by {:.1} probes per task (95% CI {:.1} to {:.1}).",
+                -d, -hi, -lo
+            )
+        } else if paying.is_empty() {
             format!(
                 "No router's interval clears zero. {failures:.0} wrong answers at {:.0} each add {:.1} to the Bayes ranking's mean.",
                 r.cost_model.failure_cost,

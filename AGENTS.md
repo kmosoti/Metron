@@ -39,7 +39,7 @@ crates/metron-app         use cases: registry, schedules, episode runner
 crates/metron-lab         immutable evaluator: hidden targets, oracle, judge, promotion gate, manifests
 crates/metron-operators   reference operators (one complete pipeline)
 crates/metron-adapters    effects: clock, files, results
-crates/metron-cli         composition root (library + binary): run | resume | answer | replay | headroom | promote | retrieval | verify | explain | figures
+crates/metron-cli         composition root (library + binary): run | resume | answer | replay | headroom | route | promote | retrieval | verify | explain | figures
 experiments/manifests     experiment definitions (lab property)
 experiments/fixtures      hidden targets as data (lab property)
 experiments/results       generated run directories (not committed)
@@ -90,14 +90,18 @@ tests/architecture        executable invariants
 - Hyperdimensional memory is closed (ADR 0013): on the laboratory's
   native objects the bitmask index wins on recall, bytes and time. Do not
   add an HDC crate; `metron-lab::retrieval` is the standing comparison.
-- Do not add learned routing before its gate is met. Routing (M3) is
-  closed as a negative result on the current laboratory configuration
-  (ADR 0011):
-  the family label that defines the virtual best solver is not
-  identifiable from probes. Any routing claim needs a task set whose
-  per-task best is keyed by verifiable structure, a fresh headroom
-  report, and a selector column that beats the fixed strategies and the
-  `survivor-count` control on an NPN-clean test split.
+- Routing (M3) is reached on the structure-keyed laboratory (ADR 0018):
+  the hand-authored Bayes router (`metron route`, `RouterSelector` with
+  `RoutingPolicy::PosteriorOrder`) closes about half the label-free gap
+  and beats the best fixed order run after the same prefix. Learned
+  routing is closed negative there. On the family-labelled laboratory
+  routing stays closed (ADR 0011), and the entropy floor explains why
+  (ADR 0015). A new routing claim needs the floor in its headroom
+  report, label-free strategies as the only SBS and VBS candidates,
+  splits that stay NPN-clean when seeds are pooled, a negative control,
+  and a baseline that spends the router's own prefix. It also needs a
+  pre-registered primary comparison whose interval excludes zero on
+  fresh seeds.
 - Do not copy the deep-research proposal's architecture. It is an archived
   input, not the design (`docs/research/README.md`).
 - Record decisions as ADRs. Do not edit accepted ADRs; supersede them.

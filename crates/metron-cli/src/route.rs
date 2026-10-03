@@ -327,6 +327,8 @@ pub fn run_route(manifest_path: &Path, options: &RouteOptions) -> Result<RouteOu
             manifest.seed ^ (p as u64 + 1),
         );
         report.entropy_floor = floor;
+        report.ordering_is_primary =
+            p == 0 && route.primary.as_deref() == Some("fixed-order-after-prefix");
         choices_record.push(serde_json::json!({
             "prefix": table.prefix,
             "tasks": table.tasks.iter().map(|t| &t.id).collect::<Vec<_>>(),

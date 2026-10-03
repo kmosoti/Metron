@@ -22,3 +22,4 @@ mark them superseded. Template: context, decision, consequences.
 | 0015 | The routing floor; M3 reopens on a structure-keyed task set | accepted; supersedes ADR 0011, decision 2 |
 | 0016 | Routing does not pay on the pre-registered prefix; a confirmatory run is pre-registered | accepted |
 | 0017 | Routing pays on fresh seeds; whether the choice pays beyond its prefix is pre-registered | accepted |
+| 0018 | M3 is reached: the hand-authored Bayes router pays, learned routing does not | accepted |

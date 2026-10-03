@@ -2,11 +2,12 @@
 
 Tasks: 147 train, 37 validation, 116 test; splits by NPN-class hash, pooled hygiene verified. Cost model: probe weight 1, failure cost 512. Routers fitted on train, chosen on validation, judged once on test. The control and the selected router were replayed as real schedulers on 232 test episodes; every choice and score matched.
 
-## Verdicts (primary prefix, pre-registered in ADR 0015)
+## Verdicts (primary prefix)
 
 - Routing pays: no; no router's gap-closed interval on test excludes zero.
 - Learning pays: no; no learned router beats the control with an interval on the paired difference that excludes zero.
 - Prediction 3 (the control closes at least a third of the gap): fails; it closes 0.179 (95% CI -0.726 to 0.710).
+- Post hoc, not pre-registered (ADR 0017): against the best fixed order after the same prefix (`cascade-junta-symmetric-affine`, chosen on train), the control's test cost differs by 0.310 (95% CI -9.698 to 14.319).
 - Prediction 4 (no learned router beats the control): holds.
 
 ## Prefix `anchors`
@@ -19,6 +20,15 @@ Single best fixed strategy, chosen on train: `cascade-junta-symmetric-affine` (t
 | `posterior-reverse` | no | 39.599 | 54.892 | 53.103 | 95.7% | -0.687 | -2.050 to 0.165 | 18.319 | -3.793 to 40.190 |
 | `tabular` | yes | 24.592 | 21.973 | 29.948 | 100.0% | 0.407 | -0.165 to 0.776 | -4.836 | -18.207 to 5.379 |
 | `ridge(λ = 0.01)` | yes | 26.605 | 25.649 | 30.552 | 100.0% | 0.379 | -0.080 to 0.650 | -4.233 | -18.509 to 5.974 |
+
+**Post hoc (ADR 0017, not pre-registered).** The best fixed order run after the same prefix, chosen on train, is `cascade-junta-symmetric-affine` (train 26.878, test 34.474). Each router's test cost minus it:
+
+| Router | Test minus best fixed order after the prefix | 95% CI |
+|---|---:|---:|
+| `posterior-order` | 0.310 | -9.698 to 14.319 |
+| `posterior-reverse` | 18.629 | 1.224 to 38.009 |
+| `tabular` | -4.526 | -10.491 to 2.733 |
+| `ridge(λ = 0.01)` | -3.922 | -4.000 to -3.845 |
 
 ### Test cost by class
 
@@ -48,6 +58,15 @@ Single best fixed strategy, chosen on train: `cascade-junta-symmetric-affine` (t
 | `posterior-reverse` | no | 35.755 | 29.189 | 48.828 | 97.4% | -0.485 | -1.320 to 0.074 | 20.888 | 7.569 to 36.647 |
 | `tabular` | yes | 24.878 | 23.784 | 32.345 | 99.1% | 0.294 | -0.421 to 0.671 | 4.405 | -0.172 to 12.759 |
 | `ridge(λ = 0.01)` | yes | 29.755 | 26.054 | 30.595 | 100.0% | 0.377 | -0.069 to 0.643 | 2.655 | 2.517 to 2.828 |
+
+**Post hoc (ADR 0017, not pre-registered).** The best fixed order run after the same prefix, chosen on train, is `cascade-junta-symmetric-affine` (train 29.973, test 32.526). Each router's test cost minus it:
+
+| Router | Test minus best fixed order after the prefix | 95% CI |
+|---|---:|---:|
+| `posterior-order` | -4.586 | -4.767 to -4.440 |
+| `posterior-reverse` | 16.302 | 3.897 to 31.655 |
+| `tabular` | -0.181 | -4.698 to 8.543 |
+| `ridge(λ = 0.01)` | -1.931 | -1.931 to -1.931 |
 
 ### Test cost by class
 

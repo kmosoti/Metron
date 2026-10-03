@@ -68,7 +68,12 @@
             "cascade-symmetric-affine-junta": 13,
             "cascade-symmetric-junta-affine": 5
           }
-        }
+        },
+        "minus_prefixed_sbs": [
+          0.3103448275862064,
+          -9.698275862068964,
+          14.318965517241377
+        ]
       },
       {
         "name": "posterior-reverse",
@@ -107,7 +112,12 @@
             "cascade-affine-junta-symmetric": 5,
             "cascade-junta-affine-symmetric": 13
           }
-        }
+        },
+        "minus_prefixed_sbs": [
+          18.629310344827587,
+          1.224137931034484,
+          38.00862068965517
+        ]
       },
       {
         "name": "tabular",
@@ -145,7 +155,12 @@
             "cascade-affine-symmetric-junta": 5,
             "cascade-symmetric-affine-junta": 13
           }
-        }
+        },
+        "minus_prefixed_sbs": [
+          -4.52586206896552,
+          -10.491379310344826,
+          2.732758620689655
+        ]
       },
       {
         "name": "ridge(λ = 0.01)",
@@ -182,10 +197,22 @@
           "symmetric": {
             "cascade-junta-symmetric-affine": 18
           }
-        }
+        },
+        "minus_prefixed_sbs": [
+          -3.9224137931034484,
+          -3.9999999999999964,
+          -3.844827586206897
+        ]
       }
     ],
-    "selected": "posterior-order"
+    "selected": "posterior-order",
+    "prefixed_sbs": "cascade-junta-symmetric-affine",
+    "prefixed_sbs_cost": {
+      "test": 34.474137931034484,
+      "train": 26.877551020408163,
+      "validation": 25.64864864864865
+    },
+    "ordering_is_primary": false
   },
   {
     "prefix": "anchors-and-weights",
@@ -256,7 +283,12 @@
             "cascade-symmetric-affine-junta": 15,
             "cascade-symmetric-junta-affine": 3
           }
-        }
+        },
+        "minus_prefixed_sbs": [
+          -4.586206896551722,
+          -4.767241379310345,
+          -4.43965517241379
+        ]
       },
       {
         "name": "posterior-reverse",
@@ -294,7 +326,12 @@
           "symmetric": {
             "cascade-affine-junta-symmetric": 18
           }
-        }
+        },
+        "minus_prefixed_sbs": [
+          16.30172413793104,
+          3.896551724137929,
+          31.6551724137931
+        ]
       },
       {
         "name": "tabular",
@@ -333,7 +370,12 @@
             "cascade-junta-symmetric-affine": 3,
             "cascade-symmetric-affine-junta": 15
           }
-        }
+        },
+        "minus_prefixed_sbs": [
+          -0.18103448275861922,
+          -4.698275862068964,
+          8.543103448275861
+        ]
       },
       {
         "name": "ridge(λ = 0.01)",
@@ -371,9 +413,21 @@
             "cascade-affine-symmetric-junta": 15,
             "cascade-junta-symmetric-affine": 3
           }
-        }
+        },
+        "minus_prefixed_sbs": [
+          -1.9310344827586192,
+          -1.9310344827586263,
+          -1.9310344827586192
+        ]
       }
     ],
-    "selected": "posterior-order"
+    "selected": "posterior-order",
+    "prefixed_sbs": "cascade-junta-symmetric-affine",
+    "prefixed_sbs_cost": {
+      "test": 32.525862068965516,
+      "train": 29.972789115646258,
+      "validation": 26.324324324324323
+    },
+    "ordering_is_primary": false
   }
 ]

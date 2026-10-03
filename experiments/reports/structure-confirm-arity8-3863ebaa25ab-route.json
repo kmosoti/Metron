@@ -1,0 +1,435 @@
+[
+  {
+    "prefix": "anchors-and-weights",
+    "cost_model": {
+      "probe_weight": 1.0,
+      "work_weight": 0.0,
+      "external_weight": 0.0,
+      "failure_cost": 512.0
+    },
+    "tasks": {
+      "test": 117,
+      "train": 150,
+      "validation": 33
+    },
+    "sbs": "cascade-junta-symmetric-affine",
+    "sbs_cost": {
+      "test": 49.78632478632478,
+      "train": 33.07333333333333,
+      "validation": 56.42424242424242
+    },
+    "vbs_test": 17.435897435897434,
+    "gap_test": 32.35042735042735,
+    "oracle_router_test": 23.71794871794872,
+    "fixed_test": {
+      "affine-then-table": 152.93162393162393,
+      "cascade-affine-junta-symmetric": 61.136752136752136,
+      "cascade-affine-symmetric-junta": 55.401709401709404,
+      "cascade-junta-affine-symmetric": 48.81196581196581,
+      "cascade-junta-symmetric-affine": 49.78632478632478,
+      "cascade-symmetric-affine-junta": 69.63247863247864,
+      "cascade-symmetric-junta-affine": 77.3076923076923,
+      "junta-then-table": 194.33333333333334,
+      "symmetric-then-table": 234.26495726495727,
+      "table": 256.0
+    },
+    "entropy_floor": 12.100056016671855,
+    "routers": [
+      {
+        "name": "posterior-order",
+        "learned": false,
+        "cost": {
+          "test": 32.0940170940171,
+          "train": 42.16,
+          "validation": 22.727272727272727
+        },
+        "test_solved": 1.0,
+        "gap_closed": 0.5468956406869219,
+        "gap_closed_ci": [
+          0.2323374340949035,
+          0.7538247566063976
+        ],
+        "minus_control": null,
+        "test_cost_by_class": {
+          "affine": 20.0,
+          "junta": 55.56410256410256,
+          "symmetric": 21.333333333333332
+        },
+        "test_choices": {
+          "affine": {
+            "cascade-affine-symmetric-junta": 57
+          },
+          "junta": {
+            "cascade-junta-affine-symmetric": 34,
+            "cascade-junta-symmetric-affine": 5
+          },
+          "symmetric": {
+            "cascade-junta-symmetric-affine": 1,
+            "cascade-symmetric-affine-junta": 19,
+            "cascade-symmetric-junta-affine": 1
+          }
+        },
+        "minus_prefixed_sbs": [
+          -11.025641025641022,
+          -28.435897435897438,
+          3.30769230769231
+        ]
+      },
+      {
+        "name": "posterior-reverse",
+        "learned": false,
+        "cost": {
+          "test": 39.26495726495727,
+          "train": 32.72,
+          "validation": 29.303030303030305
+        },
+        "test_solved": 0.9914529914529915,
+        "gap_closed": 0.3252311756935269,
+        "gap_closed_ci": [
+          -0.164053075995175,
+          0.5908516020236088
+        ],
+        "minus_control": [
+          7.17094017094017,
+          -2.8803418803418808,
+          18.666666666666664
+        ],
+        "test_cost_by_class": {
+          "affine": 28.0,
+          "junta": 61.64102564102564,
+          "symmetric": 28.285714285714285
+        },
+        "test_choices": {
+          "affine": {
+            "cascade-symmetric-junta-affine": 57
+          },
+          "junta": {
+            "cascade-affine-symmetric-junta": 34,
+            "cascade-symmetric-affine-junta": 5
+          },
+          "symmetric": {
+            "cascade-affine-junta-symmetric": 20,
+            "cascade-affine-symmetric-junta": 1
+          }
+        },
+        "minus_prefixed_sbs": [
+          -3.8547008547008517,
+          -20.948717948717945,
+          12.17094017094017
+        ]
+      },
+      {
+        "name": "tabular",
+        "learned": true,
+        "cost": {
+          "test": 33.98290598290598,
+          "train": 24.993333333333332,
+          "validation": 24.666666666666668
+        },
+        "test_solved": 0.9914529914529915,
+        "gap_closed": 0.48850726552179646,
+        "gap_closed_ci": [
+          0.0709700427960056,
+          0.7268283144309738
+        ],
+        "minus_control": [
+          1.8888888888888857,
+          -7.7606837606837615,
+          13.470085470085472
+        ],
+        "test_cost_by_class": {
+          "affine": 20.0,
+          "junta": 61.12820512820513,
+          "symmetric": 21.523809523809526
+        },
+        "test_choices": {
+          "affine": {
+            "cascade-affine-symmetric-junta": 57
+          },
+          "junta": {
+            "cascade-affine-symmetric-junta": 29,
+            "cascade-junta-affine-symmetric": 1,
+            "cascade-symmetric-junta-affine": 9
+          },
+          "symmetric": {
+            "cascade-junta-affine-symmetric": 1,
+            "cascade-symmetric-affine-junta": 19,
+            "cascade-symmetric-junta-affine": 1
+          }
+        },
+        "minus_prefixed_sbs": [
+          -9.136752136752136,
+          -23.2991452991453,
+          1.8290598290598297
+        ]
+      },
+      {
+        "name": "ridge(λ = 0.01)",
+        "learned": true,
+        "cost": {
+          "test": 43.84615384615385,
+          "train": 26.74,
+          "validation": 23.78787878787879
+        },
+        "test_solved": 0.9743589743589743,
+        "gap_closed": 0.18361955085865245,
+        "gap_closed_ci": [
+          -0.5080978088281995,
+          0.5865569272976681
+        ],
+        "minus_control": [
+          11.75213675213675,
+          -2.6666666666666643,
+          27.45299145299145
+        ],
+        "test_cost_by_class": {
+          "affine": 24.0,
+          "junta": 85.6923076923077,
+          "symmetric": 20.0
+        },
+        "test_choices": {
+          "affine": {
+            "cascade-junta-affine-symmetric": 57
+          },
+          "junta": {
+            "cascade-symmetric-affine-junta": 39
+          },
+          "symmetric": {
+            "cascade-symmetric-affine-junta": 2,
+            "cascade-symmetric-junta-affine": 19
+          }
+        },
+        "minus_prefixed_sbs": [
+          0.7264957264957275,
+          -12.923076923076927,
+          14.324786324786324
+        ]
+      }
+    ],
+    "selected": "posterior-order",
+    "prefixed_sbs": "cascade-symmetric-junta-affine",
+    "prefixed_sbs_cost": {
+      "test": 43.11965811965812,
+      "train": 29.82,
+      "validation": 24.060606060606062
+    },
+    "ordering_is_primary": false
+  },
+  {
+    "prefix": "anchors",
+    "cost_model": {
+      "probe_weight": 1.0,
+      "work_weight": 0.0,
+      "external_weight": 0.0,
+      "failure_cost": 512.0
+    },
+    "tasks": {
+      "test": 117,
+      "train": 150,
+      "validation": 33
+    },
+    "sbs": "cascade-junta-symmetric-affine",
+    "sbs_cost": {
+      "test": 49.78632478632478,
+      "train": 33.07333333333333,
+      "validation": 56.42424242424242
+    },
+    "vbs_test": 17.435897435897434,
+    "gap_test": 32.35042735042735,
+    "oracle_router_test": 19.35042735042735,
+    "fixed_test": {
+      "affine-then-table": 152.93162393162393,
+      "cascade-affine-junta-symmetric": 61.136752136752136,
+      "cascade-affine-symmetric-junta": 55.401709401709404,
+      "cascade-junta-affine-symmetric": 48.81196581196581,
+      "cascade-junta-symmetric-affine": 49.78632478632478,
+      "cascade-symmetric-affine-junta": 69.63247863247864,
+      "cascade-symmetric-junta-affine": 77.3076923076923,
+      "junta-then-table": 194.33333333333334,
+      "symmetric-then-table": 234.26495726495727,
+      "table": 256.0
+    },
+    "entropy_floor": 12.100056016671855,
+    "routers": [
+      {
+        "name": "posterior-order",
+        "learned": false,
+        "cost": {
+          "test": 39.376068376068375,
+          "train": 35.11333333333334,
+          "validation": 22.666666666666668
+        },
+        "test_solved": 0.9658119658119658,
+        "gap_closed": 0.3217965653896961,
+        "gap_closed_ci": [
+          -0.4559369202226342,
+          0.7745929443690638
+        ],
+        "minus_control": null,
+        "test_cost_by_class": {
+          "affine": 13.0,
+          "junta": 88.35897435897436,
+          "symmetric": 20.0
+        },
+        "test_choices": {
+          "affine": {
+            "cascade-affine-symmetric-junta": 57
+          },
+          "junta": {
+            "cascade-affine-junta-symmetric": 5,
+            "cascade-junta-affine-symmetric": 26,
+            "cascade-symmetric-junta-affine": 8
+          },
+          "symmetric": {
+            "cascade-symmetric-affine-junta": 10,
+            "cascade-symmetric-junta-affine": 11
+          }
+        },
+        "minus_prefixed_sbs": [
+          -3.7435897435897445,
+          -18.307692307692307,
+          12.41880341880342
+        ]
+      },
+      {
+        "name": "posterior-reverse",
+        "learned": false,
+        "cost": {
+          "test": 45.23931623931624,
+          "train": 32.85333333333333,
+          "validation": 28.272727272727273
+        },
+        "test_solved": 0.9743589743589743,
+        "gap_closed": 0.14055482166446492,
+        "gap_closed_ci": [
+          -0.5843353916152096,
+          0.5743427970557309
+        ],
+        "minus_control": [
+          5.863247863247864,
+          -13.683760683760681,
+          24.820512820512818
+        ],
+        "test_cost_by_class": {
+          "affine": 28.0,
+          "junta": 67.28205128205128,
+          "symmetric": 51.095238095238095
+        },
+        "test_choices": {
+          "affine": {
+            "cascade-symmetric-junta-affine": 57
+          },
+          "junta": {
+            "cascade-affine-junta-symmetric": 8,
+            "cascade-symmetric-affine-junta": 26,
+            "cascade-symmetric-junta-affine": 5
+          },
+          "symmetric": {
+            "cascade-affine-junta-symmetric": 11,
+            "cascade-junta-affine-symmetric": 10
+          }
+        },
+        "minus_prefixed_sbs": [
+          2.1196581196581192,
+          -14.495726495726494,
+          18.358974358974358
+        ]
+      },
+      {
+        "name": "tabular",
+        "learned": true,
+        "cost": {
+          "test": 36.30769230769231,
+          "train": 23.653333333333332,
+          "validation": 23.666666666666668
+        },
+        "test_solved": 0.9743589743589743,
+        "gap_closed": 0.41664464993394973,
+        "gap_closed_ci": [
+          -0.25075695017891564,
+          0.799691238903898
+        ],
+        "minus_control": [
+          -3.068376068376068,
+          -19.128205128205124,
+          11.452991452991451
+        ],
+        "test_cost_by_class": {
+          "affine": 13.0,
+          "junta": 79.15384615384616,
+          "symmetric": 20.0
+        },
+        "test_choices": {
+          "affine": {
+            "cascade-affine-symmetric-junta": 57
+          },
+          "junta": {
+            "cascade-junta-affine-symmetric": 5,
+            "cascade-symmetric-affine-junta": 26,
+            "cascade-symmetric-junta-affine": 8
+          },
+          "symmetric": {
+            "cascade-symmetric-affine-junta": 10,
+            "cascade-symmetric-junta-affine": 11
+          }
+        },
+        "minus_prefixed_sbs": [
+          -6.811965811965813,
+          -19.0,
+          5.435897435897438
+        ]
+      },
+      {
+        "name": "ridge(λ = 0.01)",
+        "learned": true,
+        "cost": {
+          "test": 39.957264957264954,
+          "train": 23.946666666666665,
+          "validation": 23.454545454545453
+        },
+        "test_solved": 0.9743589743589743,
+        "gap_closed": 0.3038309114927345,
+        "gap_closed_ci": [
+          -0.3849886768036234,
+          0.6889700844941766
+        ],
+        "minus_control": [
+          0.5811965811965791,
+          -15.692307692307693,
+          15.512820512820511
+        ],
+        "test_cost_by_class": {
+          "affine": 17.0,
+          "junta": 84.25641025641026,
+          "symmetric": 20.0
+        },
+        "test_choices": {
+          "affine": {
+            "cascade-junta-affine-symmetric": 57
+          },
+          "junta": {
+            "cascade-junta-affine-symmetric": 5,
+            "cascade-symmetric-affine-junta": 34
+          },
+          "symmetric": {
+            "cascade-symmetric-affine-junta": 11,
+            "cascade-symmetric-junta-affine": 10
+          }
+        },
+        "minus_prefixed_sbs": [
+          -3.1623931623931654,
+          -15.811965811965813,
+          10.256410256410259
+        ]
+      }
+    ],
+    "selected": "posterior-order",
+    "prefixed_sbs": "cascade-symmetric-junta-affine",
+    "prefixed_sbs_cost": {
+      "test": 43.11965811965812,
+      "train": 29.82,
+      "validation": 24.060606060606062
+    },
+    "ordering_is_primary": false
+  }
+]
