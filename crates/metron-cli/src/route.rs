@@ -313,6 +313,7 @@ pub fn run_route(manifest_path: &Path, options: &RouteOptions) -> Result<RouteOu
         .filter(|&(_, needed)| model.failure_cost >= needed * model.probe_weight)
         .map(|(h, _)| h * model.probe_weight);
     let mut reports = Vec::new();
+    let mut choices_record: Vec<serde_json::Value> = Vec::new();
     let mut replayed = 0usize;
     for (p, table) in tables.iter().enumerate() {
         let fitted = fit_routers(&route, &candidates, table, &posteriors[p], &model);
@@ -326,6 +327,18 @@ pub fn run_route(manifest_path: &Path, options: &RouteOptions) -> Result<RouteOu
             manifest.seed ^ (p as u64 + 1),
         );
         report.entropy_floor = floor;
+        choices_record.push(serde_json::json!({
+            "prefix": table.prefix,
+            "tasks": table.tasks.iter().map(|t| &t.id).collect::<Vec<_>>(),
+            "routers": fitted.choices.iter().map(|r| serde_json::json!({
+                "name": r.name,
+                "choices": r.choices,
+            })).collect::<Vec<_>>(),
+            "policies": fitted.policies.iter().map(|(n, p)| serde_json::json!({
+                "name": n,
+                "policy": p,
+            })).collect::<Vec<_>>(),
+        }));
         if p == 0 {
             // Replay the control and the selected router as real schedulers
             // on every test task: the simulated choice and cost must match.
@@ -379,7 +392,14 @@ pub fn run_route(manifest_path: &Path, options: &RouteOptions) -> Result<RouteOu
         reports.push(report);
     }
 
-    let markdown = render(&manifest.name, seeds, spec.arity, &reports, replayed);
+    let markdown = render(
+        &manifest.name,
+        seeds,
+        spec.arity,
+        &reports,
+        replayed,
+        route.primary.as_deref(),
+    );
     let dir = options.results_root.join(format!(
         "route-{}-{}",
         manifest.name,
@@ -389,6 +409,8 @@ pub fn run_route(manifest_path: &Path, options: &RouteOptions) -> Result<RouteOu
     write_json_pretty(dir.join("manifest.json"), &manifest).map_err(|e| e.to_string())?;
     write_json_pretty(dir.join("route-tables.json"), &tables).map_err(|e| e.to_string())?;
     write_json_pretty(dir.join("route.json"), &reports).map_err(|e| e.to_string())?;
+    write_json_pretty(dir.join("route-choices.json"), &choices_record)
+        .map_err(|e| e.to_string())?;
     fs::write(dir.join("route.md"), &markdown).map_err(|e| e.to_string())?;
     Ok(RouteOutcome {
         dir,
@@ -399,9 +421,28 @@ pub fn run_route(manifest_path: &Path, options: &RouteOptions) -> Result<RouteOu
     })
 }
 
-/// The pre-registered verdicts of ADR 0015 on the primary prefix.
-fn verdicts(report: &RouteReport) -> Vec<String> {
+/// The pre-registered verdicts on the primary prefix: ADR 0015's criteria,
+/// and, when the manifest names it as primary, ADR 0017's comparison
+/// against the best fixed order after the same prefix.
+fn verdicts(report: &RouteReport, primary: Option<&str>) -> Vec<String> {
     let mut out = Vec::new();
+    let ordering_is_primary = primary == Some("fixed-order-after-prefix");
+    if ordering_is_primary
+        && let (Some(name), Some(control)) = (
+            &report.prefixed_sbs,
+            report.routers.iter().find(|r| r.name == CONTROL),
+        )
+        && let Some((d, lo, hi)) = control.minus_prefixed_sbs
+    {
+        out.push(format!(
+            "Primary comparison (pre-registered in ADR 0017): the control's test cost minus that of the best fixed order after the same prefix (`{name}`, chosen on train) is {d:.3} (95% CI {lo:.3} to {hi:.3}). The ordering {}.",
+            if hi < 0.0 {
+                "pays: the interval lies below zero"
+            } else {
+                "is not shown to pay: the interval does not lie below zero"
+            }
+        ));
+    }
     let excludes_zero =
         |r: &metron_lab::routing::RouterResult| r.gap_closed_ci.is_some_and(|(lo, _)| lo > 0.0);
     let paying: Vec<&str> = report
@@ -462,6 +503,17 @@ fn verdicts(report: &RouteReport) -> Vec<String> {
                 .map_or("n/a".to_owned(), |(lo, hi)| format!("{lo:.3} to {hi:.3}"))
         ));
     }
+    if !ordering_is_primary
+        && let (Some(name), Some(control)) = (
+            &report.prefixed_sbs,
+            report.routers.iter().find(|r| r.name == CONTROL),
+        )
+        && let Some((d, lo, hi)) = control.minus_prefixed_sbs
+    {
+        out.push(format!(
+            "Post hoc, not pre-registered (ADR 0017): against the best fixed order after the same prefix (`{name}`, chosen on train), the control's test cost differs by {d:.3} (95% CI {lo:.3} to {hi:.3})."
+        ));
+    }
     out.push(format!(
         "Prediction 4 (no learned router beats the control): {}.",
         if learned_better.is_empty() {
@@ -473,7 +525,14 @@ fn verdicts(report: &RouteReport) -> Vec<String> {
     out
 }
 
-fn render(name: &str, seeds: u32, arity: u8, reports: &[RouteReport], replayed: usize) -> String {
+fn render(
+    name: &str,
+    seeds: u32,
+    arity: u8,
+    reports: &[RouteReport],
+    replayed: usize,
+    primary_comparison: Option<&str>,
+) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "# Routing: {name} ({seeds} seeds, arity {arity})\n");
     if let Some(primary) = reports.first() {
@@ -486,11 +545,8 @@ fn render(name: &str, seeds: u32, arity: u8, reports: &[RouteReport], replayed: 
             primary.cost_model.probe_weight,
             primary.cost_model.failure_cost
         );
-        let _ = writeln!(
-            out,
-            "## Verdicts (primary prefix, pre-registered in ADR 0015)\n"
-        );
-        for v in verdicts(primary) {
+        let _ = writeln!(out, "## Verdicts (primary prefix)\n");
+        for v in verdicts(primary, primary_comparison) {
             let _ = writeln!(out, "- {v}");
         }
         let _ = writeln!(out);

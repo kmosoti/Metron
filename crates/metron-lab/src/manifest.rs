@@ -235,6 +235,12 @@ pub struct RouteSpec {
     /// Ridge penalties; validation chooses one.
     #[serde(default = "default_lambdas")]
     pub ridge_lambdas: Vec<f64>,
+    /// The pre-registered primary comparison: `gap-closed` (the control's
+    /// gap closed against the fixed portfolio, ADR 0015) or
+    /// `fixed-order-after-prefix` (the control against the best fixed order
+    /// run after the same prefix, ADR 0017). Serialised only when set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub primary: Option<String>,
 }
 
 fn default_profile_view() -> String {
@@ -484,6 +490,13 @@ impl Manifest {
                 return Err(ManifestError::Invalid(
                     "route needs at least one prefix, each with steps".into(),
                 ));
+            }
+            if let Some(primary) = &r.primary
+                && !["gap-closed", "fixed-order-after-prefix"].contains(&primary.as_str())
+            {
+                return Err(ManifestError::Invalid(format!(
+                    "unknown primary comparison `{primary}`"
+                )));
             }
             if r.candidates.len() < 2 {
                 return Err(ManifestError::Invalid(

@@ -74,6 +74,12 @@ pub struct RouterResult {
     pub test_cost_by_class: BTreeMap<String, f64>,
     /// Test choices: class to candidate to count.
     pub test_choices: BTreeMap<String, BTreeMap<String, usize>>,
+    /// Mean test cost minus that of the best fixed order run after the
+    /// same prefix (chosen on train), with its 95% interval: the share of
+    /// the ordering itself, net of what the prefix contributes. A post-hoc
+    /// analysis (ADR 0017), absent from reports written before it.
+    #[serde(default)]
+    pub minus_prefixed_sbs: Option<(f64, f64, f64)>,
 }
 
 /// The analysis of one prefix.
@@ -105,6 +111,13 @@ pub struct RouteReport {
     /// The router chosen on validation among the control and the learned
     /// routers.
     pub selected: String,
+    /// The best fixed order run after the same prefix, chosen on train
+    /// (post hoc, ADR 0017).
+    #[serde(default)]
+    pub prefixed_sbs: Option<String>,
+    /// Its mean cost per split.
+    #[serde(default)]
+    pub prefixed_sbs_cost: BTreeMap<String, f64>,
 }
 
 fn split_rows(table: &RouteTable, split: &str) -> Vec<usize> {
@@ -212,6 +225,12 @@ pub fn analyze_routes(
         .iter()
         .find(|r| r.name == control)
         .map(|r| r.choices.clone());
+    let prefixed_sbs_index = (0..table.candidates.len())
+        .min_by(|&a, &b| {
+            mean_over(train, &|i| prefixed_cost(i, a))
+                .total_cmp(&mean_over(train, &|i| prefixed_cost(i, b)))
+        })
+        .unwrap_or(0);
 
     let results: Vec<RouterResult> = routers
         .iter()
@@ -247,6 +266,16 @@ pub fn analyze_routes(
                 let (lo, hi) = bootstrap(&strata, &diff, resamples, seed ^ (k as u64 + 101))?;
                 Some((point, lo, hi))
             });
+            let minus_prefixed_sbs = {
+                let fixed_order = |i: usize| prefixed_cost(i, prefixed_sbs_index);
+                let diff = |sample: &[usize]| -> Option<f64> {
+                    Some(mean_over(sample, &router_cost) - mean_over(sample, &fixed_order))
+                };
+                diff(test).and_then(|point| {
+                    bootstrap(&strata, &diff, resamples, seed ^ (k as u64 + 201))
+                        .map(|(lo, hi)| (point, lo, hi))
+                })
+            };
             let test_solved = mean(
                 &test
                     .iter()
@@ -282,6 +311,7 @@ pub fn analyze_routes(
                 minus_control,
                 test_cost_by_class,
                 test_choices,
+                minus_prefixed_sbs,
             }
         })
         .collect();
@@ -322,6 +352,16 @@ pub fn analyze_routes(
         entropy_floor: None,
         routers: results,
         selected,
+        prefixed_sbs: table.candidates.get(prefixed_sbs_index).cloned(),
+        prefixed_sbs_cost: splits
+            .iter()
+            .map(|s| {
+                (
+                    (*s).to_owned(),
+                    mean_over(&rows[s], &|i| prefixed_cost(i, prefixed_sbs_index)),
+                )
+            })
+            .collect(),
     }
 }
 
@@ -378,6 +418,32 @@ pub fn render_route_markdown(report: &RouteReport) -> String {
             diff,
             diff_ci
         );
+    }
+    if let Some(name) = &report.prefixed_sbs {
+        let _ = writeln!(
+            out,
+            "\n**Post hoc (ADR 0017, not pre-registered).** The best fixed order run after the same prefix, chosen on train, is `{name}` (train {:.3}, test {:.3}). Each router's test cost minus it:\n",
+            report
+                .prefixed_sbs_cost
+                .get("train")
+                .copied()
+                .unwrap_or(f64::NAN),
+            report
+                .prefixed_sbs_cost
+                .get("test")
+                .copied()
+                .unwrap_or(f64::NAN),
+        );
+        let _ = writeln!(
+            out,
+            "| Router | Test minus best fixed order after the prefix | 95% CI |"
+        );
+        let _ = writeln!(out, "|---|---:|---:|");
+        for r in &report.routers {
+            if let Some((d, lo, hi)) = r.minus_prefixed_sbs {
+                let _ = writeln!(out, "| `{}` | {d:.3} | {lo:.3} to {hi:.3} |", r.name);
+            }
+        }
     }
     let _ = writeln!(out, "\n### Test cost by class\n");
     let classes: Vec<&String> = report
