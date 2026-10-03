@@ -1,0 +1,430 @@
+{
+  "cost_model": {
+    "probe_weight": 1.0,
+    "work_weight": 0.0,
+    "external_weight": 0.0,
+    "failure_cost": 512.0
+  },
+  "tasks": 150,
+  "strategies": [
+    {
+      "name": "table",
+      "mean_cost": 256.0,
+      "iqm_cost": 256.0,
+      "iqm_ci": [
+        256.0,
+        256.0
+      ],
+      "solved": 1.0,
+      "mean_probes_when_solved": 256.0,
+      "gap_closed": -13.940124740124741
+    },
+    {
+      "name": "cascade-affine-symmetric-junta-v4",
+      "mean_cost": 67.55333333333333,
+      "iqm_cost": 20.82894736842105,
+      "iqm_ci": [
+        20.526315789473685,
+        21.513157894736842
+      ],
+      "solved": 0.9066666666666666,
+      "mean_probes_when_solved": 21.801470588235293,
+      "gap_closed": -2.186694386694387
+    },
+    {
+      "name": "cascade-affine-junta-symmetric-v4",
+      "mean_cost": 73.41333333333333,
+      "iqm_cost": 23.092105263157894,
+      "iqm_ci": [
+        21.776315789473685,
+        24.960526315789473
+      ],
+      "solved": 0.9066666666666666,
+      "mean_probes_when_solved": 28.264705882352942,
+      "gap_closed": -2.552182952182952
+    },
+    {
+      "name": "cascade-symmetric-affine-junta-v4",
+      "mean_cost": 65.48666666666666,
+      "iqm_cost": 22.75,
+      "iqm_ci": [
+        22.5,
+        23.236842105263158
+      ],
+      "solved": 0.9133333333333333,
+      "mean_probes_when_solved": 23.116788321167885,
+      "gap_closed": -2.057796257796258
+    },
+    {
+      "name": "cascade-symmetric-junta-affine-v4",
+      "mean_cost": 56.72,
+      "iqm_cost": 22.17105263157895,
+      "iqm_ci": [
+        21.236842105263158,
+        23.276315789473685
+      ],
+      "solved": 0.9333333333333333,
+      "mean_probes_when_solved": 24.2,
+      "gap_closed": -1.5110187110187112
+    },
+    {
+      "name": "cascade-junta-affine-symmetric-v4",
+      "mean_cost": 34.95333333333333,
+      "iqm_cost": 32.026315789473685,
+      "iqm_ci": [
+        30.763157894736842,
+        33.328947368421055
+      ],
+      "solved": 0.9933333333333333,
+      "mean_probes_when_solved": 31.751677852348994,
+      "gap_closed": -0.1534303534303535
+    },
+    {
+      "name": "cascade-junta-symmetric-affine-v4",
+      "mean_cost": 32.49333333333333,
+      "iqm_cost": 29.0,
+      "iqm_ci": [
+        27.473684210526315,
+        30.513157894736842
+      ],
+      "solved": 0.9933333333333333,
+      "mean_probes_when_solved": 29.2751677852349,
+      "gap_closed": 0.0
+    },
+    {
+      "name": "cascade-affine-symmetric-junta-v8",
+      "mean_cost": 48.44,
+      "iqm_cost": 27.605263157894736,
+      "iqm_ci": [
+        27.342105263157894,
+        28.06578947368421
+      ],
+      "solved": 0.96,
+      "mean_probes_when_solved": 29.125,
+      "gap_closed": -0.9945945945945946
+    },
+    {
+      "name": "cascade-affine-junta-symmetric-v8",
+      "mean_cost": 53.16,
+      "iqm_cost": 30.473684210526315,
+      "iqm_ci": [
+        29.592105263157894,
+        31.894736842105264
+      ],
+      "solved": 0.9533333333333334,
+      "mean_probes_when_solved": 30.6993006993007,
+      "gap_closed": -1.288981288981289
+    },
+    {
+      "name": "cascade-symmetric-affine-junta-v8",
+      "mean_cost": 37.093333333333334,
+      "iqm_cost": 30.19736842105263,
+      "iqm_ci": [
+        30.026315789473685,
+        30.38157894736842
+      ],
+      "solved": 0.9866666666666667,
+      "mean_probes_when_solved": 30.675675675675677,
+      "gap_closed": -0.28690228690228703
+    },
+    {
+      "name": "cascade-symmetric-junta-affine-v8",
+      "mean_cost": 36.4,
+      "iqm_cost": 30.144736842105264,
+      "iqm_ci": [
+        28.592105263157894,
+        31.592105263157894
+      ],
+      "solved": 0.9933333333333333,
+      "mean_probes_when_solved": 33.20805369127517,
+      "gap_closed": -0.24365904365904367
+    },
+    {
+      "name": "cascade-junta-affine-symmetric-v8",
+      "mean_cost": 39.13333333333333,
+      "iqm_cost": 39.328947368421055,
+      "iqm_ci": [
+        37.93421052631579,
+        40.6578947368421
+      ],
+      "solved": 1.0,
+      "mean_probes_when_solved": 39.13333333333333,
+      "gap_closed": -0.4141372141372142
+    },
+    {
+      "name": "cascade-junta-symmetric-affine-v8",
+      "mean_cost": 36.166666666666664,
+      "iqm_cost": 35.69736842105263,
+      "iqm_ci": [
+        33.921052631578945,
+        37.4078947368421
+      ],
+      "solved": 1.0,
+      "mean_probes_when_solved": 36.166666666666664,
+      "gap_closed": -0.22910602910602906
+    },
+    {
+      "name": "cascade-affine-symmetric-junta-v12",
+      "mean_cost": 40.626666666666665,
+      "iqm_cost": 34.81578947368421,
+      "iqm_ci": [
+        34.5,
+        35.26315789473684
+      ],
+      "solved": 0.9933333333333333,
+      "mean_probes_when_solved": 37.46308724832215,
+      "gap_closed": -0.5072765072765073
+    },
+    {
+      "name": "cascade-affine-junta-symmetric-v12",
+      "mean_cost": 43.89333333333333,
+      "iqm_cost": 38.61842105263158,
+      "iqm_ci": [
+        37.69736842105263,
+        39.5921052631579
+      ],
+      "solved": 0.9933333333333333,
+      "mean_probes_when_solved": 40.75167785234899,
+      "gap_closed": -0.7110187110187111
+    },
+    {
+      "name": "cascade-symmetric-affine-junta-v12",
+      "mean_cost": 38.66,
+      "iqm_cost": 38.21052631578947,
+      "iqm_ci": [
+        38.026315789473685,
+        38.39473684210526
+      ],
+      "solved": 1.0,
+      "mean_probes_when_solved": 38.66,
+      "gap_closed": -0.3846153846153845
+    },
+    {
+      "name": "cascade-symmetric-junta-affine-v12",
+      "mean_cost": 38.04666666666667,
+      "iqm_cost": 36.526315789473685,
+      "iqm_ci": [
+        34.828947368421055,
+        38.28947368421053
+      ],
+      "solved": 1.0,
+      "mean_probes_when_solved": 38.04666666666667,
+      "gap_closed": -0.3463617463617465
+    },
+    {
+      "name": "cascade-junta-affine-symmetric-v12",
+      "mean_cost": 46.553333333333335,
+      "iqm_cost": 46.38157894736842,
+      "iqm_ci": [
+        44.80263157894737,
+        47.89473684210526
+      ],
+      "solved": 1.0,
+      "mean_probes_when_solved": 46.553333333333335,
+      "gap_closed": -0.8769230769230771
+    },
+    {
+      "name": "cascade-junta-symmetric-affine-v12",
+      "mean_cost": 43.013333333333335,
+      "iqm_cost": 42.171052631578945,
+      "iqm_ci": [
+        40.328947368421055,
+        44.0
+      ],
+      "solved": 1.0,
+      "mean_probes_when_solved": 43.013333333333335,
+      "gap_closed": -0.6561330561330564
+    },
+    {
+      "name": "cascade-affine-symmetric-junta-v16",
+      "mean_cost": 46.57333333333333,
+      "iqm_cost": 42.53947368421053,
+      "iqm_ci": [
+        42.25,
+        43.026315789473685
+      ],
+      "solved": 0.9933333333333333,
+      "mean_probes_when_solved": 43.4496644295302,
+      "gap_closed": -0.8781704781704782
+    },
+    {
+      "name": "cascade-affine-junta-symmetric-v16",
+      "mean_cost": 49.84,
+      "iqm_cost": 46.68421052631579,
+      "iqm_ci": [
+        45.53947368421053,
+        47.89473684210526
+      ],
+      "solved": 0.9933333333333333,
+      "mean_probes_when_solved": 46.738255033557046,
+      "gap_closed": -1.0819126819126823
+    },
+    {
+      "name": "cascade-symmetric-affine-junta-v16",
+      "mean_cost": 45.64,
+      "iqm_cost": 46.10526315789474,
+      "iqm_ci": [
+        45.94736842105263,
+        46.26315789473684
+      ],
+      "solved": 1.0,
+      "mean_probes_when_solved": 45.64,
+      "gap_closed": -0.8199584199584201
+    },
+    {
+      "name": "cascade-symmetric-junta-affine-v16",
+      "mean_cost": 43.85333333333333,
+      "iqm_cost": 43.01315789473684,
+      "iqm_ci": [
+        40.973684210526315,
+        45.23684210526316
+      ],
+      "solved": 1.0,
+      "mean_probes_when_solved": 43.85333333333333,
+      "gap_closed": -0.7085239085239086
+    },
+    {
+      "name": "cascade-junta-affine-symmetric-v16",
+      "mean_cost": 53.986666666666665,
+      "iqm_cost": 53.26315789473684,
+      "iqm_ci": [
+        51.5,
+        55.026315789473685
+      ],
+      "solved": 1.0,
+      "mean_probes_when_solved": 53.986666666666665,
+      "gap_closed": -1.3405405405405406
+    },
+    {
+      "name": "cascade-junta-symmetric-affine-v16",
+      "mean_cost": 49.873333333333335,
+      "iqm_cost": 48.43421052631579,
+      "iqm_ci": [
+        46.473684210526315,
+        50.51315789473684
+      ],
+      "solved": 1.0,
+      "mean_probes_when_solved": 49.873333333333335,
+      "gap_closed": -1.0839916839916843
+    }
+  ],
+  "sbs": "cascade-junta-symmetric-affine-v4",
+  "sbs_cost": 32.49333333333333,
+  "vbs_cost": 16.46,
+  "gap": 16.03333333333333,
+  "gap_ci": [
+    12.02,
+    23.24
+  ],
+  "vbs_over_sbs": 0.5065654493229381,
+  "vbs_choices": {
+    "cascade-affine-junta-symmetric-v4": 16,
+    "cascade-affine-symmetric-junta-v4": 51,
+    "cascade-junta-affine-symmetric-v4": 21,
+    "cascade-symmetric-affine-junta-v4": 52,
+    "cascade-symmetric-junta-affine-v4": 8,
+    "cascade-symmetric-junta-affine-v8": 2
+  },
+  "families": [
+    {
+      "family": "affine",
+      "tasks": 50,
+      "mean_cost": {
+        "cascade-affine-junta-symmetric-v12": 21.0,
+        "cascade-affine-junta-symmetric-v16": 25.0,
+        "cascade-affine-junta-symmetric-v4": 13.0,
+        "cascade-affine-junta-symmetric-v8": 17.0,
+        "cascade-affine-symmetric-junta-v12": 21.0,
+        "cascade-affine-symmetric-junta-v16": 25.0,
+        "cascade-affine-symmetric-junta-v4": 13.0,
+        "cascade-affine-symmetric-junta-v8": 17.0,
+        "cascade-junta-affine-symmetric-v12": 42.38,
+        "cascade-junta-affine-symmetric-v16": 48.76,
+        "cascade-junta-affine-symmetric-v4": 29.7,
+        "cascade-junta-affine-symmetric-v8": 36.02,
+        "cascade-junta-symmetric-affine-v12": 50.24,
+        "cascade-junta-symmetric-affine-v16": 58.9,
+        "cascade-junta-symmetric-affine-v4": 33.04,
+        "cascade-junta-symmetric-affine-v8": 41.62,
+        "cascade-symmetric-affine-junta-v12": 39.4,
+        "cascade-symmetric-affine-junta-v16": 47.4,
+        "cascade-symmetric-affine-junta-v4": 52.9,
+        "cascade-symmetric-affine-junta-v8": 31.4,
+        "cascade-symmetric-junta-affine-v12": 46.98,
+        "cascade-symmetric-junta-affine-v16": 57.28,
+        "cascade-symmetric-junta-affine-v4": 55.86,
+        "cascade-symmetric-junta-affine-v8": 37.06,
+        "table": 256.0
+      },
+      "best": "cascade-affine-symmetric-junta-v4",
+      "vbs_cost": 13.0
+    },
+    {
+      "family": "junta",
+      "tasks": 50,
+      "mean_cost": {
+        "cascade-affine-junta-symmetric-v12": 51.3,
+        "cascade-affine-junta-symmetric-v16": 54.76,
+        "cascade-affine-junta-symmetric-v4": 158.2,
+        "cascade-affine-junta-symmetric-v8": 84.34,
+        "cascade-affine-symmetric-junta-v12": 56.18,
+        "cascade-affine-symmetric-junta-v16": 62.56,
+        "cascade-affine-symmetric-junta-v4": 148.86,
+        "cascade-affine-symmetric-junta-v8": 90.66,
+        "cascade-junta-affine-symmetric-v12": 34.8,
+        "cascade-junta-affine-symmetric-v16": 38.8,
+        "cascade-junta-affine-symmetric-v4": 36.24,
+        "cascade-junta-affine-symmetric-v8": 30.8,
+        "cascade-junta-symmetric-affine-v12": 34.8,
+        "cascade-junta-symmetric-affine-v16": 38.8,
+        "cascade-junta-symmetric-affine-v4": 36.24,
+        "cascade-junta-symmetric-affine-v8": 30.8,
+        "cascade-symmetric-affine-junta-v12": 55.58,
+        "cascade-symmetric-affine-junta-v16": 64.52,
+        "cascade-symmetric-affine-junta-v4": 130.56,
+        "cascade-symmetric-affine-junta-v8": 62.88,
+        "cascade-symmetric-junta-affine-v12": 46.16,
+        "cascade-symmetric-junta-affine-v16": 49.28,
+        "cascade-symmetric-junta-affine-v4": 101.3,
+        "cascade-symmetric-junta-affine-v8": 55.14,
+        "table": 256.0
+      },
+      "best": "cascade-junta-affine-symmetric-v8",
+      "vbs_cost": 23.38
+    },
+    {
+      "family": "symmetric",
+      "tasks": 50,
+      "mean_cost": {
+        "cascade-affine-junta-symmetric-v12": 59.38,
+        "cascade-affine-junta-symmetric-v16": 69.76,
+        "cascade-affine-junta-symmetric-v4": 49.04,
+        "cascade-affine-junta-symmetric-v8": 58.14,
+        "cascade-affine-symmetric-junta-v12": 44.7,
+        "cascade-affine-symmetric-junta-v16": 52.16,
+        "cascade-affine-symmetric-junta-v4": 40.8,
+        "cascade-affine-symmetric-junta-v8": 37.66,
+        "cascade-junta-affine-symmetric-v12": 62.48,
+        "cascade-junta-affine-symmetric-v16": 74.4,
+        "cascade-junta-affine-symmetric-v4": 38.92,
+        "cascade-junta-affine-symmetric-v8": 50.58,
+        "cascade-junta-symmetric-affine-v12": 44.0,
+        "cascade-junta-symmetric-affine-v16": 51.92,
+        "cascade-junta-symmetric-affine-v4": 28.2,
+        "cascade-junta-symmetric-affine-v8": 36.08,
+        "cascade-symmetric-affine-junta-v12": 21.0,
+        "cascade-symmetric-affine-junta-v16": 25.0,
+        "cascade-symmetric-affine-junta-v4": 13.0,
+        "cascade-symmetric-affine-junta-v8": 17.0,
+        "cascade-symmetric-junta-affine-v12": 21.0,
+        "cascade-symmetric-junta-affine-v16": 25.0,
+        "cascade-symmetric-junta-affine-v4": 13.0,
+        "cascade-symmetric-junta-affine-v8": 17.0,
+        "table": 256.0
+      },
+      "best": "cascade-symmetric-affine-junta-v4",
+      "vbs_cost": 13.0
+    }
+  ],
+  "entropy_floor": 12.100056016671855
+}

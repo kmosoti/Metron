@@ -45,6 +45,8 @@ report changes and its figure does not.
 | `promotion-arity5` | Four fixed strategies; `metron promote` proposes candidate compositions from the train split and the laboratory's gate judges them on the test split (ADR 0012). |
 | `retrieval-arity6` | A store of about 5,000 solved functions; `metron retrieval` compares exact scan, bitmask index, Bloom filters and hyperdimensional codes on recall, bytes and nanoseconds (ADR 0013). |
 | `selectors-arity5`, `selectors-arity6` | The same, plus `survivor-count` selector columns (rule `most` with prefix 0 to 6, and `fewest` as the negative control) and two extra cost models. The M3 control measurement (ADR 0011). |
+| `structure-pilot-arity8` | The pre-registered pilot of ADR 0015 on seeds 900 to 904: every cascade of the three structural learners at verification counts 4, 8, 12 and 16. It fixed the count at 4. |
+| `structure-arity8` | The structure-keyed laboratory of ADR 0015: affine, symmetric and three-variable junta targets at arity 8, no pool, the structure promise published instead. Label-free cascades, single learners with the truth table as fallback, and blind learners as reference columns. Ten seeds, 300 tasks. |
 
 All runs are deterministic for a given manifest and seed; consultation runs
 replay from their journals.

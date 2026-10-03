@@ -12,6 +12,9 @@ pub const TRUTH_TABLE_PARTIAL: &str = "truth-table/partial";
 pub const TRUTH_TABLE_COMPLETE: &str = "truth-table/complete";
 /// The members of the published pool still consistent with every observation.
 pub const VERSION_SPACE: &str = "hypotheses/version-space";
+/// Per promised class, the members consistent with every observation and
+/// the posterior over the classes.
+pub const STRUCTURE_PROFILE: &str = "hypotheses/structure-profile";
 
 /// Descriptions of every frame used here.
 #[must_use]
@@ -33,6 +36,10 @@ pub fn frames() -> Vec<Frame> {
         Frame::new(
             VERSION_SPACE,
             "A mask over the published pool: bit i set when member i agrees with every observation.",
+        ),
+        Frame::new(
+            STRUCTURE_PROFILE,
+            "For each class of the structure promise: its size, its members consistent with every observation, and the posterior over the classes.",
         ),
     ]
 }

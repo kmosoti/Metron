@@ -141,6 +141,12 @@ impl<W> Operator<W> for AffineSolve {
                 a |= 1 << i;
             }
         }
+        if a == 0 && crate::structural::promises_non_constant(inquiry) {
+            return Ok(
+                OperatorOutcome::no_change(Cost::work(observed.len() as u64))
+                    .with_note("constant hypothesis excluded by the promise"),
+            );
+        }
         let total = rows(arity);
         let table = BitVector::from_fn(total, |row| ((row & a).count_ones() % 2 == 1) ^ b);
         if let Some(&(row, out)) = observed.iter().find(|&&(row, out)| table.bit(row) != out) {

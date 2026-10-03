@@ -13,7 +13,11 @@
 //! * the affine shortcut: [`AffineProbe`] → [`AffineSolve`] →
 //!   [`CommitTruthTable`];
 //! * consultation: [`LlmProposeFormula`] → [`FormulaToTable`] (which
-//!   verifies the proposal against every observation) → [`CommitTruthTable`].
+//!   verifies the proposal against every observation) → [`CommitTruthTable`];
+//! * the structure-keyed learners of ADR 0015: [`SymmetricProbe`] →
+//!   [`SymmetricSolve`], [`JuntaProbe`] → [`JuntaSolve`], verified with
+//!   [`ProbeRandomUnobserved`], and [`StructureProfile`], the posterior over
+//!   the promised classes that routers read.
 //!
 //! Each operator is exactly one of observe, transform, consult or commit, and
 //! every transform publishes its contract.
@@ -29,6 +33,7 @@ mod consult;
 mod greedy_split;
 mod partial_table;
 mod probe_next;
+mod structural;
 mod support;
 mod survivor;
 mod version_space;
@@ -40,6 +45,9 @@ pub use consult::{FormulaToTable, LlmProposeFormula};
 pub use greedy_split::GreedySplitProbe;
 pub use partial_table::ObservationsToPartialTable;
 pub use probe_next::ProbeNextUnobserved;
+pub use structural::{
+    JuntaProbe, JuntaSolve, ProbeRandomUnobserved, StructureProfile, SymmetricProbe, SymmetricSolve,
+};
 pub use survivor::SingleSurvivorToTable;
 pub use version_space::VersionSpaceFilter;
 
@@ -79,6 +87,20 @@ pub fn affine_operators<W: Oracle + 'static>() -> Vec<Box<dyn Operator<W>>> {
     vec![Box::new(AffineProbe), Box::new(AffineSolve)]
 }
 
+/// The structure-keyed learners, their verification probe and the
+/// structure profile.
+#[must_use]
+pub fn structural_operators<W: Oracle + 'static>() -> Vec<Box<dyn Operator<W>>> {
+    vec![
+        Box::new(ProbeRandomUnobserved),
+        Box::new(SymmetricProbe),
+        Box::new(SymmetricSolve),
+        Box::new(JuntaProbe),
+        Box::new(JuntaSolve),
+        Box::new(StructureProfile),
+    ]
+}
+
 /// The consultation operators.
 #[must_use]
 pub fn consultation_operators<W: ExternalService + 'static>() -> Vec<Box<dyn Operator<W>>> {
@@ -93,6 +115,7 @@ pub fn all_operators<W: Oracle + Knowledge + ExternalService + 'static>(
     let mut ops = reference_operators();
     ops.extend(version_space_operators(families));
     ops.extend(affine_operators());
+    ops.extend(structural_operators());
     ops.extend(consultation_operators());
     ops
 }

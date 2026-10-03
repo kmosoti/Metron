@@ -1,0 +1,545 @@
+{
+  "name": "structure-arity8",
+  "seed": 301,
+  "lab": {
+    "family": "hidden-boolean-function",
+    "tasks": {
+      "arity": 8,
+      "pool": {
+        "families": [
+          "affine",
+          "symmetric",
+          "junta"
+        ],
+        "per_family": 10
+      },
+      "targets_per_family": 10,
+      "split": {
+        "train": 0.5,
+        "validation": 0.2,
+        "test": 0.3
+      },
+      "publish_pool": false,
+      "class_hash_splits": true
+    },
+    "max_probes": 256
+  },
+  "system": {
+    "strategies": [
+      {
+        "name": "table",
+        "schedule": [
+          {
+            "operator": "probe-next-unobserved",
+            "repeat": 256
+          },
+          {
+            "operator": "observations-to-partial-table"
+          },
+          {
+            "operator": "complete-table-by-default"
+          },
+          {
+            "operator": "commit-truth-table"
+          }
+        ]
+      },
+      {
+        "name": "cascade-affine-symmetric-junta",
+        "schedule": [
+          {
+            "operator": "affine-probe"
+          },
+          {
+            "operator": "probe-random-unobserved",
+            "repeat": 4
+          },
+          {
+            "operator": "affine-solve"
+          },
+          {
+            "operator": "commit-truth-table"
+          },
+          {
+            "operator": "symmetric-probe"
+          },
+          {
+            "operator": "probe-random-unobserved",
+            "repeat": 4
+          },
+          {
+            "operator": "symmetric-solve"
+          },
+          {
+            "operator": "commit-truth-table"
+          },
+          {
+            "operator": "junta-probe"
+          },
+          {
+            "operator": "probe-random-unobserved",
+            "repeat": 4
+          },
+          {
+            "operator": "junta-solve"
+          },
+          {
+            "operator": "commit-truth-table"
+          },
+          {
+            "operator": "probe-next-unobserved",
+            "repeat": 256
+          },
+          {
+            "operator": "observations-to-partial-table"
+          },
+          {
+            "operator": "complete-table-by-default"
+          },
+          {
+            "operator": "commit-truth-table"
+          }
+        ]
+      },
+      {
+        "name": "cascade-affine-junta-symmetric",
+        "schedule": [
+          {
+            "operator": "affine-probe"
+          },
+          {
+            "operator": "probe-random-unobserved",
+            "repeat": 4
+          },
+          {
+            "operator": "affine-solve"
+          },
+          {
+            "operator": "commit-truth-table"
+          },
+          {
+            "operator": "junta-probe"
+          },
+          {
+            "operator": "probe-random-unobserved",
+            "repeat": 4
+          },
+          {
+            "operator": "junta-solve"
+          },
+          {
+            "operator": "commit-truth-table"
+          },
+          {
+            "operator": "symmetric-probe"
+          },
+          {
+            "operator": "probe-random-unobserved",
+            "repeat": 4
+          },
+          {
+            "operator": "symmetric-solve"
+          },
+          {
+            "operator": "commit-truth-table"
+          },
+          {
+            "operator": "probe-next-unobserved",
+            "repeat": 256
+          },
+          {
+            "operator": "observations-to-partial-table"
+          },
+          {
+            "operator": "complete-table-by-default"
+          },
+          {
+            "operator": "commit-truth-table"
+          }
+        ]
+      },
+      {
+        "name": "cascade-symmetric-affine-junta",
+        "schedule": [
+          {
+            "operator": "symmetric-probe"
+          },
+          {
+            "operator": "probe-random-unobserved",
+            "repeat": 4
+          },
+          {
+            "operator": "symmetric-solve"
+          },
+          {
+            "operator": "commit-truth-table"
+          },
+          {
+            "operator": "affine-probe"
+          },
+          {
+            "operator": "probe-random-unobserved",
+            "repeat": 4
+          },
+          {
+            "operator": "affine-solve"
+          },
+          {
+            "operator": "commit-truth-table"
+          },
+          {
+            "operator": "junta-probe"
+          },
+          {
+            "operator": "probe-random-unobserved",
+            "repeat": 4
+          },
+          {
+            "operator": "junta-solve"
+          },
+          {
+            "operator": "commit-truth-table"
+          },
+          {
+            "operator": "probe-next-unobserved",
+            "repeat": 256
+          },
+          {
+            "operator": "observations-to-partial-table"
+          },
+          {
+            "operator": "complete-table-by-default"
+          },
+          {
+            "operator": "commit-truth-table"
+          }
+        ]
+      },
+      {
+        "name": "cascade-symmetric-junta-affine",
+        "schedule": [
+          {
+            "operator": "symmetric-probe"
+          },
+          {
+            "operator": "probe-random-unobserved",
+            "repeat": 4
+          },
+          {
+            "operator": "symmetric-solve"
+          },
+          {
+            "operator": "commit-truth-table"
+          },
+          {
+            "operator": "junta-probe"
+          },
+          {
+            "operator": "probe-random-unobserved",
+            "repeat": 4
+          },
+          {
+            "operator": "junta-solve"
+          },
+          {
+            "operator": "commit-truth-table"
+          },
+          {
+            "operator": "affine-probe"
+          },
+          {
+            "operator": "probe-random-unobserved",
+            "repeat": 4
+          },
+          {
+            "operator": "affine-solve"
+          },
+          {
+            "operator": "commit-truth-table"
+          },
+          {
+            "operator": "probe-next-unobserved",
+            "repeat": 256
+          },
+          {
+            "operator": "observations-to-partial-table"
+          },
+          {
+            "operator": "complete-table-by-default"
+          },
+          {
+            "operator": "commit-truth-table"
+          }
+        ]
+      },
+      {
+        "name": "cascade-junta-affine-symmetric",
+        "schedule": [
+          {
+            "operator": "junta-probe"
+          },
+          {
+            "operator": "probe-random-unobserved",
+            "repeat": 4
+          },
+          {
+            "operator": "junta-solve"
+          },
+          {
+            "operator": "commit-truth-table"
+          },
+          {
+            "operator": "affine-probe"
+          },
+          {
+            "operator": "probe-random-unobserved",
+            "repeat": 4
+          },
+          {
+            "operator": "affine-solve"
+          },
+          {
+            "operator": "commit-truth-table"
+          },
+          {
+            "operator": "symmetric-probe"
+          },
+          {
+            "operator": "probe-random-unobserved",
+            "repeat": 4
+          },
+          {
+            "operator": "symmetric-solve"
+          },
+          {
+            "operator": "commit-truth-table"
+          },
+          {
+            "operator": "probe-next-unobserved",
+            "repeat": 256
+          },
+          {
+            "operator": "observations-to-partial-table"
+          },
+          {
+            "operator": "complete-table-by-default"
+          },
+          {
+            "operator": "commit-truth-table"
+          }
+        ]
+      },
+      {
+        "name": "cascade-junta-symmetric-affine",
+        "schedule": [
+          {
+            "operator": "junta-probe"
+          },
+          {
+            "operator": "probe-random-unobserved",
+            "repeat": 4
+          },
+          {
+            "operator": "junta-solve"
+          },
+          {
+            "operator": "commit-truth-table"
+          },
+          {
+            "operator": "symmetric-probe"
+          },
+          {
+            "operator": "probe-random-unobserved",
+            "repeat": 4
+          },
+          {
+            "operator": "symmetric-solve"
+          },
+          {
+            "operator": "commit-truth-table"
+          },
+          {
+            "operator": "affine-probe"
+          },
+          {
+            "operator": "probe-random-unobserved",
+            "repeat": 4
+          },
+          {
+            "operator": "affine-solve"
+          },
+          {
+            "operator": "commit-truth-table"
+          },
+          {
+            "operator": "probe-next-unobserved",
+            "repeat": 256
+          },
+          {
+            "operator": "observations-to-partial-table"
+          },
+          {
+            "operator": "complete-table-by-default"
+          },
+          {
+            "operator": "commit-truth-table"
+          }
+        ]
+      },
+      {
+        "name": "affine-then-table",
+        "schedule": [
+          {
+            "operator": "affine-probe"
+          },
+          {
+            "operator": "probe-random-unobserved",
+            "repeat": 4
+          },
+          {
+            "operator": "affine-solve"
+          },
+          {
+            "operator": "commit-truth-table"
+          },
+          {
+            "operator": "probe-next-unobserved",
+            "repeat": 256
+          },
+          {
+            "operator": "observations-to-partial-table"
+          },
+          {
+            "operator": "complete-table-by-default"
+          },
+          {
+            "operator": "commit-truth-table"
+          }
+        ]
+      },
+      {
+        "name": "symmetric-then-table",
+        "schedule": [
+          {
+            "operator": "symmetric-probe"
+          },
+          {
+            "operator": "probe-random-unobserved",
+            "repeat": 4
+          },
+          {
+            "operator": "symmetric-solve"
+          },
+          {
+            "operator": "commit-truth-table"
+          },
+          {
+            "operator": "probe-next-unobserved",
+            "repeat": 256
+          },
+          {
+            "operator": "observations-to-partial-table"
+          },
+          {
+            "operator": "complete-table-by-default"
+          },
+          {
+            "operator": "commit-truth-table"
+          }
+        ]
+      },
+      {
+        "name": "junta-then-table",
+        "schedule": [
+          {
+            "operator": "junta-probe"
+          },
+          {
+            "operator": "probe-random-unobserved",
+            "repeat": 4
+          },
+          {
+            "operator": "junta-solve"
+          },
+          {
+            "operator": "commit-truth-table"
+          },
+          {
+            "operator": "probe-next-unobserved",
+            "repeat": 256
+          },
+          {
+            "operator": "observations-to-partial-table"
+          },
+          {
+            "operator": "complete-table-by-default"
+          },
+          {
+            "operator": "commit-truth-table"
+          }
+        ]
+      },
+      {
+        "name": "affine-blind",
+        "schedule": [
+          {
+            "operator": "affine-probe"
+          },
+          {
+            "operator": "affine-solve"
+          },
+          {
+            "operator": "commit-truth-table"
+          }
+        ],
+        "reference": true
+      },
+      {
+        "name": "symmetric-blind",
+        "schedule": [
+          {
+            "operator": "symmetric-probe"
+          },
+          {
+            "operator": "symmetric-solve"
+          },
+          {
+            "operator": "commit-truth-table"
+          }
+        ],
+        "reference": true
+      },
+      {
+        "name": "junta-blind",
+        "schedule": [
+          {
+            "operator": "junta-probe"
+          },
+          {
+            "operator": "junta-solve"
+          },
+          {
+            "operator": "commit-truth-table"
+          }
+        ],
+        "reference": true
+      }
+    ],
+    "budget": {
+      "max_oracle_probes": 256
+    },
+    "max_steps": 1024,
+    "stall_limit": 0
+  },
+  "headroom": {
+    "seeds": 10,
+    "cost_model": {
+      "probe_weight": 1.0,
+      "work_weight": 0.0,
+      "external_weight": 0.0,
+      "failure_cost": 512.0
+    },
+    "resamples": 2000,
+    "splits": []
+  }
+}
