@@ -41,6 +41,7 @@ knowledge to those sources.
 | [R-0005 Storage, plugins and protocols](research/R-0005-storage-plugins-protocols.md) | agent | false |
 | [R-0006 Rust implementation contracts](research/R-0006-rust-implementation-contracts.md) | agent | false |
 | [R-0007 Runtime evaluation](research/R-0007-runtime-evaluation.md) | agent | false |
+| [R-0008 Local inference and resource profile](research/R-0008-local-inference-resource-profile.md) | agent | false |
 | [O-0003 Runtime contract probes](observations/O-0003-runtime-contract-probes.md) | agent | false |
 
 ## Runtime implementation

@@ -25,7 +25,7 @@ ProcessAdapter       -> external sandboxed process, versioned IPC
 ResourcePlugin       -> declarative role/persona/skill/preset data (not executable)
 ```
 
-**The first extension release, alpha.3, uses statically linked trusted-native plugins.** Earlier slices wire fixed scripted drivers directly. Wasm and process plugins require their own later evidence; native dylib hot loading has no ordinary stable Rust ABI.
+**The first extension release, alpha.3, uses statically linked trusted-native plugins.** Alpha.0 wires scripted drivers directly; alpha.1 wires the trusted local inference implementation directly, as specified in [R-0008](R-0008-local-inference-resource-profile.md). Wasm and process plugins require their own later evidence; native dylib hot loading has no ordinary stable Rust ABI.
 
 ### Registration lifecycle
 
@@ -243,7 +243,7 @@ engine. [GraphLite documentation](https://docs.rs/graphlite/latest/graphlite/).
 
 - All new Metron-owned source and public manifests: **Apache-2.0** (SPDX header where suitable).
 - Dependencies: automated license review plus manual checks for transitive source/binary/assets and notices; not every “open repo” has a compatible license.
-- Local reference configuration: entirely FOSS userspace stack and openly licensed local model weights, distributed subject to their own license terms.
+- Default local profile: LFM3-1.7B Q4_K_M, with optional LFM2.5 Thinking CPU inference. Both use the custom LFM Open License v1.0. Audit source, backend binaries and weights separately; this profile is not an entirely-FOSS distribution. Exact identities and license sources are in [R-0008](R-0008-local-inference-resource-profile.md).
 - Proprietary hosted models may be supported through optional adapters but do **not** make the end-to-end runtime entirely FOSS.
 - Model prompt output and derived source require a provenance and IP policy; no copying upstream Pi/DSH implementation merely because it is readable.
 
