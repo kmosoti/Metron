@@ -24,8 +24,10 @@ Only rebase merging is enabled. Force pushes and deletion of these branches are
 blocked, including for administrators.
 
 An independent agent from an alternative model family reviews each integration
-change. If unavailable, use a fresh agent at higher reasoning effort. The author
-provides exact verification evidence and fixes findings. The reviewer verifies
+change. If unavailable, use a fresh independent agent at medium reasoning. Use
+low or medium reasoning for routine verification and review, with high reserved
+for complex work. Max and ultra reasoning are prohibited for verification and
+review. The author provides exact verification evidence and fixes findings. The reviewer verifies
 boundaries, provenance and commit hygiene, then lands the stack bottom-up with
 `gh pr merge <number> --rebase --delete-branch`. GitHub requires zero approving
 reviews on `develop` so a reviewer using the author's account can land changes.
@@ -37,6 +39,35 @@ merges it. Agents must never approve the environment, bypass its protection or
 merge into `main`. The environment requires `kmosoti` and disables administrator
 bypass. GitHub credentials shared with a human do not distinguish agent actions,
 so the prohibition on agent approval remains part of [AGENTS.md](AGENTS.md).
+
+## Architecture diagrams for human review
+
+Every PR submitted for human review must include or link a current architecture
+diagram. This includes release PRs. Show the relevant components, dependency or
+data-flow direction, and ownership or authority boundaries. Label proposed
+components explicitly so reviewers can distinguish them from implemented ones.
+
+Keep diagrams with their architectural contract or ADR and use Mermaid for
+versioned diagrams rendered by GitHub. Update the diagram in the same PR when
+architecture changes. For changes within existing boundaries, link the applicable
+diagram and explain how the change fits it in the PR description. Reviewers check
+that the diagram matches the source and proposed diff before human approval.
+
+The [laboratory crate diagram](docs/architecture/overview.md#crates-and-the-direction-of-dependency)
+shows implemented crate boundaries. The following diagram shows review and release
+ownership for this workflow.
+
+```mermaid
+flowchart LR
+    Author[Authoring agent] -->|feature PR and evidence| Reviewer[Independent reviewing agent]
+    Reviewer -->|rebase merge after CI| Develop[develop]
+    Develop -->|release PR with architecture diagram| Human[Human review]
+    Human -->|manual approval| Gate[main-release environment]
+    Gate --> Approval[main-human-approval check]
+    CI[Required CI check] --> Merge[Human rebase merge]
+    Approval --> Merge
+    Merge --> Main[main]
+```
 
 ## Stacked changes
 
