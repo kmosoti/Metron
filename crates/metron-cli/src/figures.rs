@@ -1,4 +1,4 @@
-//! Figures for the repository's front page, rendered as SVG from the
+//! Figures for the laboratory knowledge record, rendered as SVG from the
 //! committed reports.
 //!
 //! Every figure is a pure function of files under `experiments/reports/`

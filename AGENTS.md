@@ -47,7 +47,7 @@ experiments/reports       committed reports (headroom, decisions)
 docs/architecture         overview and invariants
 docs/research             archived inputs (proposal, prior-art review)
 docs/adr                  decisions
-docs/figures              front-page figures, generated from experiments/reports
+docs/figures              laboratory figures, generated from experiments/reports
 tests/architecture        executable invariants
 ```
 
@@ -75,10 +75,12 @@ tests/architecture        executable invariants
   experiments/manifests/promotion-arity5.json` proposes candidates from the
   train split and has the gate judge them on the test split. Copy reports
   worth keeping to `experiments/reports/` with the manifest hash in the
-  file name, then run `metron figures`: the README's figures are drawn
-  from those reports and the suite fails when they drift apart.
-- The root README is a visual tour, not a manual. Reference material goes
-  in `docs/` and `experiments/README.md`.
+  file name, then run `metron figures`: the figures linked from the
+  laboratory knowledge record are drawn from those reports and the suite
+  fails when they drift apart.
+- The root README introduces the current project and links its entry points.
+  Keep dated findings and milestone snapshots in `knowledge/`. Reference
+  material goes in `docs/` and `experiments/README.md`.
 - Promotion: the system proposes (`metron_app::propose`), the laboratory
   judges (`PromotionGate`). A promoted candidate is a report, not a
   registered operator; turning it into a strategy is a manifest edit.
