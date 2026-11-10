@@ -124,3 +124,30 @@ Operator (observe | transform | consult | commit), ResourceReceipt,
 ServiceAnswer, Episode, Journal, Checkpoint, Verdict, HypothesisPool,
 TaskSet, Split, CapabilityCandidate, PromotionGate. Not "capsule", not
 "ledger", not "kernel loop". See ADR 0007.
+
+## Development workflow
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) and the
+[knowledge index](knowledge/README.md) before starting work.
+
+- Base day-to-day branches and stacks on `develop@origin`. Land each stack
+  bottom-up through rebased PRs into `develop`.
+- Delegate review and landing to an independent agent from another model
+  family. When unavailable, use a fresh higher-reasoning-effort agent.
+  The reviewer owns merging after checks pass and conversations are resolved.
+- `main` is the human-gated release branch. Agents may prepare release PRs
+  from `develop`. Only a human approves the `main-release` environment and
+  merges into `main`. Agents must never approve or bypass that gate or merge
+  a PR targeting `main`.
+- Prefer colocated Jujutsu (`jj git init --colocate`) for stacks. Git with
+  `git rebase --update-refs` is supported. Follow the commit and PR templates.
+- Both integration and release branches require linear history and resolved
+  conversations. Preserve the existing laboratory checks.
+- Record dated decisions, research and observations in `knowledge/` with
+  `added_by` and `human_ratified`. Continue using agent-authored records with
+  `human_ratified: false`. Mark ratification only on explicit human direction.
+  Obtain human approval before overturning a ratified decision.
+- Continue recording architectural contracts as new ADRs and scientific priors
+  in `docs/research/priors.md`. Link knowledge records to these existing sources.
+  The runtime proposal requires its P0 compatibility decision before product
+  implementation.

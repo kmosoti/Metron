@@ -1,0 +1,19 @@
+# <type>(<scope>): <imperative summary under 72 chars>
+#
+# Why:
+# - <problem, constraint, or goal driving this change>
+#
+# What:
+# - <focused summary of code, config, or documentation changes>
+#
+# Verification:
+# - Ran: <exact commands and results>
+# - Untested: <platforms, WebViews, or checks not run in this environment>
+#
+# Refs: #<issue-or-pr>
+# Knowledge: <D-xxxx / R-xxxx / O-xxxx or none>
+#
+# ---
+# Types: feat | fix | refactor | test | docs | build | ci | proof | chore
+# Scopes: core | app | lab | operators | adapters | cli | runtime | knowledge | repo
+# Keep commits atomic and rebase-clean (main requires linear history).
