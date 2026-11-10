@@ -51,7 +51,7 @@ ADR 0009 additionally forbids direct model API clients **inside the current labo
 6. **Independent evaluation**: holdout criteria, private fixtures and promotion decisions are inaccessible to the candidate.
 7. **Evidence trumps eloquence**: an observed result can revise a belief; a belief or tool narrative cannot invent an observation.
 8. **Extension surfaces are bounded**: native traits for trusted built-ins; process/Wasm for untrusted code when supported; no plugin can override the authorization kernel.
-9. **FOSS scope is explicit**: first-party source under Apache-2.0, compatible dependencies audited, local open model option. Optional proprietary remote APIs are not part of an “entirely FOSS” reference deployment.
+9. **Licensing scope is explicit**: first-party source under Apache-2.0, dependencies and model weights audited separately. The default local LFM3 profile uses the custom LFM Open License v1.0; do not label that entire deployment FOSS. See [R-0008](../research/R-0008-local-inference-resource-profile.md) for exact artifacts and license sources.
 10. **Measure before optimizing**: reject premature self-referential SQLite pointers, lock-free custom pointer caches and opaque multi-agent swarms.
 
 ## Proposed component and authority boundaries

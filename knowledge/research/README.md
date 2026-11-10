@@ -23,7 +23,8 @@ on the new `feat/metron-runtime` branch.
 | 7 | [R-0006 Rust contracts](R-0006-rust-implementation-contracts.md) | Workspace layout, usable token boundary, state/outbox ports and compilation targets |
 | 8 | [R-0007 Evaluation](R-0007-runtime-evaluation.md) | Falsifiable hypotheses, matched baselines, holdouts and adaptation experiment |
 | 9 | [O-0003 Contract probes](../observations/O-0003-runtime-contract-probes.md) | Executed SQL reservation and Rust privacy probes with reproducible source and limits |
-| 10 | [D-0003 Implementation sequence](../decisions/D-0003-runtime-implementation-sequence.md) | Ordered PR slices, entry conditions and alpha.0–alpha.5 exit contracts |
+| 10 | [R-0008 Local inference](R-0008-local-inference-resource-profile.md) | Pinned LFM3 default, optional Thinking CPU route, resource policy and measurement gates |
+| 11 | [D-0003 Implementation sequence](../decisions/D-0003-runtime-implementation-sequence.md) | Ordered PR slices, entry conditions and alpha.0–alpha.5 exit contracts |
 
 Start implementation on `feat/metron-runtime` from the reviewed `develop`
 revision containing this collection. P0 establishes a valid isolated Cargo
