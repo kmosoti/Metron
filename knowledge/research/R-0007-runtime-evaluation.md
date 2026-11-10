@@ -19,7 +19,9 @@ Separate:
 - **Hypothesized** (requires experiment).
 - **Rejected/deferred** (failed test, dominated, unresolved cost or risk).
 
-No unverified hypothesis becomes an architectural invariant through repetition. The current lab's accepted [priors ledger](../../docs/research/priors.md) remains authoritative for existing scientific claims; new product priors below must be reconciled there when a product ADR is accepted. Do not silently append product assumptions as measured laboratory facts.
+No unverified hypothesis becomes an architectural invariant through repetition. The current lab's accepted [priors ledger](../../docs/research/priors.md) remains authoritative for existing scientific claims; the product priors below are also tracked there now as entries 36–50 with
+explicit untested status and source/test links. Implementation evidence updates
+their statuses as the corresponding release gates execute. Do not silently append product assumptions as measured laboratory facts.
 
 ## Product hypothesis ledger
 
@@ -39,7 +41,7 @@ No unverified hypothesis becomes an architectural invariant through repetition. 
 | PH-12 | Self-referential SQLite/GraphLite zero-copy memory is a performance win | unsupported / unsafe as proposed | require proof of lifetime safety, profiler result and reproducible benchmark |
 | PH-13 | Roles and personalities should be data/config, not autonomous agents | design premise | evaluate role switching under identical grants and agent identity, check behavior without cross-session privilege leak |
 | PH-14 | Code-shaped specs reduce generation errors | plausible, **unverified** | randomized coder prompts: narrative vs type/path/test-shaped specs, same model/tasks/compute; measured compiles and contract violations |
-| PH-15 | Full Rust source improves maintainability for this developer | preference, not general scientific fact | compare dependency, iteration and deployment cost with a smaller mixed-language baseline; keep Rust as deliberate product constraint |
+| PH-15 | A Rust product source constraint improves maintainability for the intended workflow | preference, not general scientific fact | compare dependency, iteration and deployment cost with a smaller mixed-language baseline; keep Rust as deliberate product constraint |
 
 ## Experimental design: alpha 0–3
 
