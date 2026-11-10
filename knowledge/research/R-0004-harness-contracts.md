@@ -162,7 +162,13 @@ record limited executable evidence.
 
 The model adapter takes a typed request with model identifier, message sequence, tool descriptors, output schema, budget, temperature/sampling parameters where supported and a context snapshot hash. It returns bounded chunks and usage/finish reason with provider uncertainties.
 
-Provider routing is **a policy plugin** after alpha 0, not part of the core. The complete FOSS reference profile must work with an openly licensed locally runnable model where hardware permits; remote proprietary providers are optional edges and not part of the FOSS claim.
+Provider routing is host policy after alpha.0, outside the core. Alpha.1 wires
+the trusted local inference plugin directly; alpha.3 supplies the generic static
+registry. The default LFM3 profile and optional CPU Thinking route use a custom
+model license and do not establish an entirely-FOSS deployment. Exact identities,
+resource policy and acceptance requirements are in
+[R-0008](R-0008-local-inference-resource-profile.md). Remote providers remain
+optional, explicitly configured adapters.
 
 The context assembler:
 1. carries source/permission tags;
