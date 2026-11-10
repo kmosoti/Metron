@@ -15,7 +15,11 @@ Adopt rust-ui-template's two-branch workflow, colocated Jujutsu preference,
 independent reviewer-owned integration, commit/PR templates and linked knowledge
 provenance. Configure `develop` for integration and `main` for human-gated release.
 Preserve Metron's laboratory invariants, Apache-2.0 licensing, ADR process and
-scientific priors ledger.
+scientific priors ledger. Use low or medium reasoning for routine verification
+and review, with high for complex work. Max and ultra reasoning are prohibited for verification and
+review.
+Require a current architecture diagram in every PR submitted for human review,
+including releases, and keep it aligned with the source and proposed boundaries.
 
 ## Evidence and alternatives
 
