@@ -1,8 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="760" height="384" viewBox="0 0 760 384" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" role="img">
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="424" viewBox="0 0 760 424" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" role="img">
   <title>Every prior is a hypothesis</title>
-  <rect x="0.5" y="0.5" width="759" height="383" rx="10" fill="#ffffff" stroke="#d0d7de"/>
+  <rect x="0.5" y="0.5" width="759" height="423" rx="10" fill="#ffffff" stroke="#d0d7de"/>
   <text x="24" y="36" font-size="18" fill="#24292f" font-weight="600">Every prior is a hypothesis</text>
-  <text x="24" y="58" font-size="12.5" fill="#57606a">34 priors the design relies on, each with a test or a primary source (docs/research/priors.md)</text>
+  <text x="24" y="58" font-size="12.5" fill="#57606a">49 priors the design relies on, each with a test or a primary source (docs/research/priors.md)</text>
   <text x="24" y="112" font-size="13" fill="#009E73" font-weight="600">validated</text>
   <text x="24" y="128" font-size="11" fill="#57606a">20 priors</text>
   <rect x="150" y="96" width="34" height="34" rx="2" fill="#009E73"/>
@@ -78,7 +78,36 @@
   <rect x="550" y="240" width="34" height="34" rx="2" fill="#D55E00"/>
   <text x="567" y="261.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">34</text>
   <text x="24" y="308" font-size="13" fill="#8c959f" font-weight="600">untested</text>
-  <text x="24" y="324" font-size="11" fill="#57606a">0 priors</text>
-  <text x="150" y="314" font-size="12" fill="#57606a">none</text>
-  <text x="24" y="362" font-size="12.5" fill="#24292f">Priors about established mathematics held; priors about the design's own glue failed most often.</text>
+  <text x="24" y="324" font-size="11" fill="#57606a">15 priors</text>
+  <rect x="150" y="292" width="34" height="34" rx="2" fill="#8c959f"/>
+  <text x="167" y="313.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">36</text>
+  <rect x="190" y="292" width="34" height="34" rx="2" fill="#8c959f"/>
+  <text x="207" y="313.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">37</text>
+  <rect x="230" y="292" width="34" height="34" rx="2" fill="#8c959f"/>
+  <text x="247" y="313.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">38</text>
+  <rect x="270" y="292" width="34" height="34" rx="2" fill="#8c959f"/>
+  <text x="287" y="313.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">39</text>
+  <rect x="310" y="292" width="34" height="34" rx="2" fill="#8c959f"/>
+  <text x="327" y="313.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">40</text>
+  <rect x="350" y="292" width="34" height="34" rx="2" fill="#8c959f"/>
+  <text x="367" y="313.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">41</text>
+  <rect x="390" y="292" width="34" height="34" rx="2" fill="#8c959f"/>
+  <text x="407" y="313.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">42</text>
+  <rect x="430" y="292" width="34" height="34" rx="2" fill="#8c959f"/>
+  <text x="447" y="313.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">43</text>
+  <rect x="470" y="292" width="34" height="34" rx="2" fill="#8c959f"/>
+  <text x="487" y="313.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">44</text>
+  <rect x="510" y="292" width="34" height="34" rx="2" fill="#8c959f"/>
+  <text x="527" y="313.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">45</text>
+  <rect x="550" y="292" width="34" height="34" rx="2" fill="#8c959f"/>
+  <text x="567" y="313.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">46</text>
+  <rect x="590" y="292" width="34" height="34" rx="2" fill="#8c959f"/>
+  <text x="607" y="313.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">47</text>
+  <rect x="630" y="292" width="34" height="34" rx="2" fill="#8c959f"/>
+  <text x="647" y="313.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">48</text>
+  <rect x="670" y="292" width="34" height="34" rx="2" fill="#8c959f"/>
+  <text x="687" y="313.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">49</text>
+  <rect x="150" y="332" width="34" height="34" rx="2" fill="#8c959f"/>
+  <text x="167" y="353.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">50</text>
+  <text x="24" y="402" font-size="12.5" fill="#24292f">Priors about established mathematics held; priors about the design's own glue failed most often.</text>
 </svg>
