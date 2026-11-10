@@ -133,12 +133,18 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) and the
 - Base day-to-day branches and stacks on `develop@origin`. Land each stack
   bottom-up through rebased PRs into `develop`.
 - Delegate review and landing to an independent agent from another model
-  family. When unavailable, use a fresh higher-reasoning-effort agent.
+  family. When unavailable, use a fresh independent agent at medium reasoning.
+  Use low or medium reasoning for routine verification and review, and high
+  when complexity warrants it. Never use max or ultra for verification or review.
   The reviewer owns merging after checks pass and conversations are resolved.
 - `main` is the human-gated release branch. Agents may prepare release PRs
   from `develop`. Only a human approves the `main-release` environment and
   merges into `main`. Agents must never approve or bypass that gate or merge
   a PR targeting `main`.
+- Every PR submitted for human review must include or link a current architecture
+  diagram showing relevant components, dependencies and authority boundaries.
+  Update diagrams when those boundaries change. Follow the diagram requirements
+  in [CONTRIBUTING.md](CONTRIBUTING.md#architecture-diagrams-for-human-review).
 - Prefer colocated Jujutsu (`jj git init --colocate`) for stacks. Git with
   `git rebase --update-refs` is supported. Follow the commit and PR templates.
 - Both integration and release branches require linear history and resolved
