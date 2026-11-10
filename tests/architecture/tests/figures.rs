@@ -1,4 +1,4 @@
-//! The front page's figures are generated from the committed reports, so a
+//! The laboratory figures are generated from the committed reports, so a
 //! report cannot change without its picture changing too.
 
 use metron_architecture_tests::workspace_root;
@@ -7,7 +7,7 @@ use metron_cli::{render_figures, stale_figures};
 use std::fs;
 
 #[test]
-fn front_page_figures_match_the_committed_reports() {
+fn laboratory_figures_match_the_committed_reports() {
     let root = workspace_root();
     let stale = stale_figures(&root, &root.join(FIGURES_DIR)).expect("figures render");
     assert!(
@@ -17,13 +17,14 @@ fn front_page_figures_match_the_committed_reports() {
 }
 
 #[test]
-fn the_readme_shows_every_figure_and_nothing_else_from_the_figures_dir() {
+fn the_laboratory_knowledge_record_shows_every_generated_figure() {
     let root = workspace_root();
-    let readme = fs::read_to_string(root.join("README.md")).expect("README.md");
+    let record_path = "knowledge/observations/O-0002-laboratory-results-snapshot.md";
+    let record = fs::read_to_string(root.join(record_path)).expect("laboratory knowledge record");
     let figures = render_figures(&root).expect("figures render");
     for figure in &figures {
-        let path = format!("{FIGURES_DIR}/{}", figure.file);
-        assert!(readme.contains(&path), "README.md does not show {path}");
+        let path = format!("../../{FIGURES_DIR}/{}", figure.file);
+        assert!(record.contains(&path), "{record_path} does not show {path}");
     }
     for entry in fs::read_dir(root.join(FIGURES_DIR)).expect("figures dir") {
         let name = entry

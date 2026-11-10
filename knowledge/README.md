@@ -31,3 +31,4 @@ knowledge to those sources.
 | --- | --- | --- |
 | [D-0001 Development workflow](decisions/D-0001-development-workflow.md) | agent | false |
 | [O-0001 Runtime proposal review](observations/O-0001-runtime-proposal-review.md) | agent | false |
+| [O-0002 Laboratory results and milestone snapshot](observations/O-0002-laboratory-results-snapshot.md) | agent | false |
