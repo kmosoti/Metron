@@ -1,0 +1,28 @@
+name: Main Branch Human Gate
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+      - edited
+
+permissions:
+  contents: read
+
+jobs:
+  main-human-approval:
+    name: main-human-approval
+    runs-on: ubuntu-latest
+    environment: main-release
+    steps:
+      - name: Verify human release approval for main
+        env:
+          RELEASE_BRANCH: ${{ github.head_ref }}
+          RELEASE_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          printf 'Human reviewer approved promotion of %s (%s) into main.\n' "$RELEASE_BRANCH" "$RELEASE_SHA"
