@@ -62,8 +62,10 @@ not removed.
 | 48 | PH-13: versioned role/persona data can vary behavior without creating new authority-bearing agent instances | design | [R-0003 identity and role contract](../../knowledge/research/R-0003-agent-contracts.md), same-grant role/persona and scoped-memory tests | No product identity/role implementation has been exercised | untested in the product |
 | 49 | PH-14: code-shaped specifications reduce generation and contract errors under matched tasks and compute | hypothesis | [R-0007 PH-14](../../knowledge/research/R-0007-runtime-evaluation.md#product-hypothesis-ledger), randomized narrative versus typed-spec coder experiment | Rust snippets are implementation targets; document shape is not correctness evidence | untested |
 | 50 | PH-15: a Rust product source constraint improves maintainability for the intended development workflow | design preference | [R-0007 PH-15](../../knowledge/research/R-0007-runtime-evaluation.md#product-hypothesis-ledger), compare iteration/dependency/deployment costs on a bounded slice | Rust is the chosen product ownership constraint; comparative maintainability has not been measured | untested |
+| 51 | LFM3-1.7B Q4_K_M can satisfy bounded local tool and coding acceptance within the selected resource envelope | design, source | [R-0008 artifact and acceptance contracts](../../knowledge/research/R-0008-local-inference-resource-profile.md), measured task quality and total peak memory | Exact artifact metadata and KV arithmetic were checked; the vendor discourages agentic coding, and no Metron inference or OOM benchmark has run | untested |
+| 52 | An optional CPU Thinking route improves accepted task outcomes enough to justify its added memory, latency and energy over LFM3 alone | hypothesis | [R-0008 matched placement and residency comparison](../../knowledge/research/R-0008-local-inference-resource-profile.md#implementation-acceptance-and-measurement) | CPU placement reduces that worker's GPU allocations in principle; total resource and quality benefit remains unmeasured | untested |
 
-Entries 36–50 are proposed product priors linked to the knowledge records.
+Entries 36–52 are proposed product priors linked to the knowledge records.
 Their statuses distinguish source inspection and limited feasibility probes from
 product verification. They add no measured Boolean-laboratory result.
 
