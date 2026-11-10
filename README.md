@@ -6,6 +6,11 @@ every claim has to survive measurement.**
 
 [![ci](https://github.com/kmosoti/Metron/actions/workflows/ci.yml/badge.svg)](https://github.com/kmosoti/Metron/actions/workflows/ci.yml)
 
+The proposed next direction is a Rust-native agent and execution harness with
+independent library boundaries and pure decision logic. Its
+[development specification is under review in PR #1](https://github.com/kmosoti/Metron/pull/1).
+The implemented system described below is the research laboratory.
+
 The system never sees the function it is trying to learn. It asks questions
 through a port, pays for every answer with a receipt, and commits a guess
 that the laboratory judges once the episode is over. These rules are not a
@@ -68,75 +73,12 @@ The same manifest and seed always produce the same journal head, so any run
 can be replayed and audited, including runs that paused to ask a language
 model a question.
 
-## What the laboratory has found
+## Research findings
 
-**A perfect router would save probes.** Six structural families, ten
-task-set seeds. A clairvoyant per-task router beats the best fixed strategy
-by about log2 6 probes: exactly the information in the family label. It
-sits below the entropy floor, so no router that has to find the label for
-itself could get there.
-
-![Cost ladder: exhaustive, verified affine, greedy over the pool, perfect router](docs/figures/headroom.svg)
-
-**But the label it routes on is not in the probes.** A real router has to
-learn the family from the same probes it is trying to save. It cannot: more
-prefix only walks it back to the single best strategy.
-
-![Solved rate of the most-survivors router against prefix length](docs/figures/selectors.svg)
-
-**Where the structure is in the function, routing pays.** In a
-laboratory with no published pool, each class (affine, symmetric,
-three-variable juntas) is learned by its own representation. A router
-spends sixteen structural probes, ranks the classes by posterior, and
-tries them in that order. On unseen tasks it closes about half the gap
-and beats the best fixed order given the same probes. That took three
-pre-registered runs, and learned routers never beat the hand-written
-Bayes rule.
-
-![Routers against the single best cascade on the structure-keyed laboratory](docs/figures/routing.svg)
-
-**Exact beats hyperdimensional for these objects.** Retrieving every stored
-function consistent with a few observed rows, the bitmask index is complete,
-smallest and fastest.
-
-![Recall against bytes per entry for exact, Bloom and hyperdimensional indexes](docs/figures/retrieval.svg)
-
-**The system proposes; the laboratory decides.** Compositions extracted from
-episodes are judged on held-out targets, never on the episodes that produced
-them.
-
-![Held-out pass rates of proposed compositions](docs/figures/promotion.svg)
-
-**Every prior is a hypothesis.** Whatever the design relies on, whether
-recalled, cited or derived, carries a test or a primary source.
-
-![The priors ledger by status](docs/figures/priors.svg)
-
-These pictures are drawn from the committed reports by `metron figures`, and
-the test suite fails if a report changes without its picture.
-
-## Where it stands
-
-```mermaid
-flowchart LR
-    M0["M0<br/>the rules are executable"]:::reached
-    M1["M1<br/>the lab tells strategies apart"]:::reached
-    M2["M2<br/>headroom measured"]:::reached
-    M3["M3<br/>routing<br/>reached on structure: the Bayes router pays<br/>learned routing: closed"]:::reached
-    M4["M4<br/>candidates judged on held-out targets"]:::reached
-    M5["M5<br/>retrieval<br/>hyperdimensional codes dropped"]:::dropped
-    M6["M6<br/>an LLM proposes, never decides"]:::reached
-    M0 --> M1 --> M2 --> M3
-    M1 --> M4
-    M1 --> M5
-    M0 --> M6
-    classDef reached fill:#d3f2e3,stroke:#009E73,color:#0b3d2a
-    classDef closed fill:#fde4d6,stroke:#D55E00,color:#5a1e00
-    classDef dropped fill:#eceff1,stroke:#8c959f,color:#24292f
-```
-
-Milestones are outcomes with exit criteria, never dates. A milestone closed
-by a negative result is a result.
+The [laboratory results and milestone snapshot](knowledge/observations/O-0002-laboratory-results-snapshot.md)
+collects the measured routing, retrieval and promotion findings, their figures,
+and the laboratory's outcome milestones. Supporting reports and accepted decisions
+are linked there.
 
 ## Explore
 
@@ -161,13 +103,15 @@ flowchart TB
 | check what was assumed and what survived | [docs/research/priors.md](docs/research/priors.md) |
 | open the raw measurements | [experiments/reports](experiments/reports/README.md) |
 | run experiments, or answer a consultation as the language model | [experiments/README.md](experiments/README.md) |
+| follow the development and review workflow | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| find dated decisions, research and observations | [knowledge/README.md](knowledge/README.md) |
 | change the code, as a person or a coding agent | [AGENTS.md](AGENTS.md) |
 
 ```sh
 cargo test --workspace                                                    # the rules, as tests
 cargo run -p metron-cli -- run experiments/manifests/smoke-majority3.json # one episode
 cargo run --release -p metron-cli -- headroom experiments/manifests/headroom-arity5.json
-cargo run -p metron-cli -- figures                                        # redraw this page
+cargo run -p metron-cli -- figures                                        # refresh laboratory figures
 ```
 
 Apache-2.0. See [LICENSE](LICENSE).
