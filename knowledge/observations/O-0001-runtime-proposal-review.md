@@ -62,6 +62,16 @@ This review inspected repository contracts and proposal text. External landscape
 claims and licensing assertions were not independently re-audited. Product Rust
 sketches were not compiled. Proposal test names are planned acceptance checks.
 
+## Follow-up research
+
+The revised [harness contract](../research/R-0004-harness-contracts.md) specifies
+persisted-intent-first ordering, atomic budget reservations and dispatch-time
+admission. The [Rust contract](../research/R-0006-rust-implementation-contracts.md)
+places token construction in its policy module and exposes read-only driver
+access. [O-0003](O-0003-runtime-contract-probes.md) records limited feasibility
+probes. Product tests for these findings remain outstanding in the
+[implementation sequence](../decisions/D-0003-runtime-implementation-sequence.md).
+
 ## Relations
 
 - contextualizes [workflow adoption](../decisions/D-0001-development-workflow.md)

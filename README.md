@@ -7,8 +7,10 @@ every claim has to survive measurement.**
 [![ci](https://github.com/kmosoti/Metron/actions/workflows/ci.yml/badge.svg)](https://github.com/kmosoti/Metron/actions/workflows/ci.yml)
 
 The proposed next direction is a Rust-native agent and execution harness with
-independent library boundaries and pure decision logic. Its
-[development specification is under review in PR #1](https://github.com/kmosoti/Metron/pull/1).
+independent library boundaries and pure decision logic. The
+[runtime research and implementation sequence](knowledge/research/README.md)
+records the source evidence, proposed contracts and staged acceptance criteria.
+[Issue #7](https://github.com/kmosoti/Metron/issues/7) tracks implementation.
 The implemented system described below is the research laboratory.
 
 The system never sees the function it is trying to learn. It asks questions

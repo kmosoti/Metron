@@ -32,3 +32,19 @@ knowledge to those sources.
 | [D-0001 Development workflow](decisions/D-0001-development-workflow.md) | agent | false |
 | [O-0001 Runtime proposal review](observations/O-0001-runtime-proposal-review.md) | agent | false |
 | [O-0002 Laboratory results and milestone snapshot](observations/O-0002-laboratory-results-snapshot.md) | agent | false |
+| [D-0002 Runtime charter and boundary](decisions/D-0002-runtime-charter.md) | agent | false |
+| [D-0003 Runtime implementation sequence](decisions/D-0003-runtime-implementation-sequence.md) | agent | false |
+| [R-0001 Agent/harness source audit](research/R-0001-agent-harness-landscape.md) | agent | false |
+| [R-0002 Runtime grammar](research/R-0002-runtime-grammar.md) | agent | false |
+| [R-0003 Agent contracts](research/R-0003-agent-contracts.md) | agent | false |
+| [R-0004 Harness contracts](research/R-0004-harness-contracts.md) | agent | false |
+| [R-0005 Storage, plugins and protocols](research/R-0005-storage-plugins-protocols.md) | agent | false |
+| [R-0006 Rust implementation contracts](research/R-0006-rust-implementation-contracts.md) | agent | false |
+| [R-0007 Runtime evaluation](research/R-0007-runtime-evaluation.md) | agent | false |
+| [O-0003 Runtime contract probes](observations/O-0003-runtime-contract-probes.md) | agent | false |
+
+## Runtime implementation
+
+Start with the [runtime research index](research/README.md), then follow the
+[ordered implementation sequence](decisions/D-0003-runtime-implementation-sequence.md).
+The index maps all ten original proposal documents to their working records.
