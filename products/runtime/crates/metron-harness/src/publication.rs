@@ -6,6 +6,10 @@ use std::{
     path::Path,
 };
 
+fn invalid_plan(message: &'static str) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidData, message)
+}
+
 /// Atomically install a plan once. Existing destination is always a conflict.
 pub(crate) fn publish(
     run_dir: &Path,
@@ -14,11 +18,11 @@ pub(crate) fn publish(
 ) -> io::Result<()> {
     let bytes = plan
         .candidate_bytes()
-        .map_err(|_| io::Error::other("invalid plan"))?;
+        .map_err(|_| invalid_plan("invalid plan"))?;
     if bytes.len() as u64 != plan.content_length.get()
         || content_digest(&bytes) != plan.content_digest
     {
-        return Err(io::Error::other("plan content mismatch"));
+        return Err(invalid_plan("plan content mismatch"));
     }
     let expected = format!(
         "artifacts/{}/{}/result.json",
@@ -26,7 +30,7 @@ pub(crate) fn publish(
         plan.dispatch_id.as_str()
     );
     if plan.relative_path.as_str() != expected {
-        return Err(io::Error::other("invalid plan path"));
+        return Err(invalid_plan("invalid plan path"));
     }
     let artifacts = run_dir.join("artifacts");
     let intent = artifacts.join(plan.intent_id.as_str());
@@ -65,17 +69,17 @@ fn check(run_dir: &Path, plan: &ArtifactPlan, sync: bool) -> io::Result<bool> {
         plan.dispatch_id.as_str()
     );
     if plan.relative_path.as_str() != expected {
-        return Err(io::Error::other("invalid plan path"));
+        return Err(invalid_plan("invalid plan path"));
     }
     let candidate = plan
         .candidate_bytes()
-        .map_err(|_| io::Error::other("invalid plan"))?;
+        .map_err(|_| invalid_plan("invalid plan"))?;
     let expected_len =
-        u64::try_from(candidate.len()).map_err(|_| io::Error::other("invalid length"))?;
+        u64::try_from(candidate.len()).map_err(|_| invalid_plan("invalid length"))?;
     if expected_len != plan.content_length.get()
         || content_digest(&candidate) != plan.content_digest
     {
-        return Err(io::Error::other("plan content mismatch"));
+        return Err(invalid_plan("plan content mismatch"));
     }
     let path = run_dir.join(expected);
     let mut file = match File::open(&path) {
@@ -96,7 +100,7 @@ fn check(run_dir: &Path, plan: &ArtifactPlan, sync: bool) -> io::Result<bool> {
         file.sync_all()?;
         File::open(
             path.parent()
-                .ok_or_else(|| io::Error::other("missing parent"))?,
+                .ok_or_else(|| invalid_plan("missing parent"))?,
         )?
         .sync_all()?;
     }
@@ -149,6 +153,12 @@ mod tests {
         assert_eq!(calls, 1);
         assert!(inspect(&directory, &plan).unwrap());
         assert!(reconcile(&directory, &plan).unwrap());
+        let mut invalid = plan.clone();
+        invalid.content_length = metron_protocol::SqlU64::new(0).unwrap();
+        assert_eq!(
+            inspect(&directory, &invalid).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
         assert_eq!(
             publish(&directory, &plan, &mut || {}).unwrap_err().kind(),
             io::ErrorKind::AlreadyExists
