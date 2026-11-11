@@ -5,6 +5,13 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[dependencies]
+metron-protocol = { path = "../metron-protocol" }
+metron-agent = { path = "../metron-agent" }
+metron-harness = { path = "../metron-harness" }
+metron-store-sqlite = { path = "../metron-store-sqlite" }
+metron-testkit = { path = "../metron-testkit" }
+
 [lints]
 workspace = true
 
