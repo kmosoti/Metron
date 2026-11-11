@@ -62,6 +62,14 @@ pub enum WorkerEvent {
         pid: u32,
         control: WorkerControl,
     },
+    Dispatching {
+        dispatch_id: Digest,
+        began_at: Instant,
+    },
+    Arrived {
+        dispatch_id: Digest,
+        in_flight: Vec<Digest>,
+    },
     Sent {
         dispatch_id: Digest,
     },
@@ -562,6 +570,12 @@ impl LocalInferenceDriver {
                 if sender_stop.load(Ordering::Acquire) || Instant::now() >= deadline {
                     break;
                 }
+                if let Some(sink) = &sink {
+                    sink(WorkerEvent::Dispatching {
+                        dispatch_id: ids[index].clone(),
+                        began_at: Instant::now(),
+                    });
+                }
                 let (tx, rx) = mpsc::channel();
                 sender_delivery[index].store(1, Ordering::Release);
                 if writes.try_send((frame, tx)).is_err() {
@@ -595,6 +609,7 @@ impl LocalInferenceDriver {
         });
         let mut results: Vec<Option<QualificationOutcome>> = (0..count).map(|_| None).collect();
         let mut started = BTreeSet::new();
+        let mut arrived = BTreeSet::new();
         let mut tokenized = BTreeMap::new();
         let mut streamed: BTreeMap<usize, (String, String, u32)> = BTreeMap::new();
         let mut remaining = count;
@@ -618,7 +633,8 @@ impl LocalInferenceDriver {
                 _ => break,
             };
             let id = match &reply {
-                WorkerReply::Loading { dispatch_id }
+                WorkerReply::Arrived { dispatch_id, .. }
+                | WorkerReply::Loading { dispatch_id }
                 | WorkerReply::Loaded { dispatch_id }
                 | WorkerReply::Tokenized { dispatch_id, .. }
                 | WorkerReply::Started { dispatch_id }
@@ -640,6 +656,25 @@ impl LocalInferenceDriver {
                 break;
             }
             match reply {
+                WorkerReply::Arrived {
+                    dispatch_id,
+                    in_flight,
+                } => {
+                    if started.contains(&index)
+                        || !arrived.insert(index)
+                        || in_flight
+                            .iter()
+                            .any(|id| !pending.contains_key(id.as_str()))
+                    {
+                        break;
+                    }
+                    if let Some(sink) = &self.sink {
+                        sink(WorkerEvent::Arrived {
+                            dispatch_id,
+                            in_flight,
+                        });
+                    }
+                }
                 WorkerReply::Loading { dispatch_id } => {
                     if let Some(sink) = &self.sink {
                         sink(WorkerEvent::Loading { dispatch_id });
