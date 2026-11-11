@@ -122,7 +122,7 @@ so its authority and replay tests can run without claiming OS containment.
 
 **Silos:** S2/S5/S6. **Entry:** alpha.0 replay/authority tests.
 
-**Deliverable:** workspace-scoped file read, structured edit/diff and test/command execution in a verified OS sandbox; a local inference plugin behind the model adapter (default LFM3-1.7B Q4_K_M; optional LFM2.5-1.2B-Thinking CPU route); CLI with bounded event streaming. Tool output includes truncation and evidence refs.
+**Deliverable:** workspace-scoped file read, structured edit/diff and test/command execution in a verified OS sandbox; a local inference plugin behind the model adapter (pinned LFM3-1.7B Q4_K_M through mistral.rs; one shared weight set for multiple roles); CLI with bounded event streaming. Tool output includes truncation and evidence refs.
 
 **Success:**
 1. Complete a known synthetic Rust coding task: read fixture, apply edit, run checks, inspect diff, produce artifact, independently verify.
@@ -130,7 +130,7 @@ so its authority and replay tests can run without claiming OS containment.
 3. On interrupt, terminate or explicitly flag lingering process tree; never report successful cleanup without evidence.
 4. Run both scripted and real-model adapters against the same tool/receipt contracts.
 5. Compare against a minimal static baseline, measuring solved cases, cost, latency, intervention and blocked unauthorized effects.
-6. Meet [R-0008 local inference acceptance](../research/R-0008-local-inference-resource-profile.md#implementation-acceptance-and-measurement): pinned offline artifacts, bounded workers/context/caches, one active inference request, actual peak-memory measurements, typed resource denial and replay from recorded responses. Keep the optional Thinking worker lazy by default. The 2 GiB VRAM target requires measurement and is not an assumed hard allocation cap.
+6. Meet [R-0008 local inference acceptance](../research/R-0008-local-inference-resource-profile.md#proposed-plugin-boundary): pinned offline artifacts, bounded workers/context/caches, actual peak-memory measurements, typed resource denial and replay from recorded responses. Meet [R-0009 batching and cache gates](../research/R-0009-mistralrs-batching-and-cache-contracts.md#acceptance-and-decision-criteria): adaptive continuous batching, chunked prefill, bounded task-scoped hybrid prefix reuse and per-request accounting. The 2 GiB VRAM target requires measurement and is not an assumed hard allocation cap.
 
 **Stop:** if sandbox guarantees fail under adversarial fixtures, do not expose terminal or file mutation in default profile. If the selected model fails coding acceptance or its resource profile does not fit, record that outcome and defer the affected live-model capability. Do not substitute a hosted backend silently.
 
