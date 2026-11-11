@@ -1885,6 +1885,9 @@ fn record_approval(
         return Ok(None);
     };
     let now = tick(tx)?;
+    if intent.status != DispatchStatus::AwaitingApproval {
+        return Ok(None);
+    }
     let approval = intent.approval.as_mut().ok_or(StoreError::Integrity)?;
     if &approval.action_digest != action
         || approval.expires_at <= now
@@ -2130,7 +2133,8 @@ fn settle_reconciliation(
     }
     if let Some(receipt) = supplied
         && (receipt.evidence_id().map_err(StoreError::Validation)? != *evidence
-            || receipt.data().intent_id != *id)
+            || receipt.data().intent_id != *id
+            || receipt.data().task_id != *task_id)
     {
         return Err(StoreError::Integrity);
     }
@@ -2169,6 +2173,12 @@ fn settle_reconciliation(
         owned = snapshot.receipt;
         &owned
     };
+    if receipt.data().intent_id != *id
+        || receipt.data().task_id != *task_id
+        || receipt.evidence_id().map_err(StoreError::Validation)? != *evidence
+    {
+        return Err(StoreError::Integrity);
+    }
     if !compatible_reconciliation(tx, id, receipt)? {
         if supplied.is_some()
             && read_blob(
@@ -2185,7 +2195,7 @@ fn settle_reconciliation(
     let result = record_receipt(tx, receipt, epoch, seq, true, true)?;
     match result {
         StoreResult::ReceiptRecorded { settled: true, .. } => {
-            clear_reconciled_hold(tx, task_id)?;
+            clear_reconciled_hold(tx, task_id, id)?;
             refresh_unresolved(tx, task_id)?;
             Ok(Ok(StoreResult::ReconciliationSettled {
                 evidence_id: evidence.clone(),
@@ -2547,7 +2557,11 @@ fn compatible_reconciliation(
     }
     Ok(true)
 }
-fn clear_reconciled_hold(tx: &Transaction<'_>, task_id: &TaskId) -> Result<(), StoreError> {
+fn clear_reconciled_hold(
+    tx: &Transaction<'_>,
+    task_id: &TaskId,
+    reconciled_id: &Digest,
+) -> Result<(), StoreError> {
     let task = load_task(tx, task_id)?;
     let invalidated: i64 = tx
         .query_row(
@@ -2588,7 +2602,9 @@ fn clear_reconciled_hold(tx: &Transaction<'_>, task_id: &TaskId) -> Result<(), S
     while let Some(row) = evidence_rows.next().map_err(sql_error)? {
         let raw = bounded_blob(row, 0).map_err(sql_error)?;
         let evidence: EvidenceSnapshot = decode!(&raw, EvidenceSnapshot);
-        if !evidence.selected || evidence.conflict {
+        if evidence.conflict
+            || (!evidence.selected && evidence.receipt.data().intent_id != *reconciled_id)
+        {
             return Ok(());
         }
     }
@@ -4882,6 +4898,283 @@ mod authority_tests {
         assert_eq!(after.state, state);
         assert_eq!(after.replay_head, head);
         assert!(snap.pending_inbox(&task.data().task_id).unwrap().is_none());
+        drop(snap);
+        drop(s);
+        let _ = std::fs::remove_file(p);
+    }
+    #[test]
+    fn reconciliation_cannot_settle_another_intents_retained_receipt() {
+        let (mut s, p) = store();
+        let (a, ai) = admitted_read(&mut s, "lease-a");
+        let (b, bi) = admitted_read(&mut s, "lease-b");
+        s.apply(cmd(
+            "tick",
+            StoreOperation::AdvanceTick {
+                expected_tick: num(0),
+                new_tick: num(30),
+            },
+        ))
+        .unwrap();
+        for (task, intent, tag) in [(&a, &ai, "a"), (&b, &bi, "b")] {
+            s.apply(cmd(
+                &format!("uncertain-{tag}"),
+                StoreOperation::RecordUncertainty {
+                    task_id: task.data().task_id.clone(),
+                    intent_id: intent.intent_id.clone(),
+                    dispatch_id: intent.action.dispatch_id.clone(),
+                    lease_epoch: num(1),
+                    reason: BoundedText::new("expired").unwrap(),
+                },
+            ))
+            .unwrap();
+        }
+        let b_receipt = receipt(&b, &bi, "receipt-b", known());
+        let evidence = b_receipt.evidence_id().unwrap();
+        s.apply(cmd(
+            "receipt-b",
+            StoreOperation::RecordReceipt {
+                receipt: b_receipt,
+                lease_epoch: num(1),
+            },
+        ))
+        .unwrap();
+        let wa = WorkerId::new("resolver-a").unwrap();
+        let wb = WorkerId::new("resolver-b").unwrap();
+        for (task, intent, worker, rev, tag) in
+            [(&a, &ai, &wa, num(0), "a"), (&b, &bi, &wb, num(1), "b")]
+        {
+            s.apply(cmd(
+                &format!("claim-recon-{tag}"),
+                StoreOperation::ClaimReconciliation {
+                    task_id: task.data().task_id.clone(),
+                    intent_id: intent.intent_id.clone(),
+                    worker: worker.clone(),
+                    expected_epoch: num(0),
+                    expected_evidence_revision: rev,
+                },
+            ))
+            .unwrap();
+        }
+        let head = {
+            let mut snap = s.audit().unwrap();
+            snap.projection(&a.data().task_id).unwrap().replay_head
+        };
+        let result = s.apply(cmd(
+            "cross-settle",
+            StoreOperation::SettleReconciliation {
+                task_id: a.data().task_id.clone(),
+                intent_id: ai.intent_id.clone(),
+                worker: wa,
+                lease_epoch: num(1),
+                expected_evidence_revision: num(0),
+                evidence_id: evidence,
+                reconciled_receipt: None,
+            },
+        ));
+        assert!(matches!(result, Err(StoreError::Integrity)));
+        let mut snap = s.audit().unwrap();
+        let av = snap.projection(&a.data().task_id).unwrap();
+        let bv = snap.projection(&b.data().task_id).unwrap();
+        assert_eq!(av.replay_head, head);
+        assert_eq!(av.task_account.reserved.tool_calls, num(1));
+        assert_eq!(bv.task_account.reserved.tool_calls, num(1));
+        assert_eq!(bv.task_account.posted.tool_calls, num(0));
+        assert_eq!(
+            snap.intent(&bi.intent_id).unwrap().unwrap().status,
+            DispatchStatus::Uncertain
+        );
+        drop(snap);
+        drop(s);
+        let _ = std::fs::remove_file(p);
+    }
+    #[test]
+    fn late_approval_cannot_revive_a_durably_denied_intent() {
+        let (mut s, p) = store();
+        let task = make_task("denied-approval");
+        let g = genesis();
+        s.apply(cmd(
+            "create",
+            StoreOperation::CreateTask {
+                task: task.clone(),
+                genesis: g.clone(),
+            },
+        ))
+        .unwrap();
+        let intent = Intent {
+            schema_version: SchemaVersion::V1,
+            task_id: task.data().task_id.clone(),
+            ordinal: 0,
+            kind: IntentKind::ReadFixture,
+        };
+        let prepared = PreparedIntent::materialize(
+            &intent,
+            &task.data().principal_id,
+            &journal_genesis(&task, &g).unwrap(),
+        )
+        .unwrap();
+        let (mut state, input) = {
+            let mut snap = s.audit().unwrap();
+            (
+                snap.projection(&task.data().task_id).unwrap().state,
+                snap.pending_inbox(&task.data().task_id).unwrap().unwrap(),
+            )
+        };
+        state.revision = num(1);
+        state.decision_steps = 1;
+        state.phase = Phase::WaitingRead;
+        state.pending_intent = Some(prepared.intent_id.clone());
+        s.apply(cmd(
+            "transition",
+            StoreOperation::CommitTransition {
+                task_id: task.data().task_id.clone(),
+                expected_revision: num(0),
+                inbox_id: input.id,
+                inbox_digest: input.digest,
+                transition: Transition::Decision {
+                    next: state,
+                    intent,
+                },
+            },
+        ))
+        .unwrap();
+        s.apply(cmd(
+            "prepare",
+            StoreOperation::PrepareIntent {
+                task_id: task.data().task_id.clone(),
+                prepared: prepared.clone(),
+            },
+        ))
+        .unwrap();
+        let request = ApprovalId::new("request").unwrap();
+        s.apply(cmd(
+            "approval-request",
+            StoreOperation::CreateApprovalRequest {
+                task_id: task.data().task_id.clone(),
+                request_id: request.clone(),
+                intent_id: prepared.intent_id.clone(),
+                action_digest: prepared.action_digest.clone(),
+            },
+        ))
+        .unwrap();
+        s.apply(cmd(
+            "deny",
+            StoreOperation::Deny {
+                task_id: task.data().task_id.clone(),
+                intent_id: prepared.intent_id.clone(),
+                reason: BoundedText::new("denied").unwrap(),
+            },
+        ))
+        .unwrap();
+        let head = {
+            let mut snap = s.audit().unwrap();
+            snap.projection(&task.data().task_id).unwrap().replay_head
+        };
+        let result = s
+            .apply(cmd(
+                "late-approval",
+                StoreOperation::RecordApproval {
+                    request_id: request,
+                    action_digest: prepared.action_digest.clone(),
+                    decision: ApprovalDecision::Approve,
+                },
+            ))
+            .unwrap();
+        assert_eq!(
+            result,
+            WriteOutcome::NotCommitted(NotCommitted::RecheckAuthority)
+        );
+        let mut snap = s.audit().unwrap();
+        assert_eq!(
+            snap.projection(&task.data().task_id).unwrap().replay_head,
+            head
+        );
+        assert_eq!(
+            snap.intent(&prepared.intent_id).unwrap().unwrap().status,
+            DispatchStatus::Denied
+        );
+        drop(snap);
+        drop(s);
+        let _ = std::fs::remove_file(p);
+    }
+    #[test]
+    fn compatible_reconciliation_resolves_prior_receipt_without_reselecting_it() {
+        let (mut s, p) = store();
+        let (task, prepared) = admitted_read(&mut s, "compatible");
+        s.apply(cmd(
+            "tick",
+            StoreOperation::AdvanceTick {
+                expected_tick: num(0),
+                new_tick: num(30),
+            },
+        ))
+        .unwrap();
+        let r1 = receipt(&task, &prepared, "r1", known());
+        s.apply(cmd(
+            "stale",
+            StoreOperation::RecordReceipt {
+                receipt: r1,
+                lease_epoch: num(1),
+            },
+        ))
+        .unwrap();
+        s.apply(cmd(
+            "uncertain",
+            StoreOperation::RecordUncertainty {
+                task_id: task.data().task_id.clone(),
+                intent_id: prepared.intent_id.clone(),
+                dispatch_id: prepared.action.dispatch_id.clone(),
+                lease_epoch: num(1),
+                reason: BoundedText::new("expired").unwrap(),
+            },
+        ))
+        .unwrap();
+        let worker = WorkerId::new("reconciler").unwrap();
+        s.apply(cmd(
+            "claim-recon",
+            StoreOperation::ClaimReconciliation {
+                task_id: task.data().task_id.clone(),
+                intent_id: prepared.intent_id.clone(),
+                worker: worker.clone(),
+                expected_epoch: num(0),
+                expected_evidence_revision: num(1),
+            },
+        ))
+        .unwrap();
+        let r2 = receipt(&task, &prepared, "r2", known());
+        let evidence = r2.evidence_id().unwrap();
+        let result = s
+            .apply(cmd(
+                "settle",
+                StoreOperation::SettleReconciliation {
+                    task_id: task.data().task_id.clone(),
+                    intent_id: prepared.intent_id.clone(),
+                    worker,
+                    lease_epoch: num(1),
+                    expected_evidence_revision: num(1),
+                    evidence_id: evidence,
+                    reconciled_receipt: Some(r2),
+                },
+            ))
+            .unwrap();
+        assert!(matches!(
+            result,
+            WriteOutcome::Committed(StoreReply {
+                result: StoreResult::ReconciliationSettled { .. },
+                ..
+            })
+        ));
+        let mut snap = s.audit().unwrap();
+        let v = snap.projection(&task.data().task_id).unwrap();
+        assert!(
+            !v.task_account.integrity_hold
+                && !v.principal_account.integrity_hold
+                && !v.verification.unresolved
+        );
+        assert_eq!(v.task_account.posted.tool_calls, num(1));
+        assert_eq!(v.task_account.reserved.tool_calls, num(0));
+        let page = snap.evidence(&prepared.intent_id, None).unwrap();
+        assert_eq!(page.records.len(), 2);
+        assert_eq!(page.records.iter().filter(|r| r.selected).count(), 1);
         drop(snap);
         drop(s);
         let _ = std::fs::remove_file(p);
