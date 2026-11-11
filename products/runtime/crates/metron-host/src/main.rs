@@ -1,7 +1,7 @@
 //! Composition root for the scripted alpha.0 runtime.
 #![forbid(unsafe_code)]
 use metron_harness::{
-    orchestrator::{self, DriveStatus, NoObserver},
+    orchestrator::{self, DriveError, DriveStatus, NoObserver},
     planner::SumPlanner,
 };
 use metron_protocol::{
@@ -82,10 +82,55 @@ fn audit_error(error: StoreError) -> (CliOutcome, &'static str) {
         StoreError::Integrity | StoreError::Validation(_) => {
             (CliOutcome::IntegrityFailure, "invalid audit data")
         }
-        StoreError::Busy | StoreError::Operational(_) => (
+        StoreError::Operational(text) if text.as_str() == "audit resource limit exceeded" => (
             CliOutcome::OperationalFailure,
-            "audit unavailable or resource limit exceeded",
+            "audit resource limit exceeded",
         ),
+        StoreError::Busy | StoreError::Operational(_) => {
+            (CliOutcome::OperationalFailure, "store unavailable")
+        }
+    }
+}
+fn drive_error(error: DriveError) -> (CliOutcome, &'static str) {
+    match error {
+        DriveError::Store(error) => audit_error(error),
+        DriveError::Integrity | DriveError::Invalid | DriveError::Decision(_) => (
+            CliOutcome::IntegrityFailure,
+            "orchestration integrity failure",
+        ),
+        DriveError::Operational => (CliOutcome::OperationalFailure, "orchestration unavailable"),
+    }
+}
+fn reported_usage(
+    snapshot: &mut impl RuntimeSnapshot,
+    intent: &metron_protocol::IntentSnapshot,
+) -> Result<Option<metron_protocol::ActualUsage>, StoreError> {
+    let mut cursor = None;
+    let mut sole = None;
+    let mut count = 0usize;
+    loop {
+        let page = snapshot.evidence(&intent.intent_id, cursor)?;
+        for row in page.records {
+            if intent.selected_evidence.as_ref() == Some(&row.evidence_id) {
+                return Ok(Some(row.receipt.data().usage.clone()));
+            }
+            count = count.saturating_add(1);
+            if count == 1 {
+                sole = Some(row.receipt.data().usage.clone());
+            }
+            if count > 1 && intent.selected_evidence.is_none() {
+                return Ok(None);
+            }
+        }
+        cursor = page.next;
+        if cursor.is_none() {
+            break;
+        }
+    }
+    if intent.selected_evidence.is_some() {
+        Err(StoreError::Integrity)
+    } else {
+        Ok(sole)
     }
 }
 fn flag(args: &[String], name: &str) -> Option<String> {
@@ -207,9 +252,7 @@ fn action(command: CliCommand, args: &[String]) -> Result<CliReport, (CliOutcome
         let command = make_command(StoreOperation::CreateTask { task, genesis }, None)
             .map_err(|_| (CliOutcome::InvalidInput, "invalid task command"))?;
         if !matches!(
-            store
-                .apply(command)
-                .map_err(|_| (CliOutcome::OperationalFailure, "task creation failed"))?,
+            store.apply(command).map_err(audit_error)?,
             WriteOutcome::Committed(_)
         ) {
             return Err((CliOutcome::Rejected, "task not created"));
@@ -218,12 +261,9 @@ fn action(command: CliCommand, args: &[String]) -> Result<CliReport, (CliOutcome
     } else if matches!(command, CliCommand::Replay | CliCommand::Verify) {
         SqliteStore::open_read_only(&db_path).map_err(audit_error)?
     } else {
-        SqliteStore::open_existing(&db_path)
-            .map_err(|_| (CliOutcome::OperationalFailure, "cannot open database"))?
+        SqliteStore::open_existing(&db_path).map_err(audit_error)?
     };
-    let ids = store
-        .task_ids()
-        .map_err(|_| (CliOutcome::OperationalFailure, "cannot list task"))?;
+    let ids = store.task_ids().map_err(audit_error)?;
     if ids.len() != 1 {
         return Err((CliOutcome::IntegrityFailure, "expected one task"));
     }
@@ -250,7 +290,7 @@ fn action(command: CliCommand, args: &[String]) -> Result<CliReport, (CliOutcome
                         make_command(op, Some(id))
                             .map_err(|_| (CliOutcome::InvalidInput, "invalid tick command"))?
                     )
-                    .map_err(|_| (CliOutcome::OperationalFailure, "tick update failed"))?,
+                    .map_err(audit_error)?,
                 WriteOutcome::Committed(_)
             ) {
                 return Err((CliOutcome::Blocked, "tick conflict"));
@@ -288,7 +328,7 @@ fn action(command: CliCommand, args: &[String]) -> Result<CliReport, (CliOutcome
                     make_command(op, Some(id))
                         .map_err(|_| (CliOutcome::InvalidInput, "invalid approval"))?
                 )
-                .map_err(|_| (CliOutcome::OperationalFailure, "approval failed"))?,
+                .map_err(audit_error)?,
             WriteOutcome::Committed(_)
         ) {
             return Err((CliOutcome::Rejected, "approval rejected"));
@@ -299,7 +339,7 @@ fn action(command: CliCommand, args: &[String]) -> Result<CliReport, (CliOutcome
         )
         .map_err(|_| (CliOutcome::InvalidInput, "invalid intent"))?;
         let status = orchestrator::reconcile(&mut store, &task_id, &intent, &run_dir)
-            .map_err(|_| (CliOutcome::OperationalFailure, "reconciliation failed"))?;
+            .map_err(drive_error)?;
         if matches!(status, DriveStatus::Blocked | DriveStatus::MultipleEvidence) {
             result.outcome = CliOutcome::Blocked;
             if status == DriveStatus::MultipleEvidence {
@@ -311,13 +351,8 @@ fn action(command: CliCommand, args: &[String]) -> Result<CliReport, (CliOutcome
         }
     } else if matches!(command, CliCommand::Run | CliCommand::Resume) {
         let genesis = {
-            let mut snapshot = store
-                .audit()
-                .map_err(|_| (CliOutcome::OperationalFailure, "snapshot failed"))?;
-            snapshot
-                .projection(&task_id)
-                .map_err(|_| (CliOutcome::IntegrityFailure, "projection missing"))?
-                .genesis
+            let mut snapshot = store.audit().map_err(audit_error)?;
+            snapshot.projection(&task_id).map_err(audit_error)?.genesis
         };
         let agent = metron_agent::SumAgent;
         let planner = SumPlanner;
@@ -327,7 +362,7 @@ fn action(command: CliCommand, args: &[String]) -> Result<CliReport, (CliOutcome
             _ => return Err((CliOutcome::IntegrityFailure, "unknown engine version")),
         };
         let status = orchestrator::drive(&mut store, &task_id, engine, &run_dir, &mut NoObserver)
-            .map_err(|_| (CliOutcome::OperationalFailure, "orchestration failed"))?;
+            .map_err(drive_error)?;
         result.outcome = match status {
             DriveStatus::Complete => CliOutcome::Succeeded,
             DriveStatus::Rejected => CliOutcome::Rejected,
@@ -335,12 +370,8 @@ fn action(command: CliCommand, args: &[String]) -> Result<CliReport, (CliOutcome
             DriveStatus::Blocked | DriveStatus::MultipleEvidence => CliOutcome::Blocked,
         };
     }
-    let mut snapshot = store
-        .audit()
-        .map_err(|_| (CliOutcome::OperationalFailure, "snapshot failed"))?;
-    let projection = snapshot
-        .projection(&task_id)
-        .map_err(|_| (CliOutcome::IntegrityFailure, "projection missing"))?;
+    let mut snapshot = store.audit().map_err(audit_error)?;
+    let projection = snapshot.projection(&task_id).map_err(audit_error)?;
     if matches!(command, CliCommand::Replay | CliCommand::Verify) {
         let checks = metron_harness::audit::verify(&mut snapshot, &task_id).map_err(audit_error)?;
         let agent = metron_agent::SumAgent;
@@ -394,16 +425,21 @@ fn action(command: CliCommand, args: &[String]) -> Result<CliReport, (CliOutcome
     }
     let pending = snapshot
         .pending_inbox(&task_id)
-        .map_err(|_| (CliOutcome::OperationalFailure, "inbox failed"))?
+        .map_err(audit_error)?
         .is_some();
     let mut cursor = None;
     let mut held = false;
     let mut approval = None;
+    let (mut reported_read, mut reported_model, mut reported_publication) = (None, None, None);
     loop {
-        let page = snapshot
-            .intents(&task_id, cursor)
-            .map_err(|_| (CliOutcome::OperationalFailure, "intents failed"))?;
+        let page = snapshot.intents(&task_id, cursor).map_err(audit_error)?;
         for intent in page.records {
+            let usage = reported_usage(&mut snapshot, &intent).map_err(audit_error)?;
+            match intent.intent.kind {
+                metron_protocol::IntentKind::ReadFixture => reported_read = usage,
+                metron_protocol::IntentKind::RequestModel { .. } => reported_model = usage,
+                metron_protocol::IntentKind::PublishArtifact { .. } => reported_publication = usage,
+            }
             held |= intent
                 .reservation
                 .is_some_and(|r| r.status == metron_protocol::store::ReservationStatus::Held);
@@ -445,9 +481,9 @@ fn action(command: CliCommand, args: &[String]) -> Result<CliReport, (CliOutcome
     result.accounting = Some(CliAccounting {
         task_posted: projection.task_account.posted,
         principal_posted: projection.principal_account.posted,
-        reported_read: v.read.as_ref().map(|r| r.data().usage.clone()),
-        reported_model: v.model.as_ref().map(|r| r.data().usage.clone()),
-        reported_publication: v.publication.as_ref().map(|r| r.data().usage.clone()),
+        reported_read,
+        reported_model,
+        reported_publication,
     });
     result.pending_intent = projection.state.pending_intent.clone();
     result.phase = Some(projection.state.phase);

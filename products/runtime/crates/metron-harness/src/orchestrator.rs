@@ -39,6 +39,7 @@ pub enum DriveError {
     Decision(DecisionError),
     Integrity,
     Invalid,
+    Operational,
 }
 impl From<StoreError> for DriveError {
     fn from(e: StoreError) -> Self {
@@ -130,8 +131,11 @@ pub fn drive<S: StorePort>(
             continue;
         }
         if projection.state.phase == Phase::AwaitingVerification {
-            let (selection, accepted) = verify::verify(run_dir, &projection.verification)
-                .map_err(|_| DriveError::Integrity)?;
+            let (selection, accepted) =
+                verify::verify(run_dir, &projection.verification).map_err(|error| match error {
+                    verify::VerifyError::InvalidEvidence(_) => DriveError::Integrity,
+                    verify::VerifyError::Operational => DriveError::Operational,
+                })?;
             let reason = BoundedText::new(if accepted {
                 "verified"
             } else {
