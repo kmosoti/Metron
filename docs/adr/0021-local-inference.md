@@ -52,7 +52,10 @@ proposal validates.
 
 The host owns private operational report types and serializes them with Serde.
 The inference SDK remains confined to the worker; pure-crate dependency rules are
-unchanged. Report files confer no execution or qualification authority.
+unchanged. Report files confer no execution or qualification authority. Session identities
+bind the canonical UTF-8 evidence directory, complete profile, phase and frozen
+source digests. Reuse collides with create-new journal markers and fails; elapsed
+measurements do not enter these identifiers.
 
 Frozen-corpus production qualification and operational comparison are separate
 paths. Comparisons use a bounded model-only authority and cannot create production

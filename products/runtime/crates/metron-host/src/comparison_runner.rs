@@ -8,7 +8,7 @@ use metron_inference_local::{
 use metron_protocol::{
     BoundedText, Digest, LOCAL_TEAM_RECIPE_SHA, LocalDevice, LocalObservation, LocalOutputSchema,
     LocalProfile, LocalResponse, LocalRole, PrincipalId, Receipt, SchemaVersion, SqlU64, TaskId,
-    content_digest, gguf_embedded_tokenizer_digest,
+    gguf_embedded_tokenizer_digest,
 };
 use serde::Serialize;
 use std::{
@@ -16,7 +16,7 @@ use std::{
     fs, io,
     path::Path,
     sync::{Arc, Mutex},
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant},
 };
 
 fn err(message: impl std::fmt::Display) -> io::Error {
@@ -445,17 +445,25 @@ fn run_profile(
             *f,
         )?;
     }
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(err)?
-        .as_nanos();
-    let session_id = content_digest(
-        format!(
-            "comparison-{}-{nonce}-{quant}-{concurrency}",
-            std::process::id()
-        )
-        .as_bytes(),
-    );
+    // Bind the versioned case manifest to the actual short and padded inputs.
+    let mut manifest = Vec::new();
+    for near in [false, true] {
+        for id in 0..3 {
+            let case = case(id, near)?;
+            manifest.push((case.id, case.role, case.output_schema, case.context));
+        }
+    }
+    let manifest = metron_protocol::canonical_bytes(
+        &("comparison-cases/v1", manifest),
+        metron_protocol::MAX_QUALIFICATION_REPORT,
+    )
+    .map_err(err)?;
+    let session_id = crate::session_identity::session_id(
+        output,
+        &p,
+        "comparison",
+        &[LOCAL_TEAM_RECIPE_SHA.as_bytes(), &manifest],
+    )?;
     let mut session = ComparisonSession::create(
         output,
         session_id,

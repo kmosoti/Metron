@@ -12,11 +12,7 @@ use metron_protocol::{
         parse_frozen_corpus, qualification_corpora_digest,
     },
 };
-use std::{
-    io,
-    path::Path,
-    time::{Instant, SystemTime, UNIX_EPOCH},
-};
+use std::{io, path::Path, time::Instant};
 
 fn error(message: &'static str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
@@ -52,11 +48,12 @@ pub fn heldout(inputs: HeldoutInputs<'_>) -> io::Result<QualificationReport> {
         .iter()
         .find(|c| matches!(c, FrozenCase::Solver { id, .. } if id.as_str() == "calibration-sum-02"))
         .ok_or_else(|| error("missing representative"))?;
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|_| error("clock unavailable"))?
-        .as_nanos();
-    let id = content_digest(format!("{}-{nonce}-heldout", std::process::id()).as_bytes());
+    let id = crate::session_identity::session_id(
+        directory,
+        &profile,
+        "heldout",
+        &[recipe, calibration, heldout],
+    )?;
     let mut session = QualificationSession::create(
         directory,
         id.clone(),
@@ -297,12 +294,9 @@ pub fn calibrate(
     mut cold_finished: impl FnMut() -> io::Result<()>,
 ) -> io::Result<(QualificationReport, QualificationReport)> {
     let frozen = parse_frozen_corpus(corpus).map_err(|_| error("invalid calibration corpus"))?;
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|_| error("clock unavailable"))?
-        .as_nanos();
-    let session_id =
-        |label: &str| content_digest(format!("{}-{nonce}-{label}", std::process::id()).as_bytes());
+    let session_id = |label: &str| {
+        crate::session_identity::session_id(directory, &profile, label, &[recipe, corpus])
+    };
     let worker_digest = profile.backend_build_digest.clone();
     let corpus_digest = qualification_corpora_digest(
         &content_digest(corpus),
@@ -355,7 +349,7 @@ pub fn calibrate(
     let mut cold_measurements = Vec::new();
     let cold_start = Instant::now();
     for repetition in 0..3 {
-        let id = session_id(&format!("cold-{repetition}"));
+        let id = session_id(&format!("cold-{repetition}"))?;
         let mut session = QualificationSession::create(
             directory,
             id.clone(),
@@ -404,7 +398,7 @@ pub fn calibrate(
             .unwrap_or(u64::MAX),
     )?;
     cold_finished()?;
-    let id = session_id("warm");
+    let id = session_id("warm")?;
     let mut session = QualificationSession::create(
         directory,
         id.clone(),
