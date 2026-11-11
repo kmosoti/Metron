@@ -4,11 +4,12 @@ This collection replaces the working proposal in Metron PR #1 with source-audite
 research, explicit proposed contracts and an ordered implementation backlog.
 The original proposal revision is
 [`4c3781d`](https://github.com/kmosoti/Metron/tree/4c3781daa7211efd39bcdb95dcb15491be1abe39/docs/proposals/metron-runtime).
-The current implementation is the laboratory. Runtime components and product
-acceptance tests below are planned work.
+The laboratory remains separate. Runtime alpha.0 is released (O-0004); native
+inference feasibility and failed operational entry checks are recorded in O-0005.
+Alpha.1 coding, confinement and memory require the evidence in D-0005.
 
 Implementation is tracked in [issue #7](https://github.com/kmosoti/Metron/issues/7)
-on the new `feat/metron-runtime` branch.
+with linked alpha.1 feature issues #21–28. Later releases are separate issues #29–32.
 
 ## Read and implement in order
 
@@ -26,7 +27,9 @@ on the new `feat/metron-runtime` branch.
 | 10 | [R-0008 Local inference](R-0008-local-inference-resource-profile.md) | Pinned LFM3 default, audited historical size comparison and memory policy |
 | 11 | [R-0009 mistral.rs efficiency](R-0009-mistralrs-batching-and-cache-contracts.md) | Runtime pin, shared LFM3 roles, adaptive batching and bounded hybrid caching |
 | 12 | [R-0010 Native LFM3 inference](R-0010-lfm3-native-inference.md) | Local GPU feasibility and bounded operational comparison |
-| 13 | [D-0003 Implementation sequence](../decisions/D-0003-runtime-implementation-sequence.md) | Ordered PR slices, entry conditions and alpha.0–alpha.5 exit contracts |
+| 13 | [R-0011 Shared toolkit](R-0011-shared-reasoning-toolkit.md) | Tool identities, primary sources and qualification obligations |
+| 14 | [D-0005 Alpha.1 delivery](../decisions/D-0005-alpha1-delivery.md) | Current ordered features, expanded memory scope and release proof |
+| 15 | [D-0003 Implementation sequence](../decisions/D-0003-runtime-implementation-sequence.md) | Ordered PR slices, entry conditions and alpha.0–alpha.5 exit contracts |
 
 Start implementation on `feat/metron-runtime` from the reviewed `develop`
 revision containing this collection. P0 establishes a valid isolated Cargo
@@ -57,8 +60,9 @@ A merged knowledge PR does not ratify its hypotheses or implement its APIs.
 
 ## Evidence status
 
-Source inspection establishes documented mechanisms. The contract probes establish
-limited feasibility properties. Product compilation, real crash recovery,
-sandbox security, local model quality, license inventory and comparative task
-performance remain named implementation obligations. Laboratory results apply
+Source inspection establishes documented mechanisms. Contract probes establish
+limited feasibility. O-0004 records alpha.0 compilation and crash/recovery evidence;
+O-0005 records native inference feasibility and unsuccessful entry checks. Sandbox
+security, coding quality, cross-task memory and comparative task performance remain
+alpha.1 obligations. Do not infer them from the earlier results. Laboratory results apply
 to their recorded workloads in [O-0002](../observations/O-0002-laboratory-results-snapshot.md).
