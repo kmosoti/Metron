@@ -5,5 +5,8 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[dependencies]
+metron-protocol = { path = "../metron-protocol" }
+
 [lints]
 workspace = true
