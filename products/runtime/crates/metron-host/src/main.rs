@@ -9,6 +9,7 @@ mod model_cli;
 mod qualification;
 mod qualification_capture;
 mod qualification_runner;
+mod session_identity;
 use metron_harness::{
     orchestrator::{self, DriveError, DriveStatus, NoObserver},
     planner::{LocalSumPlanner, SumPlanner},
