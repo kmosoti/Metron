@@ -73,6 +73,7 @@ pub struct CliReport {
     pub outcome: CliOutcome,
     pub task_id: Option<TaskId>,
     pub phase: Option<Phase>,
+    pub pending_intent: Option<Digest>,
     pub health: Option<CliHealth>,
     pub replay_head: Option<Digest>,
     pub approval: Option<CliApproval>,
