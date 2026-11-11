@@ -14,9 +14,10 @@ flowchart LR
     Harness --> Store[SQLite journal, inbox and accounting]
     Harness -->|consumed admission| Driver[Scripted fixture and model drivers]
     Harness -->|consumed admission| Publisher[Fixed-path artifact publisher]
-    Driver -->|receipt| Store
-    Publisher -->|receipt| Store
-    Verifier[Independent verifier] -->|evidence selection and result| Store
+    Driver -->|receipt| Harness
+    Publisher -->|receipt| Harness
+    Harness -->|evidence and artifact| Verifier[Independent verifier]
+    Verifier -->|selection and result| Harness
     Store -->|read-only snapshot| Audit[Replay and verification audit]
 ```
 
