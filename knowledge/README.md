@@ -45,6 +45,7 @@ knowledge to those sources.
 | [R-0008 Local inference and resource profile](research/R-0008-local-inference-resource-profile.md) | agent | false |
 | [R-0009 mistral.rs batching and cache contracts](research/R-0009-mistralrs-batching-and-cache-contracts.md) | agent | false |
 | [O-0003 Runtime contract probes](observations/O-0003-runtime-contract-probes.md) | agent | false |
+| [O-0004 Scripted runtime alpha.0 evidence](observations/O-0004-runtime-alpha0-evidence.md) | agent | false |
 
 ## Runtime implementation
 

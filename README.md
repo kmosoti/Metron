@@ -6,10 +6,11 @@ every claim has to survive measurement.**
 
 [![ci](https://github.com/kmosoti/Metron/actions/workflows/ci.yml/badge.svg)](https://github.com/kmosoti/Metron/actions/workflows/ci.yml)
 
-The proposed next direction is a Rust-native agent and execution harness with
-independent library boundaries and pure decision logic. The
+The [runtime alpha.0](products/runtime/README.md) is an isolated Rust-native agent
+and execution harness with pure decision logic, durable execution and replay.
+It runs one scripted fixture task; live local inference is a later milestone. The
 [runtime research and implementation sequence](knowledge/research/README.md)
-records the source evidence, proposed contracts and staged acceptance criteria.
+records the source evidence, contracts and staged acceptance criteria.
 [Issue #7](https://github.com/kmosoti/Metron/issues/7) tracks implementation.
 The implemented system described below is the research laboratory.
 
