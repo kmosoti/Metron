@@ -92,3 +92,116 @@ fn replay_and_verify_are_read_only_and_verify_checks_artifact() {
     assert_eq!(fs::read(&db_path).unwrap(), before);
     fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn over_limit_audit_is_operational_and_leaves_database_intact() {
+    use metron_protocol::{
+        store::{CommandData, EngineMode, Genesis, StoreCommand, StoreOperation, WriteOutcome},
+        types::{BoundedText, CommandId, SchemaVersion, SqlU64, content_digest},
+    };
+    let root = std::env::temp_dir().join(format!("metron-audit-limit-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir(&root).unwrap();
+    let path = root.join("runtime.sqlite");
+    let mut store = SqliteStore::create(&path).unwrap();
+    let task = metron_testkit::sum_task(
+        TaskId::new("limit").unwrap(),
+        PrincipalId::new("principal").unwrap(),
+    )
+    .unwrap();
+    let genesis = Genesis {
+        mode: EngineMode::Agent,
+        engine_version: BoundedText::new("sum-agent/v1").unwrap(),
+        require_publication_approval: false,
+        policy_digest: content_digest(b"metron-alpha0-host-policy-v1"),
+    };
+    let command = |id: String, operation| {
+        StoreCommand::new(CommandData {
+            schema_version: SchemaVersion::V1,
+            command_id: CommandId::new(id).unwrap(),
+            operation,
+        })
+        .unwrap()
+    };
+    assert!(matches!(
+        store
+            .apply(command(
+                "create".into(),
+                StoreOperation::CreateTask { task, genesis }
+            ))
+            .unwrap(),
+        WriteOutcome::Committed(_)
+    ));
+    for i in 0..metron_protocol::MAX_AUDIT_RECORDS {
+        let operation = StoreOperation::AdvanceTick {
+            expected_tick: SqlU64::new(i as u64).unwrap(),
+            new_tick: SqlU64::new(i as u64 + 1).unwrap(),
+        };
+        assert!(matches!(
+            store
+                .apply(command(format!("tick-{i}"), operation))
+                .unwrap(),
+            WriteOutcome::Committed(_)
+        ));
+    }
+    drop(store);
+    let before = fs::read(&path).unwrap();
+    let output = run(&["replay", root.to_str().unwrap()]);
+    assert_eq!(output.status.code(), Some(6));
+    let report: CliReport = metron_protocol::parse_internal(&output.stderr).unwrap();
+    assert_eq!(
+        report.outcome,
+        metron_protocol::CliOutcome::OperationalFailure
+    );
+    assert_eq!(
+        report.diagnostic.unwrap().as_str(),
+        "audit resource limit exceeded"
+    );
+    assert!(report.audit.is_none());
+    assert_eq!(fs::read(&path).unwrap(), before);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn corrupted_dedup_cache_exits_as_integrity_failure() {
+    let root = std::env::temp_dir().join(format!("metron-cache-corrupt-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir(&root).unwrap();
+    let task = metron_testkit::sum_task(
+        TaskId::new("cache").unwrap(),
+        PrincipalId::new("principal").unwrap(),
+    )
+    .unwrap();
+    let file = root.join("task.json");
+    fs::write(&file, canonical_bytes(&task, MAX_ENVELOPE).unwrap()).unwrap();
+    let dir = root.join("run");
+    let output = run(&[
+        "run",
+        "--task",
+        file.to_str().unwrap(),
+        "--run-dir",
+        dir.to_str().unwrap(),
+    ]);
+    assert!(output.status.success());
+    let db = dir.join("runtime.sqlite");
+    let connection = rusqlite::Connection::open(&db).unwrap();
+    assert!(
+        connection
+            .execute(
+                "UPDATE commands SET result = ?1 WHERE rowid = (SELECT min(rowid) FROM commands)",
+                [b"{}".as_slice()]
+            )
+            .unwrap()
+            == 1
+    );
+    drop(connection);
+    let output = run(&["replay", dir.to_str().unwrap()]);
+    assert_eq!(output.status.code(), Some(5));
+    let report: CliReport = metron_protocol::parse_internal(&output.stderr).unwrap();
+    assert_eq!(
+        report.outcome,
+        metron_protocol::CliOutcome::IntegrityFailure
+    );
+    assert!(report.audit.is_none());
+    fs::remove_dir_all(root).unwrap();
+}
