@@ -123,8 +123,8 @@ for journal in target/results/*/episode.jsonl; do
 done
 ```
 
-CI runs these same checks. Future separate workspaces need their own explicit CI
-coverage and dependency-boundary checks when introduced. Reproducible outcomes
+Run the same format, clippy and test commands from `products/runtime` for the
+separate runtime workspace. CI checks both workspaces and laboratory smokes. Reproducible outcomes
 control the [milestones](docs/architecture/milestones.md).
 
 ## Commits and knowledge

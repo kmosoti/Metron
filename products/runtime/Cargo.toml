@@ -1,0 +1,12 @@
+[workspace]
+resolver = "3"
+members = ["crates/metron-protocol", "crates/metron-agent", "crates/metron-harness", "crates/metron-store-sqlite", "crates/metron-testkit", "crates/metron-host", "tests/architecture"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.100"
+license = "Apache-2.0"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
