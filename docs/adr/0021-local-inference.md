@@ -62,6 +62,11 @@ candidate requires concurrency of at least 2, correctness, p95 usable latency
 strictly below one second for both roles and context sizes, process GPU memory at
 most 4 GiB, and at least 1 GiB free GPU memory. No candidate is a valid outcome.
 
+The staggered selector case requires a worker-side arrival snapshot containing
+the paired reasoner: its SDK stream is open and its terminal choice has not yet
+been consumed. This is request-level overlap, not evidence of simultaneous GPU
+execution or a particular backend batch.
+
 ## Consequences
 
 Offline execution requires all pinned inputs and a compatible compiled worker.

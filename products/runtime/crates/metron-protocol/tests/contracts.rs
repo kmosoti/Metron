@@ -1067,3 +1067,24 @@ fn team_recipe_digest_binds_all_three_system_prompts() {
     let recipe = canonical_bytes(&[solver, selector, LOCAL_REASONER_SYSTEM], MAX_ENVELOPE).unwrap();
     assert_eq!(content_digest(&recipe).as_str(), LOCAL_TEAM_RECIPE_SHA);
 }
+
+#[test]
+fn worker_arrival_snapshot_is_bounded_unique_and_excludes_self() {
+    let dispatch_id = content_digest(b"incoming");
+    let other = content_digest(b"active");
+    let encode = |in_flight| {
+        canonical_bytes(
+            &WorkerReply::Arrived {
+                dispatch_id: dispatch_id.clone(),
+                in_flight,
+            },
+            MAX_ENVELOPE,
+        )
+        .unwrap()
+    };
+    assert!(parse_worker_reply(&encode(vec![other.clone()])).is_ok());
+    assert!(parse_worker_reply(&encode(vec![other.clone(), other])).is_err());
+    assert!(parse_worker_reply(&encode(vec![dispatch_id.clone()])).is_err());
+    let oversized = (0_u8..9).map(|i| content_digest(&[i])).collect();
+    assert!(parse_worker_reply(&encode(oversized)).is_err());
+}
