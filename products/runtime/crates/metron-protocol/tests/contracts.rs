@@ -423,3 +423,38 @@ fn approval_expiry_round_trips_and_tick_addition_is_checked() {
         .replace("\"expires_at\":34", "\"expires_at\":9223372036854775808");
     assert!(parse_envelope::<ApprovalSnapshot>(invalid.as_bytes()).is_err());
 }
+
+#[test]
+fn journal_and_inbox_bindings_match_independent_vectors() {
+    let task: Task = parse_envelope(br#"{"schema_version":1,"task_id":"task","principal_id":"principal","objective":"sum","budget":{"max_model_requests":1,"max_tool_calls":2,"max_spend_micros_usd":0,"max_elapsed_ms":null}}"#).unwrap();
+    let genesis = Genesis {
+        mode: EngineMode::Agent,
+        engine_version: BoundedText::new("sum-agent/v1").unwrap(),
+        require_publication_approval: false,
+        policy_digest: Digest::new("0".repeat(64)).unwrap(),
+    };
+    assert_eq!(
+        journal_genesis(&task, &genesis).unwrap().as_str(),
+        "77978e40f17fea3f84be7fe064d4bf9f1b0079f3a57d5cbe7131d4a539c0d92e"
+    );
+    let id = inbox_id(&task.data().task_id, SqlU64::new(1).unwrap(), 0).unwrap();
+    assert_eq!(
+        id.as_str(),
+        "52400bf4f9867d52f06072a7c54c76b6975bdb44ec0365f4de0a5b4d531e5301"
+    );
+    let input = InboxInput {
+        id,
+        task_id: task.data().task_id.clone(),
+        principal_id: task.data().principal_id.clone(),
+        source_seq: SqlU64::new(1).unwrap(),
+        output_ordinal: 0,
+        source: InboxSource::TaskAccepted,
+        evidence_id: None,
+        event: AgentEvent::TaskAccepted,
+        digest: content_digest(b"unused"),
+    };
+    assert_eq!(
+        inbox_digest(&input).unwrap().as_str(),
+        "d2ca7b036dcc3223c90f34f4be044f0d5f6d88828f093298bbc897e379e9c47d"
+    );
+}

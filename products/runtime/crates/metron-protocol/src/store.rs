@@ -545,3 +545,76 @@ pub trait RuntimeSnapshot: AuditSnapshot {
         after: Option<SqlU64>,
     ) -> Result<SnapshotPage<UnpostedDebit>, StoreError>;
 }
+
+/// Hash the canonical task-creation operation as the initial journal head.
+/// The first task's genesis is the initial predecessor of the single global
+/// journal, whose first committed record has sequence one. Later tasks retain
+/// their own task-derived genesis for deterministic intent identities.
+pub fn journal_genesis(task: &Task, genesis: &Genesis) -> Result<Digest, ValidationError> {
+    let operation = StoreOperation::CreateTask {
+        task: task.clone(),
+        genesis: genesis.clone(),
+    };
+    structural_digest(
+        "journal-genesis/v1",
+        &[&canonical_bytes(&operation, MAX_INTERNAL)?],
+    )
+}
+
+/// Hash a canonical event and its predecessor at its persisted sequence.
+pub fn journal_entry(
+    previous: &Digest,
+    seq: SqlU64,
+    event: &JournalEvent,
+) -> Result<Digest, ValidationError> {
+    structural_digest(
+        "journal-entry/v1",
+        &[
+            &previous.bytes(),
+            &seq.get().to_be_bytes(),
+            &canonical_bytes(event, MAX_INTERNAL)?,
+        ],
+    )
+}
+
+/// Derive the durable inbox identity from its task and causal journal position.
+pub fn inbox_id(
+    task: &TaskId,
+    source_seq: SqlU64,
+    output_ordinal: u32,
+) -> Result<Digest, ValidationError> {
+    structural_digest(
+        "inbox-event/v1",
+        &[
+            task.as_str().as_bytes(),
+            &source_seq.get().to_be_bytes(),
+            &output_ordinal.to_be_bytes(),
+        ],
+    )
+}
+
+/// Hash all canonical inbox fields in declared order, excluding the digest itself.
+pub fn inbox_digest(input: &InboxInput) -> Result<Digest, ValidationError> {
+    #[derive(Serialize)]
+    struct Fields<'a> {
+        id: &'a Digest,
+        task_id: &'a TaskId,
+        principal_id: &'a PrincipalId,
+        source_seq: SqlU64,
+        output_ordinal: u32,
+        source: &'a InboxSource,
+        evidence_id: &'a Option<Digest>,
+        event: &'a AgentEvent,
+    }
+    let fields = Fields {
+        id: &input.id,
+        task_id: &input.task_id,
+        principal_id: &input.principal_id,
+        source_seq: input.source_seq,
+        output_ordinal: input.output_ordinal,
+        source: &input.source,
+        evidence_id: &input.evidence_id,
+        event: &input.event,
+    };
+    Ok(content_digest(&canonical_bytes(&fields, MAX_INTERNAL)?))
+}
