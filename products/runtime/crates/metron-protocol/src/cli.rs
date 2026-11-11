@@ -87,3 +87,33 @@ impl CliReport {
         canonical_bytes(self, MAX_INTERNAL)
     }
 }
+
+/// Explicit model-management operations; separate from the v1 task report schema.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelCommand {
+    Candidate,
+    Install,
+    Qualify,
+    Freeze,
+    Select,
+}
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ModelCommandReport {
+    pub schema_version: SchemaVersion,
+    pub command: ModelCommand,
+    pub outcome: CliOutcome,
+    pub profile_digest: Option<Digest>,
+    pub artifact_digest: Option<Digest>,
+    pub evidence_digest: Option<Digest>,
+    pub diagnostic: Option<BoundedText<MAX_TEXT>>,
+}
+impl ModelCommandReport {
+    pub fn encode(&self) -> Result<Vec<u8>, ValidationError> {
+        if self.schema_version != SchemaVersion::V2 {
+            return Err(ValidationError::Version);
+        }
+        canonical_bytes(self, MAX_ENVELOPE)
+    }
+}

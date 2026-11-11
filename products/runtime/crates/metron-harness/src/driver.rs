@@ -8,7 +8,7 @@ use metron_protocol::{
         ActualUsage, ApprovedRequest, CandidateResult, Receipt, ReceiptData, ReceiptOutput,
         UsageVector, parse_sum_input,
     },
-    types::{BoundedText, DecimalUsage, ProducerReceiptId, SchemaVersion, content_digest},
+    types::{BoundedText, DecimalUsage, ProducerReceiptId, content_digest},
 };
 use std::path::PathBuf;
 
@@ -95,7 +95,7 @@ impl EffectDriver for ScriptedDriver<'_> {
                 },
             };
             Receipt::new(ReceiptData {
-                schema_version: SchemaVersion::V1,
+                schema_version: effect.schema_version(),
                 producer_receipt_id: ProducerReceiptId::new(prepared.action.dispatch_id.as_str())
                     .map_err(|_| ())?,
                 task_id: prepared.action.task_id.clone(),

@@ -103,6 +103,7 @@ fn setup() -> Snapshot {
         engine_version: BoundedText::new("sum-agent/v1").unwrap(),
         require_publication_approval: false,
         policy_digest: content_digest(b"policy"),
+        local_profile: None,
     };
     let head = journal_genesis(&task, &genesis).unwrap();
     let command = StoreCommand::new(CommandData {

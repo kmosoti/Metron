@@ -270,6 +270,35 @@ fn parse_journal(
             };
             if let Some(state) = &mut target {
                 state.tick = tick;
+                let operation_task = match &command.data().operation {
+                    StoreOperation::CreateTask { task, .. } => Some(&task.data().task_id),
+                    StoreOperation::CommitTransition { task_id, .. }
+                    | StoreOperation::PrepareIntent { task_id, .. }
+                    | StoreOperation::Claim { task_id, .. }
+                    | StoreOperation::Deny { task_id, .. }
+                    | StoreOperation::CreateApprovalRequest { task_id, .. }
+                    | StoreOperation::RecordUncertainty { task_id, .. }
+                    | StoreOperation::ClaimReconciliation { task_id, .. }
+                    | StoreOperation::SettleReconciliation { task_id, .. }
+                    | StoreOperation::RecordVerification { task_id, .. } => Some(task_id),
+                    StoreOperation::Admit { check } => Some(&check.prepared.action.task_id),
+                    StoreOperation::RecordReceipt { receipt, .. } => Some(&receipt.data().task_id),
+                    StoreOperation::RecordApproval { request_id, .. }
+                        if state.intents.values().any(|i| {
+                            i.approval
+                                .as_ref()
+                                .is_some_and(|a| &a.request_id == request_id)
+                        }) =>
+                    {
+                        Some(&state.task.data().task_id)
+                    }
+                    _ => None,
+                };
+                if operation_task == Some(&state.task.data().task_id)
+                    && command.data().schema_version != state.task.data().schema_version
+                {
+                    return Ok(None);
+                }
                 if duplicate_operation {
                     state.last_seq = data.seq;
                     state.head = data.digest.clone();
@@ -753,7 +782,8 @@ fn empty_account(limit: Counters) -> AccountSnapshot {
 fn tariff(request: &ApprovedRequest) -> Counters {
     let value = match request {
         ApprovedRequest::ReadFixture { tariff, .. }
-        | ApprovedRequest::RequestModel { tariff, .. } => tariff,
+        | ApprovedRequest::RequestModel { tariff, .. }
+        | ApprovedRequest::RequestLocalModel { tariff, .. } => tariff,
         ApprovedRequest::PublishArtifact { plan } => &plan.tariff,
     };
     Counters {
@@ -761,6 +791,25 @@ fn tariff(request: &ApprovedRequest) -> Counters {
         tool_calls: value.tool_calls,
         spend_micros_usd: value.spend_micros_usd,
     }
+}
+
+fn receipt_shape_matches(request: &ApprovedRequest, output: &ReceiptOutput) -> bool {
+    matches!(
+        (request, output),
+        (
+            ApprovedRequest::ReadFixture { .. },
+            ReceiptOutput::Fixture { .. } | ReceiptOutput::Failure { .. }
+        ) | (
+            ApprovedRequest::RequestModel { .. },
+            ReceiptOutput::Model { .. } | ReceiptOutput::Failure { .. }
+        ) | (
+            ApprovedRequest::RequestLocalModel { .. },
+            ReceiptOutput::LocalModel { .. } | ReceiptOutput::Failure { .. }
+        ) | (
+            ApprovedRequest::PublishArtifact { .. },
+            ReceiptOutput::Published { .. } | ReceiptOutput::Failure { .. }
+        )
+    )
 }
 struct Reservation {
     task: TaskId,
@@ -1411,16 +1460,22 @@ fn apply_lifecycle(state: &mut Reconstruction, op: &StoreOperation, result: &Sto
             };
             if &prepared.intent_id != intent_id
                 || prepared
-                    .validate_against(
+                    .validate_against_genesis(
                         &item.intent,
                         &state.task.data().principal_id,
                         &state.state.genesis_digest,
+                        &state.genesis,
                     )
                     .is_err()
             {
                 return false;
             }
             if let ApprovedRequest::RequestModel {
+                input_digest,
+                context,
+                ..
+            }
+            | ApprovedRequest::RequestLocalModel {
                 input_digest,
                 context,
                 ..
@@ -1734,8 +1789,31 @@ fn apply_lifecycle(state: &mut Reconstruction, op: &StoreOperation, result: &Sto
             };
             if receipt.data().dispatch_id != prepared.action.dispatch_id
                 || receipt.data().action_digest != prepared.action_digest
+                || receipt.data().schema_version != state.task.data().schema_version
+                || !receipt_shape_matches(&prepared.request, &receipt.data().output)
             {
                 return false;
+            }
+            if let (
+                ApprovedRequest::RequestLocalModel {
+                    input_digest,
+                    output_schema,
+                    ..
+                },
+                ReceiptOutput::LocalModel { observation },
+            ) = (&prepared.request, &receipt.data().output)
+            {
+                let Some(profile) = &state.genesis.local_profile else {
+                    return false;
+                };
+                if matches!(&receipt.data().usage, ActualUsage::Known { usage } if usage.model_requests.as_str() == "0" || usage.spend_micros_usd.as_str() != "0")
+                    || observation.input_digest != *input_digest
+                    || observation
+                        .validate(profile, &prepared.request_digest, *output_schema)
+                        .is_err()
+                {
+                    return false;
+                }
             }
             if !state.evidence.contains_key(evidence_id) {
                 let Ok(next_intent) = item.evidence_revision.checked_add(1) else {
@@ -1818,8 +1896,39 @@ fn apply_lifecycle(state: &mut Reconstruction, op: &StoreOperation, result: &Sto
             if let Some(receipt) = reconciled_receipt {
                 if receipt.evidence_id().ok().as_ref() != Some(evidence_id)
                     || receipt.data().intent_id != *intent_id
+                    || receipt.data().schema_version != state.task.data().schema_version
                 {
                     return false;
+                }
+                if item.prepared.as_ref().is_none_or(|prepared| {
+                    !receipt_shape_matches(&prepared.request, &receipt.data().output)
+                        || receipt.data().task_id != *id
+                        || receipt.data().dispatch_id != prepared.action.dispatch_id
+                        || receipt.data().action_digest != prepared.action_digest
+                }) {
+                    return false;
+                }
+                if let Some(prepared) = &item.prepared
+                    && let (
+                        ApprovedRequest::RequestLocalModel {
+                            input_digest,
+                            output_schema,
+                            ..
+                        },
+                        ReceiptOutput::LocalModel { observation },
+                    ) = (&prepared.request, &receipt.data().output)
+                {
+                    let Some(profile) = &state.genesis.local_profile else {
+                        return false;
+                    };
+                    if matches!(&receipt.data().usage, ActualUsage::Known { usage } if usage.model_requests.as_str() == "0" || usage.spend_micros_usd.as_str() != "0")
+                        || observation.input_digest != *input_digest
+                        || observation
+                            .validate(profile, &prepared.request_digest, *output_schema)
+                            .is_err()
+                    {
+                        return false;
+                    }
                 }
                 if !state.evidence.contains_key(evidence_id) {
                     let Ok(next_intent) = item.evidence_revision.checked_add(1) else {
@@ -1923,7 +2032,7 @@ fn select_evidence(state: &mut Reconstruction, evidence_id: &Digest) -> bool {
             state.verification.read = Some(receipt.clone());
             state.verification.read_evidence = Some(evidence_id.clone());
         }
-        ReceiptOutput::Model { .. } => {
+        ReceiptOutput::Model { .. } | ReceiptOutput::LocalModel { .. } => {
             state.verification.model = Some(receipt.clone());
             state.verification.model_evidence = Some(evidence_id.clone());
         }
@@ -2231,6 +2340,29 @@ fn check_chain(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn scripted_receipt_cannot_substitute_for_local_request() {
+        let request = ApprovedRequest::RequestLocalModel {
+            input_digest: content_digest(b"input"),
+            context: BoundedText::new("input").unwrap(),
+            profile_digest: content_digest(b"profile"),
+            role: metron_protocol::LocalRole::Solver,
+            output_schema: metron_protocol::LocalOutputSchema::Sum,
+            tariff: Tariff {
+                model_requests: SqlU64::new(1).unwrap(),
+                tool_calls: SqlU64::new(0).unwrap(),
+                spend_micros_usd: SqlU64::new(0).unwrap(),
+            },
+        };
+        let output = ReceiptOutput::Model {
+            candidate: CandidateResult {
+                count: 1,
+                sum: 1,
+                input_digest: content_digest(b"input"),
+            },
+        };
+        assert!(!receipt_shape_matches(&request, &output));
+    }
     fn admitted() -> (Accounts, AdmissionCheck) {
         let task: Task = parse_envelope(br#"{"schema_version":1,"task_id":"task","principal_id":"principal","objective":"sum","budget":{"max_model_requests":1,"max_tool_calls":2,"max_spend_micros_usd":0,"max_elapsed_ms":null}}"#).unwrap();
         let genesis = content_digest(b"genesis");
@@ -2394,6 +2526,7 @@ mod tests {
             engine_version: BoundedText::new("sum-agent/v1").unwrap(),
             require_publication_approval: false,
             policy_digest: content_digest(b"policy"),
+            local_profile: None,
         };
         let initial = AgentState {
             task_id: task.data().task_id.clone(),
@@ -2511,6 +2644,36 @@ mod tests {
             &mut state,
             &cross_intent,
             &StoreResult::ReconciliationSettled { evidence_id }
+        ));
+
+        state
+            .intents
+            .get_mut(&check.intent_id)
+            .unwrap()
+            .reconciliation_lease = Some(LeaseSnapshot {
+            worker: check.worker.clone(),
+            epoch: check.lease_epoch,
+            expires_at: SqlU64::new(30).unwrap(),
+        });
+        let mut forged = usage_receipt(&check, "0", "1").data().clone();
+        forged.action_digest = content_digest(b"forged action");
+        let forged = Receipt::new(forged).unwrap();
+        let forged_id = forged.evidence_id().unwrap();
+        let operation = StoreOperation::SettleReconciliation {
+            task_id: task.data().task_id.clone(),
+            intent_id: check.intent_id.clone(),
+            worker: check.worker.clone(),
+            lease_epoch: check.lease_epoch,
+            expected_evidence_revision: zero,
+            evidence_id: forged_id.clone(),
+            reconciled_receipt: Some(forged),
+        };
+        assert!(!apply_lifecycle(
+            &mut state,
+            &operation,
+            &StoreResult::ReconciliationSettled {
+                evidence_id: forged_id
+            }
         ));
 
         let request_id = ApprovalId::new("approval").unwrap();

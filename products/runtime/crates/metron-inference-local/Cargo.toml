@@ -1,0 +1,14 @@
+[package]
+name = "metron-inference-local"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+metron-protocol = { path = "../metron-protocol" }
+metron-harness = { path = "../metron-harness" }
+sha2 = "=0.10.9"
+
+[lints]
+workspace = true

@@ -1,8 +1,17 @@
 //! Composition root for the scripted alpha.0 runtime.
 #![forbid(unsafe_code)]
+mod comparison_runner;
+mod hardware;
+mod installer;
+mod local_run;
+mod measurement;
+mod model_cli;
+mod qualification;
+mod qualification_capture;
+mod qualification_runner;
 use metron_harness::{
     orchestrator::{self, DriveError, DriveStatus, NoObserver},
-    planner::SumPlanner,
+    planner::{LocalSumPlanner, SumPlanner},
 };
 use metron_protocol::{
     cli::{CliAccounting, CliApproval, CliAudit, CliCommand, CliHealth, CliOutcome, CliReport},
@@ -18,6 +27,27 @@ use metron_protocol::{
 };
 use metron_store_sqlite::SqliteStore;
 use std::{env, fs, io::Read, path::PathBuf, process::ExitCode};
+
+fn cognition(genesis: &Genesis) -> Result<Box<dyn Cognition>, (CliOutcome, &'static str)> {
+    match (
+        genesis.mode,
+        genesis.engine_version.as_str(),
+        &genesis.local_profile,
+    ) {
+        (EngineMode::Agent, "sum-agent/v1", None) => Ok(Box::new(metron_agent::SumAgent)),
+        (EngineMode::Harness, "sum-harness/v1", None) => Ok(Box::new(SumPlanner)),
+        (EngineMode::Agent, "sum-local-agent/v2", Some(profile)) => Ok(Box::new(
+            metron_agent::LocalSumAgent::new(profile)
+                .map_err(|_| (CliOutcome::IntegrityFailure, "invalid local profile"))?,
+        )),
+        (EngineMode::Harness, "sum-local-harness/v2", Some(profile)) => {
+            Ok(Box::new(LocalSumPlanner::new(profile).map_err(|_| {
+                (CliOutcome::IntegrityFailure, "invalid local profile")
+            })?))
+        }
+        _ => Err((CliOutcome::IntegrityFailure, "unknown engine version")),
+    }
+}
 
 fn report(command: CliCommand, outcome: CliOutcome, diagnostic: Option<&str>) -> CliReport {
     CliReport {
@@ -71,6 +101,7 @@ fn emit(response: CliReport) -> ExitCode {
 fn make_command(
     operation: StoreOperation,
     supplied: Option<CommandId>,
+    schema_version: SchemaVersion,
 ) -> Result<StoreCommand, ()> {
     let id = match supplied {
         Some(id) => id,
@@ -81,7 +112,7 @@ fn make_command(
         }
     };
     StoreCommand::new(CommandData {
-        schema_version: SchemaVersion::V1,
+        schema_version,
         command_id: id,
         operation,
     })
@@ -153,8 +184,20 @@ fn validate_args(command: CliCommand, args: &[String]) -> bool {
             "--run-dir",
             "--mode",
             "--require-publication-approval",
+            "--model-profile",
+            "--worker",
+            "--model-cache",
+            "--heldout",
         ],
-        CliCommand::Resume => &["--advance-tick", "--expected-tick", "--command-id"],
+        CliCommand::Resume => &[
+            "--advance-tick",
+            "--expected-tick",
+            "--command-id",
+            "--model-profile",
+            "--worker",
+            "--model-cache",
+            "--heldout",
+        ],
         CliCommand::Reconcile => &[
             "--intent",
             "--advance-tick",
@@ -205,6 +248,37 @@ fn action(command: CliCommand, args: &[String]) -> Result<CliReport, (CliOutcome
             .map(PathBuf::from),
     }
     .ok_or((CliOutcome::InvalidInput, "missing run directory"))?;
+    let local = if let Some(profile) = flag(args, "--model-profile") {
+        let worker = flag(args, "--worker").ok_or((CliOutcome::InvalidInput, "missing worker"))?;
+        let heldout = flag(args, "--heldout")
+            .ok_or((CliOutcome::InvalidInput, "missing frozen heldout corpus"))?;
+        let cache = flag(args, "--model-cache")
+            .map(PathBuf::from)
+            .or_else(|| {
+                env::var_os("XDG_CACHE_HOME").map(|path| PathBuf::from(path).join("metron/models"))
+            })
+            .or_else(|| {
+                env::var_os("HOME").map(|path| PathBuf::from(path).join(".cache/metron/models"))
+            })
+            .ok_or((CliOutcome::InvalidInput, "model cache unavailable"))?;
+        Some(local_run::load(
+            std::path::Path::new(&profile),
+            std::path::Path::new(&worker),
+            &cache,
+            std::path::Path::new(&heldout),
+        )?)
+    } else {
+        if ["--worker", "--model-cache", "--heldout"]
+            .iter()
+            .any(|name| flag(args, name).is_some())
+        {
+            return Err((
+                CliOutcome::InvalidInput,
+                "local options require a selected model profile",
+            ));
+        }
+        None
+    };
     let db_path = run_dir.join("runtime.sqlite");
     let mut store = if command == CliCommand::Run {
         let task_path = flag(args, "--task").ok_or((CliOutcome::InvalidInput, "missing task"))?;
@@ -215,8 +289,13 @@ fn action(command: CliCommand, args: &[String]) -> Result<CliReport, (CliOutcome
             .take((metron_protocol::MAX_ENVELOPE + 1) as u64)
             .read_to_end(&mut bytes)
             .map_err(|_| (CliOutcome::InvalidInput, "cannot read task"))?;
-        let task: Task =
+        let mut task: Task =
             parse_envelope(&bytes).map_err(|_| (CliOutcome::InvalidInput, "invalid task"))?;
+        if local.is_some() {
+            let mut data = task.data().clone();
+            data.schema_version = SchemaVersion::V2;
+            task = Task::new(data).map_err(|_| (CliOutcome::InvalidInput, "invalid local task"))?;
+        }
         let mode = match flag(args, "--mode").as_deref().unwrap_or("agent") {
             "agent" => EngineMode::Agent,
             "harness" => EngineMode::Harness,
@@ -246,9 +325,11 @@ fn action(command: CliCommand, args: &[String]) -> Result<CliReport, (CliOutcome
         }
         let mut store = SqliteStore::create(&db_path)
             .map_err(|_| (CliOutcome::OperationalFailure, "cannot create database"))?;
-        let version = match mode {
-            EngineMode::Agent => "sum-agent/v1",
-            EngineMode::Harness => "sum-harness/v1",
+        let version = match (mode, local.is_some()) {
+            (EngineMode::Agent, false) => "sum-agent/v1",
+            (EngineMode::Harness, false) => "sum-harness/v1",
+            (EngineMode::Agent, true) => "sum-local-agent/v2",
+            (EngineMode::Harness, true) => "sum-local-harness/v2",
         };
         let genesis = Genesis {
             mode,
@@ -258,9 +339,15 @@ fn action(command: CliCommand, args: &[String]) -> Result<CliReport, (CliOutcome
                 .iter()
                 .any(|a| a == "--require-publication-approval"),
             policy_digest: content_digest(b"metron-alpha0-host-policy-v1"),
+            local_profile: local.as_ref().map(|run| run.selected.profile.clone()),
         };
-        let command = make_command(StoreOperation::CreateTask { task, genesis }, None)
-            .map_err(|_| (CliOutcome::InvalidInput, "invalid task command"))?;
+        let schema_version = task.data().schema_version;
+        let command = make_command(
+            StoreOperation::CreateTask { task, genesis },
+            None,
+            schema_version,
+        )
+        .map_err(|_| (CliOutcome::InvalidInput, "invalid task command"))?;
         if !matches!(
             store.apply(command).map_err(audit_error)?,
             WriteOutcome::Committed(_)
@@ -278,6 +365,15 @@ fn action(command: CliCommand, args: &[String]) -> Result<CliReport, (CliOutcome
         return Err((CliOutcome::IntegrityFailure, "expected one task"));
     }
     let task_id = ids[0].clone();
+    let schema_version = {
+        let mut snapshot = store.audit().map_err(audit_error)?;
+        snapshot
+            .projection(&task_id)
+            .map_err(audit_error)?
+            .task
+            .data()
+            .schema_version
+    };
     if matches!(command, CliCommand::Resume | CliCommand::Reconcile) {
         let tick = flag(args, "--advance-tick");
         let expected = flag(args, "--expected-tick");
@@ -297,7 +393,7 @@ fn action(command: CliCommand, args: &[String]) -> Result<CliReport, (CliOutcome
             if !matches!(
                 store
                     .apply(
-                        make_command(op, Some(id))
+                        make_command(op, Some(id), schema_version)
                             .map_err(|_| (CliOutcome::InvalidInput, "invalid tick command"))?
                     )
                     .map_err(audit_error)?,
@@ -335,7 +431,7 @@ fn action(command: CliCommand, args: &[String]) -> Result<CliReport, (CliOutcome
         if !matches!(
             store
                 .apply(
-                    make_command(op, Some(id))
+                    make_command(op, Some(id), schema_version)
                         .map_err(|_| (CliOutcome::InvalidInput, "invalid approval"))?
                 )
                 .map_err(audit_error)?,
@@ -364,15 +460,36 @@ fn action(command: CliCommand, args: &[String]) -> Result<CliReport, (CliOutcome
             let mut snapshot = store.audit().map_err(audit_error)?;
             snapshot.projection(&task_id).map_err(audit_error)?.genesis
         };
-        let agent = metron_agent::SumAgent;
-        let planner = SumPlanner;
-        let engine: &dyn Cognition = match (genesis.mode, genesis.engine_version.as_str()) {
-            (EngineMode::Agent, "sum-agent/v1") => &agent,
-            (EngineMode::Harness, "sum-harness/v1") => &planner,
-            _ => return Err((CliOutcome::IntegrityFailure, "unknown engine version")),
+        let engine = cognition(&genesis)?;
+        if let Some(run) = &local
+            && genesis.local_profile.as_ref() != Some(&run.selected.profile)
+        {
+            return Err((
+                CliOutcome::IntegrityFailure,
+                "selected profile differs from task genesis",
+            ));
+        }
+        let status = if let Some(run) = &local {
+            let mut driver = local_run::driver(run)?;
+            orchestrator::drive_with_driver(
+                &mut store,
+                &task_id,
+                engine.as_ref(),
+                &run_dir,
+                &mut NoObserver,
+                &mut driver,
+            )
+            .map_err(drive_error)?
+        } else {
+            orchestrator::drive(
+                &mut store,
+                &task_id,
+                engine.as_ref(),
+                &run_dir,
+                &mut NoObserver,
+            )
+            .map_err(drive_error)?
         };
-        let status = orchestrator::drive(&mut store, &task_id, engine, &run_dir, &mut NoObserver)
-            .map_err(drive_error)?;
         result.outcome = match status {
             DriveStatus::Complete => CliOutcome::Succeeded,
             DriveStatus::Rejected => CliOutcome::Rejected,
@@ -384,19 +501,10 @@ fn action(command: CliCommand, args: &[String]) -> Result<CliReport, (CliOutcome
     let projection = snapshot.projection(&task_id).map_err(audit_error)?;
     if matches!(command, CliCommand::Replay | CliCommand::Verify) {
         let checks = metron_harness::audit::verify(&mut snapshot, &task_id).map_err(audit_error)?;
-        let agent = metron_agent::SumAgent;
-        let planner = SumPlanner;
-        let engine: &dyn Cognition = match (
-            projection.genesis.mode,
-            projection.genesis.engine_version.as_str(),
-        ) {
-            (EngineMode::Agent, "sum-agent/v1") => &agent,
-            (EngineMode::Harness, "sum-harness/v1") => &planner,
-            _ => return Err((CliOutcome::IntegrityFailure, "unknown engine version")),
-        };
+        let engine = cognition(&projection.genesis)?;
         let behavior = if checks.chain_valid {
             Some(
-                metron_harness::replay::behavior(&mut snapshot, &task_id, engine)
+                metron_harness::replay::behavior(&mut snapshot, &task_id, engine.as_ref())
                     .map_err(audit_error)?,
             )
         } else {
@@ -447,7 +555,8 @@ fn action(command: CliCommand, args: &[String]) -> Result<CliReport, (CliOutcome
             let usage = reported_usage(&mut snapshot, &intent).map_err(audit_error)?;
             match intent.intent.kind {
                 metron_protocol::IntentKind::ReadFixture => reported_read = usage,
-                metron_protocol::IntentKind::RequestModel { .. } => reported_model = usage,
+                metron_protocol::IntentKind::RequestModel { .. }
+                | metron_protocol::IntentKind::RequestLocalModel { .. } => reported_model = usage,
                 metron_protocol::IntentKind::PublishArtifact { .. } => reported_publication = usage,
             }
             held |= intent
@@ -504,6 +613,9 @@ fn action(command: CliCommand, args: &[String]) -> Result<CliReport, (CliOutcome
 }
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().skip(1).collect();
+    if args.first().is_some_and(|arg| arg == "model") {
+        return model_cli::execute(&args[1..]);
+    }
     let command = match args.first().map(String::as_str) {
         Some("run") => CliCommand::Run,
         Some("resume") => CliCommand::Resume,
