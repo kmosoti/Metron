@@ -166,6 +166,7 @@ dependencies = [
  "metron-protocol",
  "metron-store-sqlite",
  "metron-testkit",
+ "rusqlite",
 ]
 
 [[package]]
