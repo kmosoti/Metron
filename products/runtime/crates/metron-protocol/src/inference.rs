@@ -695,6 +695,11 @@ pub enum WorkerRequest {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum WorkerReply {
+    /// Worker-side request arrival while these SDK streams await a terminal response.
+    Arrived {
+        dispatch_id: Digest,
+        in_flight: Vec<Digest>,
+    },
     Loading {
         dispatch_id: Digest,
     },
@@ -747,6 +752,17 @@ pub fn worker_request_bytes(value: &WorkerRequest) -> Result<Vec<u8>, Validation
 /// Contextual observation validation still requires the admitted request and profile.
 pub fn parse_worker_reply(bytes: &[u8]) -> Result<WorkerReply, ValidationError> {
     let value: WorkerReply = crate::parse_envelope(bytes)?;
+    if let WorkerReply::Arrived {
+        dispatch_id,
+        in_flight,
+    } = &value
+    {
+        let unique: std::collections::BTreeSet<_> = in_flight.iter().collect();
+        if in_flight.len() > 8 || unique.len() != in_flight.len() || in_flight.contains(dispatch_id)
+        {
+            return Err(ValidationError::Binding);
+        }
+    }
     canonical_bytes(&value, MAX_ENVELOPE)?;
     Ok(value)
 }

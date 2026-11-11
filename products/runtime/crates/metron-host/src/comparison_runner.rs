@@ -25,9 +25,13 @@ fn err(message: impl std::fmt::Display) -> io::Error {
 #[derive(Default)]
 struct Timing {
     submitted_at: Option<Instant>,
+    started: Option<Instant>,
+    dispatch_begin: Option<Instant>,
+    sent: Option<Instant>,
     first_content: Option<Instant>,
     completed: Option<Instant>,
     tokens: Option<u32>,
+    arrived_in_flight: Option<Vec<Digest>>,
 }
 #[derive(Default)]
 struct Events {
@@ -50,7 +54,19 @@ struct Record {
     rejection: Option<String>,
     receipt: Option<Receipt>,
     tokenized: Option<u32>,
+    arrived_in_flight: Option<Vec<Digest>>,
     elapsed_ms: Option<u64>,
+    started_ms: Option<u64>,
+    dispatch_begin_ms: Option<u64>,
+    sent_ms: Option<u64>,
+    #[serde(skip)]
+    started_at: Option<Instant>,
+    #[serde(skip)]
+    completed_at: Option<Instant>,
+    #[serde(skip)]
+    dispatch_begin_at: Option<Instant>,
+    #[serde(skip)]
+    sent_at: Option<Instant>,
     usable_ms: Option<u64>,
     verdict: String,
 }
@@ -75,6 +91,8 @@ struct Report {
     qualified: bool,
     ideal: bool,
     completed: bool,
+    stagger_overlap: bool,
+    transport_overlap: bool,
 }
 fn has_visible_content(text: &str) -> bool {
     text.chars().any(|c| {
@@ -86,8 +104,25 @@ fn has_visible_content(text: &str) -> bool {
 fn scheduled_arrival(base: Instant, stagger: Duration, position: u32) -> Instant {
     base + stagger * position
 }
+fn transport_overlap(
+    reasoner_started: Option<Instant>,
+    dispatch_begin: Option<Instant>,
+    sent: Option<Instant>,
+    reasoner_completed: Option<Instant>,
+) -> bool {
+    matches!((reasoner_started, dispatch_begin, sent, reasoner_completed), (Some(start), Some(begin), Some(ack), Some(end)) if start <= begin && begin <= ack && ack < end)
+}
+fn stagger_overlap(reasoner_id: &Digest, selector_snapshot: Option<&[Digest]>) -> bool {
+    selector_snapshot.is_some_and(|ids| ids.contains(reasoner_id))
+}
 fn ms(a: Instant, b: Instant) -> u64 {
     u64::try_from(b.saturating_duration_since(a).as_millis()).unwrap_or(u64::MAX)
+}
+// Round start times upward so a fractional millisecond past the arrival boundary
+// cannot be mistaken for overlap.
+fn started_ms(a: Instant, b: Instant) -> u64 {
+    let nanos = b.saturating_duration_since(a).as_nanos();
+    u64::try_from(nanos.div_ceil(1_000_000)).unwrap_or(u64::MAX)
 }
 fn case(id: usize, near: bool) -> io::Result<ComparisonCase> {
     let (name, role, output_schema, text) = match id {
@@ -130,6 +165,16 @@ fn case(id: usize, near: bool) -> io::Result<ComparisonCase> {
         output_schema,
         context: BoundedText::new(context).map_err(err)?,
     })
+}
+fn warmup_cohorts(concurrency: u16) -> Vec<Vec<(usize, bool)>> {
+    let exercise = if concurrency == 1 {
+        vec![(2, false)]
+    } else {
+        (0..usize::from(concurrency))
+            .map(|position| (if position % 2 == 0 { 0 } else { 2 }, false))
+            .collect()
+    };
+    vec![vec![(0, false)], exercise]
 }
 fn warmup_ready(schema: LocalOutputSchema, observation: &LocalObservation) -> bool {
     !observation.content.as_str().is_empty()
@@ -347,10 +392,24 @@ fn submit(
             rejection: result.rejection.map(|r| r.as_str().to_owned()),
             receipt,
             tokenized: timing.tokens,
+            arrived_in_flight: timing.arrived_in_flight,
             elapsed_ms: timing
                 .submitted_at
                 .zip(timing.completed)
                 .map(|(a, b)| ms(a, b)),
+            started_ms: timing
+                .submitted_at
+                .zip(timing.started)
+                .map(|(a, b)| started_ms(a, b)),
+            dispatch_begin_ms: timing
+                .submitted_at
+                .zip(timing.dispatch_begin)
+                .map(|(a, b)| ms(a, b)),
+            sent_ms: timing.submitted_at.zip(timing.sent).map(|(a, b)| ms(a, b)),
+            started_at: timing.started,
+            completed_at: timing.completed,
+            dispatch_begin_at: timing.dispatch_begin,
+            sent_at: timing.sent,
             usable_ms: timing.submitted_at.zip(usable).map(|(a, b)| ms(a, b)),
             verdict,
         });
@@ -424,7 +483,27 @@ fn run_profile(
                 }
             }
 
+            WorkerEvent::Dispatching {
+                dispatch_id,
+                began_at,
+            } => state.timings.entry(dispatch_id).or_default().dispatch_begin = Some(began_at),
+            WorkerEvent::Sent { dispatch_id } => {
+                state.timings.entry(dispatch_id).or_default().sent = Some(Instant::now())
+            }
+            WorkerEvent::Arrived {
+                dispatch_id,
+                in_flight,
+            } => {
+                state
+                    .timings
+                    .entry(dispatch_id)
+                    .or_default()
+                    .arrived_in_flight = Some(in_flight);
+            }
             WorkerEvent::Loaded { .. } => state.loaded = Some(Instant::now()),
+            WorkerEvent::Started { dispatch_id } => {
+                state.timings.entry(dispatch_id).or_default().started = Some(Instant::now())
+            }
             WorkerEvent::Tokenized {
                 dispatch_id,
                 token_count,
@@ -478,18 +557,12 @@ fn run_profile(
         qualified: false,
         ideal: false,
         completed: false,
+        stagger_overlap: false,
+        transport_overlap: false,
     };
     let path = output.join(format!("comparison-{quant}-{concurrency}.json"));
     let result: io::Result<()> = (|| {
-        let cohorts: Vec<Vec<(usize, bool)>> = if concurrency == 1 {
-            vec![vec![(0, false)], vec![(2, false)]]
-        } else {
-            vec![
-                (0..usize::from(concurrency))
-                    .map(|position| (if position % 2 == 0 { 0 } else { 2 }, false))
-                    .collect(),
-            ]
-        };
+        let cohorts = warmup_cohorts(concurrency);
         for cohort in cohorts {
             let warm = submit(
                 &mut session,
@@ -548,7 +621,7 @@ fn run_profile(
                 .push(completed as f64 / elapsed.as_secs_f64());
         }
         if concurrency >= 2 {
-            report.records.extend(submit(
+            let pair = submit(
                 &mut session,
                 &mut driver,
                 &events,
@@ -556,7 +629,18 @@ fn run_profile(
                 0,
                 false,
                 Duration::from_millis(100),
-            )?);
+            )?;
+            if let [reasoner, selector] = pair.as_slice() {
+                report.stagger_overlap =
+                    stagger_overlap(&reasoner.dispatch_id, selector.arrived_in_flight.as_deref());
+                report.transport_overlap = transport_overlap(
+                    reasoner.started_at,
+                    selector.dispatch_begin_at,
+                    selector.sent_at,
+                    reasoner.completed_at,
+                );
+            }
+            report.records.extend(pair);
             check_gpu(&events, &mut report)?;
         }
         report.completed = true;
@@ -609,6 +693,7 @@ fn run_profile(
     ];
     report.qualified = report.failure.is_none()
         && concurrency >= 2
+        && report.stagger_overlap
         && report.trial_throughput.len() == 3
         && report.records.iter().filter(|r| !r.warmup).all(|r| {
             r.verdict == "correct"
@@ -774,8 +859,46 @@ pub fn run(
 
 #[cfg(test)]
 mod tests {
-    use super::{has_visible_content, ms, percentile, scheduled_arrival, verdict, warmup_ready};
+    use super::{
+        has_visible_content, ms, percentile, scheduled_arrival, stagger_overlap, transport_overlap,
+        verdict, warmup_cohorts, warmup_ready,
+    };
     use std::time::{Duration, Instant};
+    #[test]
+    fn overlap_requires_full_actual_write_within_reasoner_execution() {
+        let t = Instant::now();
+        let at = |ms| Some(t + Duration::from_millis(ms));
+        // A 40ms initial write shifts dispatch to 140ms, after completion at 120ms.
+        assert!(!transport_overlap(at(40), at(140), at(141), at(120)));
+        assert!(transport_overlap(at(40), at(100), at(119), at(120)));
+        assert!(!transport_overlap(at(40), at(100), at(120), at(120)));
+        assert!(!transport_overlap(at(40), at(39), at(100), at(120)));
+        assert!(!transport_overlap(at(40), at(100), at(99), at(120)));
+        assert!(!transport_overlap(at(40), at(100), None, at(120)));
+    }
+    #[test]
+    fn snapshot_gate_requires_paired_reasoner() {
+        let reasoner = metron_protocol::content_digest(b"reasoner");
+        let other = metron_protocol::content_digest(b"other");
+        assert!(stagger_overlap(
+            &reasoner,
+            Some(std::slice::from_ref(&reasoner))
+        ));
+        assert!(!stagger_overlap(&reasoner, Some(&[other])));
+        assert!(!stagger_overlap(&reasoner, None));
+    }
+    #[test]
+    fn warmup_loads_before_exercising_configured_concurrency() {
+        for concurrency in [1, 2, 4, 8] {
+            let cohorts = warmup_cohorts(concurrency);
+            assert_eq!(cohorts[0], vec![(0, false)]);
+            assert_eq!(cohorts[1].len(), usize::from(concurrency));
+            assert!(cohorts[1].iter().any(|&(id, _)| id == 2));
+            if concurrency > 1 {
+                assert!(cohorts[1].iter().any(|&(id, _)| id == 0));
+            }
+        }
+    }
     #[test]
     fn latency_starts_at_scheduled_arrival_even_after_delayed_flush() {
         let base = Instant::now();

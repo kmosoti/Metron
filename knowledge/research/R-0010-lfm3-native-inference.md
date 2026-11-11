@@ -42,7 +42,9 @@ The fixed comparison evaluates official Q4_K_M, Q6_K and Q8_0 artifacts at
 concurrency 1, 2, 4 and 8 with short and near-8K rendered inputs and three
 repetitions. It checks answer and proposal quality, usable-output p95, and GPU
 memory, with an 8,192-token context and reserved output. The accepted thresholds
-are in ADR 0021. A measured failure to meet them can leave no selectable
+are in ADR 0021. Staggered overlap uses a worker-owned snapshot of SDK streams
+whose terminal choices have not yet been consumed; buffered host replies cannot
+establish that fact. This does not measure simultaneous GPU execution. A measured failure to meet them can leave no selectable
 candidate. The Q6 proof above is not a substitute for those measurements.
 
 **Relations:** extends R-0009; supports ADR 0021; does not supersede the frozen
