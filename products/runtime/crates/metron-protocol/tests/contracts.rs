@@ -351,3 +351,43 @@ fn cli_report_retains_large_reported_usage_and_unrun_audit_checks() {
     let invalid = br#"{"schema_version":1,"command":"verify","outcome":"succeeded","task_id":null,"phase":null,"health":null,"replay_head":null,"approval":null,"accounting":null,"audit":{"chain_valid":true,"accounting_valid":null,"projection_valid":null,"behavior_valid":null,"artifact_valid":null,"extra":true},"diagnostic":null}"#;
     assert!(parse_internal::<CliReport>(invalid).is_err());
 }
+
+#[test]
+fn tagged_model_request_limit_accounts_for_metadata_and_json_escaping() {
+    let principal = PrincipalId::new("principal").unwrap();
+    let genesis = content_digest(b"genesis");
+    let make_intent = |context: String| Intent {
+        schema_version: SchemaVersion::V1,
+        task_id: TaskId::new("task").unwrap(),
+        ordinal: 1,
+        kind: IntentKind::RequestModel {
+            input_digest: content_digest(b"fixture"),
+            context: BoundedText::new(context).unwrap(),
+        },
+    };
+    let empty =
+        PreparedIntent::materialize(&make_intent(String::new()), &principal, &genesis).unwrap();
+    let overhead = canonical_bytes(&empty.request, MAX_CONTEXT).unwrap().len();
+    let full = PreparedIntent::materialize(
+        &make_intent("a".repeat(MAX_CONTEXT - overhead)),
+        &principal,
+        &genesis,
+    )
+    .unwrap();
+    assert_eq!(
+        canonical_bytes(&full.request, MAX_CONTEXT).unwrap().len(),
+        MAX_CONTEXT
+    );
+    assert_eq!(
+        PreparedIntent::materialize(
+            &make_intent("a".repeat(MAX_CONTEXT - overhead + 1)),
+            &principal,
+            &genesis
+        ),
+        Err(ValidationError::Limit)
+    );
+    assert_eq!(
+        PreparedIntent::materialize(&make_intent("\0".repeat(MAX_CONTEXT)), &principal, &genesis),
+        Err(ValidationError::Limit)
+    );
+}

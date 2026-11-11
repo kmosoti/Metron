@@ -393,10 +393,13 @@ impl PreparedIntent {
                 }
             }
         };
-        let request_digest = structural_digest(
-            "approved-request/v1",
-            &[&canonical_bytes(&request, MAX_ENVELOPE)?],
-        )?;
+        let request_limit = if matches!(&request, ApprovedRequest::RequestModel { .. }) {
+            MAX_CONTEXT
+        } else {
+            MAX_ENVELOPE
+        };
+        let request_bytes = canonical_bytes(&request, request_limit)?;
+        let request_digest = structural_digest("approved-request/v1", &[&request_bytes])?;
         let action = ActionBinding {
             task_id: intent.task_id.clone(),
             principal_id: principal.clone(),
