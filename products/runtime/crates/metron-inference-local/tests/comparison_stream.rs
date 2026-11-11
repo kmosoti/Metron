@@ -53,6 +53,8 @@ def send(kind,r,**kw):
  b=json.dumps(dict(kind=kind,dispatch_id=r['dispatch_id'],**kw),separators=(',',':')).encode()
  sys.stdout.buffer.write(struct.pack('>I',len(b))+b); sys.stdout.buffer.flush()
 def start(r):
+ send('arrived',r,in_flight=(['f'*64] if mode=='arrival_unknown' else []))
+ if mode=='arrival_duplicate': send('arrived',r,in_flight=[])
  send('tokenized',r,token_count=1,token_ids_digest='a'*64,rendered_digest='b'*64)
  send('started',r)
 def delta(r,n,text,reasoning=False): send('delta',r,sequence=n,text=text,reasoning=reasoning)
@@ -201,7 +203,13 @@ fn local_large_input_and_valid_stream_settle_one_receipt() {
 }
 #[test]
 fn malformed_or_inconsistent_stream_is_uncertain_and_blocks_session() {
-    for mode in ["gap", "mismatch", "no_stream"] {
+    for mode in [
+        "gap",
+        "mismatch",
+        "no_stream",
+        "arrival_unknown",
+        "arrival_duplicate",
+    ] {
         let mut f = fixture(mode, 1);
         let permits = f.session.admit(&[case("one")]).unwrap();
         let id = permits[0].request().dispatch_id.clone();

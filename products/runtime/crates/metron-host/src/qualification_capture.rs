@@ -166,6 +166,8 @@ impl State {
             }
             WorkerEvent::Loading { .. }
             | WorkerEvent::Loaded { .. }
+            | WorkerEvent::Dispatching { .. }
+            | WorkerEvent::Arrived { .. }
             | WorkerEvent::Delta { .. } => {}
             WorkerEvent::Exited { pid } => {
                 if self.pid != Some(pid) || self.exited {
