@@ -101,6 +101,13 @@ pub enum IntentKind {
         input_digest: Digest,
         context: BoundedText<MAX_CONTEXT>,
     },
+    RequestLocalModel {
+        input_digest: Digest,
+        context: BoundedText<MAX_CONTEXT>,
+        profile_digest: Digest,
+        role: crate::LocalRole,
+        output_schema: crate::LocalOutputSchema,
+    },
     PublishArtifact {
         candidate: CandidateResult,
     },
@@ -145,6 +152,14 @@ pub enum ApprovedRequest {
         context: BoundedText<MAX_CONTEXT>,
         tariff: Tariff,
     },
+    RequestLocalModel {
+        input_digest: Digest,
+        context: BoundedText<MAX_CONTEXT>,
+        profile_digest: Digest,
+        role: crate::LocalRole,
+        output_schema: crate::LocalOutputSchema,
+        tariff: Tariff,
+    },
     PublishArtifact {
         plan: ArtifactPlan,
     },
@@ -179,6 +194,9 @@ pub enum ReceiptOutput {
     Model {
         candidate: CandidateResult,
     },
+    LocalModel {
+        observation: Box<crate::LocalObservation>,
+    },
     Published {
         artifact_id: Digest,
         content_digest: Digest,
@@ -205,6 +223,12 @@ pub struct ReceiptData {
 pub struct Receipt(ReceiptData);
 impl Receipt {
     pub fn new(data: ReceiptData) -> Result<Self, ValidationError> {
+        match (&data.output, data.schema_version) {
+            (ReceiptOutput::LocalModel { observation }, SchemaVersion::V2)
+                if observation.schema_version == SchemaVersion::V2 => {}
+            (ReceiptOutput::LocalModel { .. }, _) => return Err(ValidationError::Version),
+            _ => {}
+        }
         canonical_bytes(&data, MAX_ENVELOPE)?;
         Ok(Self(data))
     }
@@ -376,6 +400,35 @@ impl PreparedIntent {
                 context: context.clone(),
                 tariff: tariff(one, zero),
             },
+            IntentKind::RequestLocalModel {
+                input_digest,
+                context,
+                profile_digest,
+                role,
+                output_schema,
+            } => {
+                if intent.schema_version != SchemaVersion::V2 {
+                    return Err(ValidationError::Version);
+                }
+                if !matches!(
+                    (role, output_schema),
+                    (crate::LocalRole::Solver, crate::LocalOutputSchema::Sum)
+                        | (
+                            crate::LocalRole::ToolSelector,
+                            crate::LocalOutputSchema::ToolSelection
+                        )
+                ) {
+                    return Err(ValidationError::Binding);
+                }
+                ApprovedRequest::RequestLocalModel {
+                    input_digest: input_digest.clone(),
+                    context: context.clone(),
+                    profile_digest: profile_digest.clone(),
+                    role: *role,
+                    output_schema: *output_schema,
+                    tariff: tariff(one, zero),
+                }
+            }
             IntentKind::PublishArtifact { candidate } => {
                 let bytes = candidate.artifact_bytes()?;
                 let artifact_id =
@@ -399,7 +452,10 @@ impl PreparedIntent {
                 }
             }
         };
-        let request_limit = if matches!(&request, ApprovedRequest::RequestModel { .. }) {
+        let request_limit = if matches!(
+            &request,
+            ApprovedRequest::RequestModel { .. } | ApprovedRequest::RequestLocalModel { .. }
+        ) {
             MAX_CONTEXT
         } else {
             MAX_ENVELOPE
@@ -435,6 +491,35 @@ impl PreparedIntent {
             Ok(())
         } else {
             Err(ValidationError::Binding)
+        }
+    }
+    /// Verify the request against the persisted genesis, including its local profile.
+    pub fn validate_against_genesis(
+        &self,
+        intent: &Intent,
+        principal: &PrincipalId,
+        genesis_digest: &Digest,
+        genesis: &crate::Genesis,
+    ) -> Result<(), ValidationError> {
+        self.validate_against(intent, principal, genesis_digest)?;
+        match (&intent.kind, &genesis.local_profile, intent.schema_version) {
+            (
+                IntentKind::RequestLocalModel { profile_digest, .. },
+                Some(profile),
+                SchemaVersion::V2,
+            ) if *profile_digest == profile.digest()? => Ok(()),
+            (IntentKind::RequestModel { .. }, None, SchemaVersion::V1) => Ok(()),
+            (
+                IntentKind::ReadFixture | IntentKind::PublishArtifact { .. },
+                None,
+                SchemaVersion::V1,
+            ) => Ok(()),
+            (
+                IntentKind::ReadFixture | IntentKind::PublishArtifact { .. },
+                Some(_),
+                SchemaVersion::V2,
+            ) => Ok(()),
+            _ => Err(ValidationError::Binding),
         }
     }
 }

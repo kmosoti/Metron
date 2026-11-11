@@ -25,7 +25,8 @@ on the new `feat/metron-runtime` branch.
 | 9 | [O-0003 Contract probes](../observations/O-0003-runtime-contract-probes.md) | Executed SQL reservation and Rust privacy probes with reproducible source and limits |
 | 10 | [R-0008 Local inference](R-0008-local-inference-resource-profile.md) | Pinned LFM3 default, audited historical size comparison and memory policy |
 | 11 | [R-0009 mistral.rs efficiency](R-0009-mistralrs-batching-and-cache-contracts.md) | Runtime pin, shared LFM3 roles, adaptive batching and bounded hybrid caching |
-| 12 | [D-0003 Implementation sequence](../decisions/D-0003-runtime-implementation-sequence.md) | Ordered PR slices, entry conditions and alpha.0–alpha.5 exit contracts |
+| 12 | [R-0010 Native LFM3 inference](R-0010-lfm3-native-inference.md) | Local GPU feasibility and bounded operational comparison |
+| 13 | [D-0003 Implementation sequence](../decisions/D-0003-runtime-implementation-sequence.md) | Ordered PR slices, entry conditions and alpha.0–alpha.5 exit contracts |
 
 Start implementation on `feat/metron-runtime` from the reviewed `develop`
 revision containing this collection. P0 establishes a valid isolated Cargo

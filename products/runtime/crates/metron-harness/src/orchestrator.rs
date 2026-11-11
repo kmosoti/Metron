@@ -63,11 +63,11 @@ fn publication_error(error: std::io::Error) -> DriveError {
     }
 }
 
-fn command(operation: StoreOperation) -> Result<StoreCommand, DriveError> {
+fn command(operation: StoreOperation, version: SchemaVersion) -> Result<StoreCommand, DriveError> {
     let bytes = canonical_bytes(&operation, MAX_INTERNAL).map_err(|_| DriveError::Invalid)?;
     let id = structural_digest("command/v1", &[&bytes]).map_err(|_| DriveError::Invalid)?;
     StoreCommand::new(CommandData {
-        schema_version: SchemaVersion::V1,
+        schema_version: version,
         command_id: CommandId::new(id.as_str()).map_err(|_| DriveError::Invalid)?,
         operation,
     })
@@ -75,9 +75,10 @@ fn command(operation: StoreOperation) -> Result<StoreCommand, DriveError> {
 }
 fn commit<S: StorePort>(
     store: &mut S,
+    version: SchemaVersion,
     operation: StoreOperation,
 ) -> Result<Option<StoreResult>, DriveError> {
-    match store.apply(command(operation)?)? {
+    match store.apply(command(operation, version)?)? {
         WriteOutcome::Committed(reply) => Ok(Some(reply.result)),
         WriteOutcome::NotCommitted(_) => Ok(None),
     }
@@ -91,6 +92,33 @@ pub fn drive<S: StorePort>(
     run_dir: &Path,
     observer: &mut dyn Observer,
 ) -> Result<DriveStatus, DriveError> {
+    drive_inner(store, task, engine, run_dir, observer, None)
+}
+
+/// Drive with a local inference port; the port is called only after fresh admission.
+pub fn drive_with_driver<S: StorePort>(
+    store: &mut S,
+    task: &TaskId,
+    engine: &dyn Cognition,
+    run_dir: &Path,
+    observer: &mut dyn Observer,
+    driver: &mut dyn EffectDriver<Outcome = DriverOutcome>,
+) -> Result<DriveStatus, DriveError> {
+    drive_inner(store, task, engine, run_dir, observer, Some(driver))
+}
+
+fn drive_inner<S: StorePort>(
+    store: &mut S,
+    task: &TaskId,
+    engine: &dyn Cognition,
+    run_dir: &Path,
+    observer: &mut dyn Observer,
+    mut local_driver: Option<&mut dyn EffectDriver<Outcome = DriverOutcome>>,
+) -> Result<DriveStatus, DriveError> {
+    let version = {
+        let mut snapshot = store.audit()?;
+        snapshot.projection(task)?.task.data().schema_version
+    };
     let worker = WorkerId::new("host").map_err(|_| DriveError::Invalid)?;
     for _ in 0..128 {
         let (projection, pending, intents) = {
@@ -121,6 +149,7 @@ pub fn drive<S: StorePort>(
             );
             if commit(
                 store,
+                version,
                 StoreOperation::CommitTransition {
                     task_id: task.clone(),
                     expected_revision: projection.state.revision,
@@ -152,6 +181,7 @@ pub fn drive<S: StorePort>(
             .map_err(|_| DriveError::Invalid)?;
             if commit(
                 store,
+                version,
                 StoreOperation::RecordVerification {
                     task_id: task.clone(),
                     selection,
@@ -226,6 +256,7 @@ pub fn drive<S: StorePort>(
             .map_err(|_| DriveError::Invalid)?;
             if commit(
                 store,
+                version,
                 StoreOperation::PrepareIntent {
                     task_id: task.clone(),
                     prepared,
@@ -238,6 +269,13 @@ pub fn drive<S: StorePort>(
             continue;
         }
         let prepared = intent.prepared.clone().ok_or(DriveError::Integrity)?;
+        if matches!(
+            prepared.request,
+            metron_protocol::ApprovedRequest::RequestLocalModel { .. }
+        ) && local_driver.is_none()
+        {
+            return Ok(DriveStatus::Blocked);
+        }
         if projection.genesis.require_publication_approval
             && !matches!(
                 intent.status,
@@ -254,6 +292,7 @@ pub fn drive<S: StorePort>(
                         .map_err(|_| DriveError::Invalid)?;
                     commit(
                         store,
+                        version,
                         StoreOperation::CreateApprovalRequest {
                             task_id: task.clone(),
                             request_id,
@@ -274,6 +313,7 @@ pub fn drive<S: StorePort>(
                 {
                     if commit(
                         store,
+                        version,
                         StoreOperation::Deny {
                             task_id: task.clone(),
                             intent_id: intent.intent_id,
@@ -296,6 +336,7 @@ pub fn drive<S: StorePort>(
             {
                 commit(
                     store,
+                    version,
                     StoreOperation::RecordUncertainty {
                         task_id: task.clone(),
                         intent_id: intent.intent_id.clone(),
@@ -318,6 +359,7 @@ pub fn drive<S: StorePort>(
             }
             _ => match commit(
                 store,
+                version,
                 StoreOperation::Claim {
                     task_id: task.clone(),
                     intent_id: intent.intent_id.clone(),
@@ -336,34 +378,48 @@ pub fn drive<S: StorePort>(
         let reservation_id =
             structural_digest("dispatch-id/v1", &[intent.intent_id.as_str().as_bytes()])
                 .map_err(|_| DriveError::Invalid)?;
-        let admission = command(StoreOperation::Admit {
-            check: AdmissionCheck {
-                intent_id: intent.intent_id.clone(),
-                prepared: prepared.clone(),
-                worker: worker.clone(),
-                lease_epoch,
-                expected_tick: projection.tick,
-                grant_revision: grant.revision,
-                approval_id: intent.approval.as_ref().map(|a| a.request_id.clone()),
-                reservation_id,
+        let admission = command(
+            StoreOperation::Admit {
+                check: AdmissionCheck {
+                    intent_id: intent.intent_id.clone(),
+                    prepared: prepared.clone(),
+                    worker: worker.clone(),
+                    lease_epoch,
+                    expected_tick: projection.tick,
+                    grant_revision: grant.revision,
+                    approval_id: intent.approval.as_ref().map(|a| a.request_id.clone()),
+                    reservation_id,
+                },
             },
-        })?;
+            version,
+        )?;
         let effect = match policy::admit(store, admission, false, &projection, &intent, &grant)? {
             AdmissionOutcome::Authorized(effect) => *effect,
             AdmissionOutcome::Denied => continue,
             AdmissionOutcome::Blocked => return Ok(DriveStatus::Blocked),
         };
         observer.checkpoint(Checkpoint::AdmissionCommitted);
-        let mut callback = || observer.checkpoint(Checkpoint::PublicationSynced);
-        let outcome = ScriptedDriver {
-            run_dir: run_dir.to_path_buf(),
-            publication_synced: &mut callback,
-        }
-        .execute(effect);
+        let outcome = if matches!(
+            effect.request().request,
+            metron_protocol::ApprovedRequest::RequestLocalModel { .. }
+        ) {
+            local_driver
+                .as_deref_mut()
+                .ok_or(DriveError::Integrity)?
+                .execute(effect)
+        } else {
+            let mut callback = || observer.checkpoint(Checkpoint::PublicationSynced);
+            ScriptedDriver {
+                run_dir: run_dir.to_path_buf(),
+                publication_synced: &mut callback,
+            }
+            .execute(effect)
+        };
         match outcome {
             DriverOutcome::Receipt(receipt) => {
                 let result = commit(
                     store,
+                    version,
                     StoreOperation::RecordReceipt {
                         receipt: *receipt,
                         lease_epoch,
@@ -377,6 +433,7 @@ pub fn drive<S: StorePort>(
             DriverOutcome::Uncertain => {
                 commit(
                     store,
+                    version,
                     StoreOperation::RecordUncertainty {
                         task_id: task.clone(),
                         intent_id: intent.intent_id,
@@ -403,6 +460,10 @@ pub fn reconcile<S: StorePort>(
     use metron_protocol::{
         domain::{ActualUsage, ApprovedRequest, Receipt, ReceiptData, ReceiptOutput, UsageVector},
         types::{DecimalUsage, ProducerReceiptId},
+    };
+    let version = {
+        let mut snapshot = store.audit()?;
+        snapshot.projection(task)?.task.data().schema_version
     };
     let worker = WorkerId::new("reconciler").map_err(|_| DriveError::Invalid)?;
     let (intent, evidence, tick) = {
@@ -434,6 +495,7 @@ pub fn reconcile<S: StorePort>(
         if !matches!(
             commit(
                 store,
+                version,
                 StoreOperation::RecordUncertainty {
                     task_id: task.clone(),
                     intent_id: intent_id.clone(),
@@ -484,6 +546,7 @@ pub fn reconcile<S: StorePort>(
     }
     let lease_epoch = match commit(
         store,
+        version,
         StoreOperation::ClaimReconciliation {
             task_id: task.clone(),
             intent_id: intent_id.clone(),
@@ -506,7 +569,7 @@ pub fn reconcile<S: StorePort>(
         },
     };
     let receipt = Receipt::new(ReceiptData {
-        schema_version: SchemaVersion::V1,
+        schema_version: version,
         producer_receipt_id: ProducerReceiptId::new(prepared.action.dispatch_id.as_str())
             .map_err(|_| DriveError::Invalid)?,
         task_id: task.clone(),
@@ -530,6 +593,7 @@ pub fn reconcile<S: StorePort>(
     };
     match commit(
         store,
+        version,
         StoreOperation::SettleReconciliation {
             task_id: task.clone(),
             intent_id: intent_id.clone(),

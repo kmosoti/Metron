@@ -200,13 +200,14 @@ impl<'de, const N: usize> Deserialize<'de> for BoundedText<N> {
 pub struct SchemaVersion(u16);
 impl SchemaVersion {
     pub const V1: Self = Self(1);
+    pub const V2: Self = Self(2);
 }
 impl<'de> Deserialize<'de> for SchemaVersion {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        if u16::deserialize(d)? == 1 {
-            Ok(Self::V1)
-        } else {
-            Err(serde::de::Error::custom(ValidationError::Version))
+        match u16::deserialize(d)? {
+            1 => Ok(Self::V1),
+            2 => Ok(Self::V2),
+            _ => Err(serde::de::Error::custom(ValidationError::Version)),
         }
     }
 }

@@ -41,6 +41,7 @@ fn existing_unknown_receipt_cannot_be_reconciled_as_known() {
         engine_version: BoundedText::new("sum-agent/v1").unwrap(),
         require_publication_approval: false,
         policy_digest: content_digest(b"metron-alpha0-host-policy-v1"),
+        local_profile: None,
     };
     store
         .apply(command(
@@ -155,6 +156,7 @@ fn unposted_large_usage_is_reported_exactly() {
         engine_version: BoundedText::new("sum-agent/v1").unwrap(),
         require_publication_approval: false,
         policy_digest: content_digest(b"metron-alpha0-host-policy-v1"),
+        local_profile: None,
     };
     store
         .apply(command(
@@ -276,6 +278,7 @@ fn stale_known_overrun_reconciles_full_actual_and_breaches() {
         engine_version: BoundedText::new("sum-agent/v1").unwrap(),
         require_publication_approval: false,
         policy_digest: content_digest(b"metron-alpha0-host-policy-v1"),
+        local_profile: None,
     };
     store
         .apply(command(
@@ -393,6 +396,7 @@ fn equivalent_multiple_receipts_are_reported_unresolved() {
         engine_version: BoundedText::new("sum-agent/v1").unwrap(),
         require_publication_approval: false,
         policy_digest: content_digest(b"metron-alpha0-host-policy-v1"),
+        local_profile: None,
     };
     store
         .apply(command(

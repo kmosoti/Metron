@@ -95,6 +95,58 @@ impl SqliteStore {
                 disposition: Disposition::Duplicate,
             }));
         }
+        let operation = &command.data().operation;
+        let task_id = match operation {
+            StoreOperation::CreateTask { task, .. } => Some(&task.data().task_id),
+            StoreOperation::CommitTransition { task_id, .. }
+            | StoreOperation::PrepareIntent { task_id, .. }
+            | StoreOperation::Claim { task_id, .. }
+            | StoreOperation::Deny { task_id, .. }
+            | StoreOperation::CreateApprovalRequest { task_id, .. }
+            | StoreOperation::RecordUncertainty { task_id, .. }
+            | StoreOperation::ClaimReconciliation { task_id, .. }
+            | StoreOperation::SettleReconciliation { task_id, .. }
+            | StoreOperation::RecordVerification { task_id, .. } => Some(task_id),
+            StoreOperation::Admit { check } => Some(&check.prepared.action.task_id),
+            StoreOperation::RecordReceipt { receipt, .. } => Some(&receipt.data().task_id),
+            StoreOperation::AdvanceTick { .. }
+            | StoreOperation::RecordApproval { .. }
+            | StoreOperation::RevokeGrant { .. } => None,
+        };
+        let task_version = match operation {
+            StoreOperation::CreateTask { task, .. } => Some(task.data().schema_version),
+            StoreOperation::RecordApproval { request_id, .. } => {
+                let mut statement = tx
+                    .prepare("SELECT value FROM intents ORDER BY row_id")
+                    .map_err(sql_error)?;
+                let mut rows = statement.query([]).map_err(sql_error)?;
+                let mut owner: Option<TaskId> = None;
+                while let Some(row) = rows.next().map_err(sql_error)? {
+                    let raw: Vec<u8> = bounded_blob(row, 0).map_err(sql_error)?;
+                    let intent: IntentSnapshot = decode!(&raw, IntentSnapshot);
+                    if intent
+                        .approval
+                        .as_ref()
+                        .is_some_and(|approval| &approval.request_id == request_id)
+                        && owner.replace(intent.intent.task_id).is_some()
+                    {
+                        return Err(StoreError::Integrity);
+                    }
+                }
+                drop(rows);
+                drop(statement);
+                owner
+                    .as_ref()
+                    .map(|id| load_task(&tx, id).map(|task| task.data().schema_version))
+                    .transpose()?
+            }
+            _ => task_id
+                .map(|id| load_task(&tx, id).map(|task| task.data().schema_version))
+                .transpose()?,
+        };
+        if task_version.is_some_and(|version| version != command.data().schema_version) {
+            return Err(StoreError::Validation(ValidationError::Version));
+        }
         let previously = match &command.data().operation {
             StoreOperation::CreateTask { task, genesis } => {
                 if let Some(raw) = read_blob(
@@ -932,6 +984,9 @@ fn commit_transition(
         Transition::Decision { next, intent } => (next, Some(intent)),
         Transition::Finalization { next } => (next, None),
     };
+    if new_intent.is_some_and(|intent| intent.schema_version != task.data().schema_version) {
+        return Err(StoreError::Validation(ValidationError::Version));
+    }
     let valid = match (&state.phase, &item.input.event, transition) {
         (
             Phase::New,
@@ -971,6 +1026,32 @@ fn commit_transition(
                 && context.as_str() == bytes.as_str()
         }
         (
+            Phase::WaitingRead,
+            AgentEvent::EffectSettled {
+                intent_id,
+                output: ReceiptOutput::Fixture { bytes, digest },
+                ..
+            },
+            Transition::Decision {
+                intent:
+                    Intent {
+                        kind:
+                            IntentKind::RequestLocalModel {
+                                input_digest,
+                                context,
+                                ..
+                            },
+                        ..
+                    },
+                next,
+            },
+        ) => {
+            state.pending_intent.as_ref() == Some(intent_id)
+                && next.phase == Phase::WaitingModel
+                && input_digest == digest
+                && context.as_str() == bytes.as_str()
+        }
+        (
             Phase::WaitingModel,
             AgentEvent::EffectSettled {
                 intent_id,
@@ -992,6 +1073,43 @@ fn commit_transition(
             state.pending_intent.as_ref() == Some(intent_id)
                 && next.phase == Phase::WaitingArtifact
                 && candidate == observed
+        }
+        (
+            Phase::WaitingModel,
+            AgentEvent::EffectSettled {
+                intent_id,
+                output: ReceiptOutput::LocalModel { observation },
+                ..
+            },
+            Transition::Decision {
+                intent:
+                    Intent {
+                        kind: IntentKind::PublishArtifact { candidate },
+                        ..
+                    },
+                next,
+            },
+        ) => {
+            state.pending_intent.as_ref() == Some(intent_id)
+                && next.phase == Phase::WaitingArtifact
+                && matches!(&observation.response, Some(metron_protocol::LocalResponse::Sum(sum)) if candidate.count == sum.count && candidate.sum == sum.sum && candidate.input_digest == observation.input_digest)
+        }
+        (
+            Phase::WaitingModel,
+            AgentEvent::EffectSettled {
+                intent_id,
+                output: ReceiptOutput::LocalModel { observation },
+                ..
+            },
+            Transition::Finalization { next },
+        ) => {
+            state.pending_intent.as_ref() == Some(intent_id)
+                && next.phase == Phase::Rejected
+                && next.pending_intent.is_none()
+                && !matches!(
+                    observation.response,
+                    Some(metron_protocol::LocalResponse::Sum(_))
+                )
         }
         (
             Phase::WaitingArtifact,
@@ -1046,6 +1164,14 @@ fn commit_transition(
         let prepared =
             PreparedIntent::materialize(intent, &task.data().principal_id, &state.genesis_digest)
                 .map_err(StoreError::Validation)?;
+        prepared
+            .validate_against_genesis(
+                intent,
+                &task.data().principal_id,
+                &state.genesis_digest,
+                &load_genesis(tx, task_id)?,
+            )
+            .map_err(StoreError::Validation)?;
         if next.pending_intent.as_ref() != Some(&prepared.intent_id)
             || intent.ordinal != u32::from(state.decision_steps)
         {
@@ -1121,6 +1247,15 @@ fn load_task(tx: &Transaction<'_>, id: &TaskId) -> Result<Task, StoreError> {
         .ok_or(StoreError::Integrity)?;
     Ok(decode!(&value, Task))
 }
+fn load_genesis(tx: &Transaction<'_>, id: &TaskId) -> Result<Genesis, StoreError> {
+    let value = read_blob(
+        tx,
+        "SELECT genesis FROM tasks WHERE task_id=?1",
+        id.as_str(),
+    )?
+    .ok_or(StoreError::Integrity)?;
+    Ok(decode!(&value, Genesis))
+}
 fn prepare(
     tx: &Transaction<'_>,
     task_id: &TaskId,
@@ -1139,10 +1274,11 @@ fn prepare(
     .ok_or(StoreError::Integrity)?;
     let state: AgentState = decode!(&state, AgentState);
     prepared
-        .validate_against(
+        .validate_against_genesis(
             &intent.intent,
             &task.data().principal_id,
             &state.genesis_digest,
+            &load_genesis(tx, task_id)?,
         )
         .map_err(StoreError::Validation)?;
     if let Some(old) = &intent.prepared {
@@ -1252,10 +1388,11 @@ fn admit(
     let state: AgentState = decode!(&state, AgentState);
     check
         .prepared
-        .validate_against(
+        .validate_against_genesis(
             &intent.intent,
             &task.data().principal_id,
             &state.genesis_digest,
+            &load_genesis(tx, &task.data().task_id)?,
         )
         .map_err(StoreError::Validation)?;
     let grant = read_blob(
@@ -1302,7 +1439,8 @@ fn admit(
     }
     let tariff = match &check.prepared.request {
         ApprovedRequest::ReadFixture { tariff, .. }
-        | ApprovedRequest::RequestModel { tariff, .. } => tariff,
+        | ApprovedRequest::RequestModel { tariff, .. }
+        | ApprovedRequest::RequestLocalModel { tariff, .. } => tariff,
         ApprovedRequest::PublishArtifact { plan } => &plan.tariff,
     };
     let amount = Counters {
@@ -1467,6 +1605,7 @@ fn record_receipt(
     let task = load_task(tx, &data.task_id)?;
     let prepared = intent.prepared.clone().ok_or(StoreError::Integrity)?;
     if intent.intent.task_id != data.task_id
+        || data.schema_version != task.data().schema_version
         || intent.dispatch_id.as_ref() != Some(&data.dispatch_id)
         || prepared.action_digest != data.action_digest
     {
@@ -1481,12 +1620,41 @@ fn record_receipt(
             ApprovedRequest::RequestModel { .. },
             ReceiptOutput::Model { .. } | ReceiptOutput::Failure { .. }
         ) | (
+            ApprovedRequest::RequestLocalModel { .. },
+            ReceiptOutput::LocalModel { .. } | ReceiptOutput::Failure { .. }
+        ) | (
             ApprovedRequest::PublishArtifact { .. },
             ReceiptOutput::Published { .. } | ReceiptOutput::Failure { .. }
         )
     );
     if !shape {
         return Err(StoreError::Integrity);
+    }
+    if let (
+        ApprovedRequest::RequestLocalModel {
+            output_schema,
+            input_digest,
+            ..
+        },
+        ReceiptOutput::LocalModel { observation },
+    ) = (&prepared.request, &data.output)
+    {
+        if observation.input_digest != *input_digest {
+            return Err(StoreError::Integrity);
+        }
+        if let ActualUsage::Known { usage } = &data.usage
+            && (usage.model_requests.as_str() == "0" || usage.spend_micros_usd.as_str() != "0")
+        {
+            return Err(StoreError::Integrity);
+        }
+        let genesis = load_genesis(tx, &data.task_id)?;
+        let profile = genesis
+            .local_profile
+            .as_ref()
+            .ok_or(StoreError::Integrity)?;
+        observation
+            .validate(profile, &prepared.request_digest, *output_schema)
+            .map_err(StoreError::Validation)?;
     }
     if let ReceiptOutput::Fixture { bytes, digest } = &data.output
         && content_digest(bytes.as_str().as_bytes()) != *digest
@@ -1645,7 +1813,7 @@ fn record_receipt(
                             verification.read = Some(receipt.clone());
                             verification.read_evidence = Some(id.clone());
                         }
-                        ReceiptOutput::Model { .. } => {
+                        ReceiptOutput::Model { .. } | ReceiptOutput::LocalModel { .. } => {
                             verification.model = Some(receipt.clone());
                             verification.model_evidence = Some(id.clone());
                         }
@@ -3095,6 +3263,7 @@ mod authority_tests {
             engine_version: BoundedText::new("sum-agent/v1").unwrap(),
             require_publication_approval: true,
             policy_digest: content_digest(b"policy"),
+            local_profile: None,
         }
     }
     fn store() -> (SqliteStore, std::path::PathBuf) {
@@ -3104,6 +3273,411 @@ mod authority_tests {
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         (SqliteStore::create(&p).unwrap(), p)
+    }
+    use metron_protocol::*;
+    fn local_profile() -> LocalProfile {
+        LocalProfile {
+            schema_version: SchemaVersion::V2,
+            auxiliary_repository: BoundedText::new("LiquidAI/LFM3-1.7B").unwrap(),
+            auxiliary_revision: BoundedText::new("1da06bec6a819da10b54c67e5c90972b46d81871")
+                .unwrap(),
+            artifact_repository: BoundedText::new("LiquidAI/LFM3-1.7B-GGUF").unwrap(),
+            artifact_revision: BoundedText::new("cd0c74c575b5c416f3011b5b4c298077f26ca8c2")
+                .unwrap(),
+            artifact_name: BoundedText::new("LFM3-1.7B-Q4_K_M.gguf").unwrap(),
+            artifact_digest: Digest::new(
+                "3793e1e6e2266919d6e015287221b41100175a98eddaba92e111aed3b05c93c4",
+            )
+            .unwrap(),
+            artifact_bytes: SqlU64::new(1099627808).unwrap(),
+            embedded_tokenizer_digest: gguf_embedded_tokenizer_digest(
+                &Digest::new("3793e1e6e2266919d6e015287221b41100175a98eddaba92e111aed3b05c93c4")
+                    .unwrap(),
+            )
+            .unwrap(),
+            template_digest: content_digest(b"template"),
+            prompt_recipe_digest: content_digest(b"recipe"),
+            backend_revision: BoundedText::new("fb4cdc3730dc64b366724e7637a205a8b7747499").unwrap(),
+            backend_build_digest: content_digest(b"build"),
+            cpu_identity: BoundedText::new("test-cpu").unwrap(),
+            cpu_features_digest: content_digest(b"cpu-features"),
+            device: LocalDevice::Cpu,
+            cpu_threads: 2,
+            context_tokens: 2048,
+            max_input_tokens: 1536,
+            max_output_tokens: 512,
+            temperature_milli: 100,
+            top_k: 50,
+            repeat_penalty_milli: 1100,
+            max_sequences: 1,
+            queue_capacity: 8,
+            queue_wait_ms: 5000,
+            deadline_ms: 60000,
+            chunked_prefill: false,
+            scoped_prefix_cache: false,
+            cache_target_bytes: None,
+            strict_memory_cap_bytes: None,
+        }
+    }
+
+    #[test]
+    fn local_task_rejects_mixed_versions_before_mutation() {
+        let (mut store, path) = store();
+        let mut data = make_task("local").data().clone();
+        data.schema_version = SchemaVersion::V2;
+        let task = Task::new(data).unwrap();
+        let mut g = genesis();
+        g.local_profile = Some(local_profile());
+        g.engine_version = BoundedText::new("sum-local-agent/v2").unwrap();
+        let command = |id: &str, version, operation| {
+            StoreCommand::new(CommandData {
+                schema_version: version,
+                command_id: CommandId::new(id).unwrap(),
+                operation,
+            })
+            .unwrap()
+        };
+        let create = StoreOperation::CreateTask {
+            task: task.clone(),
+            genesis: g.clone(),
+        };
+        assert!(matches!(
+            store.apply(command("bad-create", SchemaVersion::V1, create.clone())),
+            Err(StoreError::Validation(ValidationError::Version))
+        ));
+        assert!(matches!(
+            store
+                .apply(command("create-v2", SchemaVersion::V2, create))
+                .unwrap(),
+            WriteOutcome::Committed(_)
+        ));
+        let (before, input) = {
+            let mut snap = store.audit().unwrap();
+            (
+                snap.projection(&task.data().task_id).unwrap(),
+                snap.pending_inbox(&task.data().task_id).unwrap().unwrap(),
+            )
+        };
+        let mut next = before.state.clone();
+        next.revision = num(1);
+        next.decision_steps = 1;
+        next.phase = Phase::WaitingRead;
+        let intent = Intent {
+            schema_version: SchemaVersion::V1,
+            task_id: task.data().task_id.clone(),
+            ordinal: 0,
+            kind: IntentKind::ReadFixture,
+        };
+        let prepared = PreparedIntent::materialize(
+            &intent,
+            &task.data().principal_id,
+            &before.state.genesis_digest,
+        )
+        .unwrap();
+        next.pending_intent = Some(prepared.intent_id);
+        let op = StoreOperation::CommitTransition {
+            task_id: task.data().task_id.clone(),
+            expected_revision: num(0),
+            inbox_id: input.id.clone(),
+            inbox_digest: input.digest.clone(),
+            transition: Transition::Decision { next, intent },
+        };
+        assert!(matches!(
+            store.apply(command(
+                "wrong-command-version",
+                SchemaVersion::V1,
+                op.clone()
+            )),
+            Err(StoreError::Validation(ValidationError::Version))
+        ));
+        assert!(matches!(
+            store.apply(command("wrong-intent-version", SchemaVersion::V2, op)),
+            Err(StoreError::Validation(ValidationError::Version))
+        ));
+        let mut snap = store.audit().unwrap();
+        assert_eq!(snap.projection(&task.data().task_id).unwrap(), before);
+        assert_eq!(
+            snap.pending_inbox(&task.data().task_id).unwrap(),
+            Some(input)
+        );
+        drop(snap);
+        drop(store);
+        let _ = std::fs::remove_file(path);
+    }
+    #[test]
+    fn local_read_to_model_binds_profile_and_rejects_changed_observation() {
+        let (mut store, path) = store();
+        let mut data = make_task("local-path").data().clone();
+        data.schema_version = SchemaVersion::V2;
+        let task = Task::new(data).unwrap();
+        let mut genesis = genesis();
+        genesis.require_publication_approval = false;
+        genesis.local_profile = Some(local_profile());
+        genesis.engine_version = BoundedText::new("sum-local-agent/v2").unwrap();
+        let command = |id: &str, operation| {
+            StoreCommand::new(CommandData {
+                schema_version: SchemaVersion::V2,
+                command_id: CommandId::new(id).unwrap(),
+                operation,
+            })
+            .unwrap()
+        };
+        let apply = |s: &mut SqliteStore, id: &str, operation| {
+            assert!(matches!(
+                s.apply(command(id, operation)).unwrap(),
+                WriteOutcome::Committed(_)
+            ));
+        };
+        apply(
+            &mut store,
+            "create-local",
+            StoreOperation::CreateTask {
+                task: task.clone(),
+                genesis: genesis.clone(),
+            },
+        );
+        let (mut state, input) = {
+            let mut snap = store.audit().unwrap();
+            (
+                snap.projection(&task.data().task_id).unwrap().state,
+                snap.pending_inbox(&task.data().task_id).unwrap().unwrap(),
+            )
+        };
+        let read = Intent {
+            schema_version: SchemaVersion::V2,
+            task_id: task.data().task_id.clone(),
+            ordinal: 0,
+            kind: IntentKind::ReadFixture,
+        };
+        let prepared =
+            PreparedIntent::materialize(&read, &task.data().principal_id, &state.genesis_digest)
+                .unwrap();
+        state.revision = num(1);
+        state.decision_steps = 1;
+        state.phase = Phase::WaitingRead;
+        state.pending_intent = Some(prepared.intent_id.clone());
+        apply(
+            &mut store,
+            "read-transition",
+            StoreOperation::CommitTransition {
+                task_id: task.data().task_id.clone(),
+                expected_revision: num(0),
+                inbox_id: input.id,
+                inbox_digest: input.digest,
+                transition: Transition::Decision {
+                    next: state,
+                    intent: read,
+                },
+            },
+        );
+        apply(
+            &mut store,
+            "read-prepare",
+            StoreOperation::PrepareIntent {
+                task_id: task.data().task_id.clone(),
+                prepared: prepared.clone(),
+            },
+        );
+        let worker = WorkerId::new("w").unwrap();
+        apply(
+            &mut store,
+            "read-claim",
+            StoreOperation::Claim {
+                task_id: task.data().task_id.clone(),
+                intent_id: prepared.intent_id.clone(),
+                worker: worker.clone(),
+                expected_epoch: num(0),
+            },
+        );
+        apply(
+            &mut store,
+            "read-admit",
+            StoreOperation::Admit {
+                check: AdmissionCheck {
+                    intent_id: prepared.intent_id.clone(),
+                    prepared: prepared.clone(),
+                    worker: worker.clone(),
+                    lease_epoch: num(1),
+                    expected_tick: num(0),
+                    grant_revision: num(0),
+                    approval_id: None,
+                    reservation_id: content_digest(b"read-reserve"),
+                },
+            },
+        );
+        let text = "{\"values\":[17,-4,9]}\n";
+        let fixture_digest = content_digest(text.as_bytes());
+        let receipt = Receipt::new(ReceiptData {
+            schema_version: SchemaVersion::V2,
+            producer_receipt_id: ProducerReceiptId::new("read").unwrap(),
+            task_id: task.data().task_id.clone(),
+            intent_id: prepared.intent_id,
+            dispatch_id: prepared.action.dispatch_id,
+            action_digest: prepared.action_digest,
+            usage: known(),
+            output: ReceiptOutput::Fixture {
+                bytes: BoundedText::new(text).unwrap(),
+                digest: fixture_digest.clone(),
+            },
+        })
+        .unwrap();
+        apply(
+            &mut store,
+            "read-receipt",
+            StoreOperation::RecordReceipt {
+                receipt,
+                lease_epoch: num(1),
+            },
+        );
+        let (mut state, input) = {
+            let mut snap = store.audit().unwrap();
+            (
+                snap.projection(&task.data().task_id).unwrap().state,
+                snap.pending_inbox(&task.data().task_id).unwrap().unwrap(),
+            )
+        };
+        let mut model = Intent {
+            schema_version: SchemaVersion::V2,
+            task_id: task.data().task_id.clone(),
+            ordinal: 1,
+            kind: IntentKind::RequestLocalModel {
+                input_digest: fixture_digest.clone(),
+                context: BoundedText::new(text).unwrap(),
+                profile_digest: content_digest(b"wrong-profile"),
+                role: LocalRole::Solver,
+                output_schema: LocalOutputSchema::Sum,
+            },
+        };
+        let invalid =
+            PreparedIntent::materialize(&model, &task.data().principal_id, &state.genesis_digest)
+                .unwrap();
+        state.revision = num(2);
+        state.decision_steps = 2;
+        state.phase = Phase::WaitingModel;
+        state.pending_intent = Some(invalid.intent_id.clone());
+        let transition = |intent: Intent, next: AgentState| StoreOperation::CommitTransition {
+            task_id: task.data().task_id.clone(),
+            expected_revision: num(1),
+            inbox_id: input.id.clone(),
+            inbox_digest: input.digest.clone(),
+            transition: Transition::Decision { next, intent },
+        };
+        assert!(matches!(
+            store.apply(command(
+                "wrong-profile",
+                transition(model.clone(), state.clone())
+            )),
+            Err(StoreError::Validation(ValidationError::Binding))
+        ));
+        if let IntentKind::RequestLocalModel { profile_digest, .. } = &mut model.kind {
+            *profile_digest = genesis.local_profile.as_ref().unwrap().digest().unwrap();
+        }
+        let local =
+            PreparedIntent::materialize(&model, &task.data().principal_id, &state.genesis_digest)
+                .unwrap();
+        apply(&mut store, "model-transition", transition(model, state));
+        apply(
+            &mut store,
+            "model-prepare",
+            StoreOperation::PrepareIntent {
+                task_id: task.data().task_id.clone(),
+                prepared: local.clone(),
+            },
+        );
+        apply(
+            &mut store,
+            "model-claim",
+            StoreOperation::Claim {
+                task_id: task.data().task_id.clone(),
+                intent_id: local.intent_id.clone(),
+                worker: worker.clone(),
+                expected_epoch: num(0),
+            },
+        );
+        apply(
+            &mut store,
+            "model-admit",
+            StoreOperation::Admit {
+                check: AdmissionCheck {
+                    intent_id: local.intent_id.clone(),
+                    prepared: local.clone(),
+                    worker,
+                    lease_epoch: num(1),
+                    expected_tick: num(0),
+                    grant_revision: num(0),
+                    approval_id: None,
+                    reservation_id: content_digest(b"model-reserve"),
+                },
+            },
+        );
+        let observation = LocalObservation {
+            schema_version: SchemaVersion::V2,
+            profile_digest: genesis.local_profile.as_ref().unwrap().digest().unwrap(),
+            request_digest: local.request_digest.clone(),
+            input_digest: fixture_digest,
+            content: BoundedText::new("{\"count\":3,\"sum\":22}").unwrap(),
+            reasoning: None,
+            prompt_tokens: 20,
+            completion_tokens: 10,
+            submission_cohort: SubmissionCohort {
+                id: BoundedText::new("cohort").unwrap(),
+                size: 1,
+                position: 0,
+            },
+            backend_batch: BatchProvenance::Unknown,
+            response: Some(LocalResponse::Sum(SumResponse { count: 3, sum: 22 })),
+        };
+        let make_receipt = |observation| {
+            Receipt::new(ReceiptData {
+                schema_version: SchemaVersion::V2,
+                producer_receipt_id: ProducerReceiptId::new("model").unwrap(),
+                task_id: task.data().task_id.clone(),
+                intent_id: local.intent_id.clone(),
+                dispatch_id: local.action.dispatch_id.clone(),
+                action_digest: local.action_digest.clone(),
+                usage: ActualUsage::Known {
+                    usage: UsageVector {
+                        model_requests: DecimalUsage::new("1").unwrap(),
+                        tool_calls: DecimalUsage::new("0").unwrap(),
+                        spend_micros_usd: DecimalUsage::new("0").unwrap(),
+                    },
+                },
+                output: ReceiptOutput::LocalModel {
+                    observation: Box::new(observation),
+                },
+            })
+            .unwrap()
+        };
+        let mut bad = observation.clone();
+        bad.request_digest = content_digest(b"wrong-request");
+        assert!(matches!(
+            store.apply(command(
+                "bad-observation",
+                StoreOperation::RecordReceipt {
+                    receipt: make_receipt(bad),
+                    lease_epoch: num(1)
+                }
+            )),
+            Err(StoreError::Validation(ValidationError::Binding))
+        ));
+        apply(
+            &mut store,
+            "model-receipt",
+            StoreOperation::RecordReceipt {
+                receipt: make_receipt(observation),
+                lease_epoch: num(1),
+            },
+        );
+        let mut snapshot = store.audit().unwrap();
+        let projection = snapshot.projection(&task.data().task_id).unwrap();
+        assert_eq!(projection.task_account.posted.model_requests, num(1));
+        assert!(matches!(
+            projection.verification.model.unwrap().data().output,
+            ReceiptOutput::LocalModel { .. }
+        ));
+        drop(snapshot);
+        drop(store);
+        let _ = std::fs::remove_file(path);
     }
     #[test]
     fn task_creation_does_not_revive_revoked_principal() {
@@ -5525,6 +6099,7 @@ mod tests {
             engine_version: BoundedText::new("sum-agent/v1").unwrap(),
             require_publication_approval: false,
             policy_digest: content_digest(b"policy"),
+            local_profile: None,
         };
         let create = cmd(
             "create",

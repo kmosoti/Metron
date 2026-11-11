@@ -75,8 +75,34 @@ pub fn verify(
         sum = sum.checked_add(*value).ok_or("sum overflow")?;
     }
     let count = u32::try_from(input.values.len()).map_err(|_| "count overflow")?;
+    let local_candidate;
     let candidate = match &model.data().output {
         ReceiptOutput::Model { candidate } => candidate,
+        ReceiptOutput::LocalModel { observation } => {
+            use metron_protocol::inference::{
+                LocalOutputSchema, LocalResponse, parse_local_response,
+            };
+            let parsed = parse_local_response(
+                observation.content.as_str().as_bytes(),
+                LocalOutputSchema::Sum,
+            )
+            .map_err(|_| VerifyError::InvalidEvidence("invalid local model response"))?;
+            if observation.response.as_ref() != Some(&parsed) || observation.input_digest != *digest
+            {
+                return Err(VerifyError::InvalidEvidence(
+                    "local model observation mismatch",
+                ));
+            }
+            let LocalResponse::Sum(result) = parsed else {
+                return Err(VerifyError::InvalidEvidence("invalid local model schema"));
+            };
+            local_candidate = metron_protocol::CandidateResult {
+                count: result.count,
+                sum: result.sum,
+                input_digest: digest.clone(),
+            };
+            &local_candidate
+        }
         _ => return Err(VerifyError::InvalidEvidence("invalid model output")),
     };
     let published = match &publication_receipt.data().output {
