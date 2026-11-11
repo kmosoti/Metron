@@ -1,0 +1,12 @@
+; Model of one checked admission, not a proof of the complete SQL/runtime.
+(set-logic QF_LIA)
+(declare-const spent Int)
+(declare-const reserved Int)
+(declare-const requested Int)
+(declare-const limit Int)
+(assert (and (<= 0 spent) (<= 0 reserved) (<= 0 requested)
+             (<= 0 limit) (<= limit 9223372036854775807)))
+(assert (<= (+ spent reserved) limit))
+(assert (<= (+ spent reserved requested) limit))
+(assert (not (<= (+ spent (+ reserved requested)) limit)))
+(check-sat)

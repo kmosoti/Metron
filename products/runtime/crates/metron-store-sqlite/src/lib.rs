@@ -12,6 +12,36 @@ use rusqlite::{Connection, OpenFlags, backup::Backup};
 
 const SCHEMA: &str = include_str!("schema.sql");
 
+/// Probe the linked SQLite build, not a separately installed sqlite3 command.
+/// This establishes FTS5 availability only, not runtime memory authorization.
+pub fn search_capabilities() -> Result<(String, bool), StoreError> {
+    let connection = Connection::open_in_memory().map_err(operational)?;
+    let version: String = connection
+        .query_row("SELECT sqlite_version()", [], |r| r.get(0))
+        .map_err(operational)?;
+    connection
+        .execute_batch(
+            "CREATE VIRTUAL TABLE probe USING fts5(scope UNINDEXED, content);
+        INSERT INTO probe(scope,content) VALUES ('authorized','needle');",
+        )
+        .map_err(operational)?;
+    let visible: i64 = connection
+        .query_row(
+            "SELECT count(*) FROM probe WHERE probe MATCH 'needle' AND scope='authorized'",
+            [],
+            |r| r.get(0),
+        )
+        .map_err(operational)?;
+    let hidden: i64 = connection
+        .query_row(
+            "SELECT count(*) FROM probe WHERE probe MATCH 'needle' AND scope='other'",
+            [],
+            |r| r.get(0),
+        )
+        .map_err(operational)?;
+    Ok((version, visible == 1 && hidden == 0))
+}
+
 fn operational(error: impl std::fmt::Display) -> StoreError {
     let mut text = error.to_string();
     text.truncate(text.floor_char_boundary(MAX_TEXT));

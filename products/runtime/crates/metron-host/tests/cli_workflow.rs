@@ -27,6 +27,8 @@ fn approval_is_bound_and_never_dispatches_by_itself() {
     let dir = root.join("run");
     let output = run(&[
         "run",
+        "--task-family",
+        "sum-v1",
         "--task",
         file.to_str().unwrap(),
         "--run-dir",
@@ -105,6 +107,8 @@ fn denied_run_reports_json_on_stdout() {
     let dir = root.join("run");
     let output = run(&[
         "run",
+        "--task-family",
+        "sum-v1",
         "--task",
         file.to_str().unwrap(),
         "--run-dir",
