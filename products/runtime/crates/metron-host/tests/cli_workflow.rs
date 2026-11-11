@@ -86,3 +86,33 @@ fn approval_is_bound_and_never_dispatches_by_itself() {
     assert!(report.health.unwrap().verified_success);
     fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn denied_run_reports_json_on_stdout() {
+    let root = std::env::temp_dir().join(format!("metron-denial-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir(&root).unwrap();
+    let task = metron_testkit::sum_task(
+        TaskId::new("denial").unwrap(),
+        PrincipalId::new("principal").unwrap(),
+    )
+    .unwrap();
+    let mut data = task.data().clone();
+    data.budget.max_tool_calls = metron_protocol::SqlU64::new(0).unwrap();
+    let task = metron_protocol::Task::new(data).unwrap();
+    let file = root.join("task.json");
+    fs::write(&file, canonical_bytes(&task, MAX_ENVELOPE).unwrap()).unwrap();
+    let dir = root.join("run");
+    let output = run(&[
+        "run",
+        "--task",
+        file.to_str().unwrap(),
+        "--run-dir",
+        dir.to_str().unwrap(),
+    ]);
+    assert_eq!(output.status.code(), Some(3));
+    let report: CliReport = metron_protocol::parse_internal(&output.stdout).unwrap();
+    assert_eq!(report.outcome, CliOutcome::Denied);
+    assert!(output.stderr.is_empty(), "no diagnostic was reported");
+    fs::remove_dir_all(root).unwrap();
+}
