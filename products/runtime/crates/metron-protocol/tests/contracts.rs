@@ -279,3 +279,75 @@ fn independently_spelled_nested_json_is_closed_and_task_defaults_to_eight() {
     let outcome = br#"{"status":"not_committed","value":"no_eligible","extra":true}"#;
     assert!(serde_json::from_slice::<WriteOutcome<StoreResult>>(outcome).is_err());
 }
+
+#[test]
+fn fixture_parser_enforces_raw_limit_and_closed_input_schema() {
+    let fixture = parse_sum_input(b"{\"values\":[17,-4,9]}\n").unwrap();
+    assert_eq!(fixture.values, [17, -4, 9]);
+    for invalid in [
+        br#"{"values":[1],"values":[2]}"#.as_slice(),
+        br#"{"values":[],"other":0}"#.as_slice(),
+        br#"{"values":[1.5]}"#.as_slice(),
+    ] {
+        assert!(parse_sum_input(invalid).is_err());
+    }
+    assert_eq!(
+        parse_sum_input(&vec![b' '; MAX_FIXTURE + 1]),
+        Err(ValidationError::Limit)
+    );
+}
+
+#[test]
+fn cli_report_retains_large_reported_usage_and_unrun_audit_checks() {
+    let zero = SqlU64::new(0).unwrap();
+    let counters = Counters {
+        model_requests: zero,
+        tool_calls: zero,
+        spend_micros_usd: zero,
+    };
+    let usage = ActualUsage::Known {
+        usage: UsageVector {
+            model_requests: DecimalUsage::new("9".repeat(60_000)).unwrap(),
+            tool_calls: DecimalUsage::new("0").unwrap(),
+            spend_micros_usd: DecimalUsage::new("0").unwrap(),
+        },
+    };
+    let report = CliReport {
+        schema_version: SchemaVersion::V1,
+        command: CliCommand::Verify,
+        outcome: CliOutcome::IntegrityFailure,
+        task_id: None,
+        phase: Some(Phase::Completed),
+        health: Some(CliHealth {
+            verified_success: false,
+            pending_input: false,
+            unresolved_dispatch: false,
+            reservations_held: false,
+            incomplete: false,
+            breached: false,
+            integrity_hold: true,
+        }),
+        replay_head: None,
+        approval: None,
+        accounting: Some(CliAccounting {
+            task_posted: counters.clone(),
+            principal_posted: counters,
+            reported_read: Some(usage.clone()),
+            reported_model: Some(usage.clone()),
+            reported_publication: Some(usage),
+        }),
+        audit: Some(CliAudit {
+            chain_valid: Some(false),
+            accounting_valid: None,
+            projection_valid: None,
+            behavior_valid: None,
+            artifact_valid: None,
+        }),
+        diagnostic: None,
+    };
+    let bytes = report.encode().unwrap();
+    assert!(bytes.len() > MAX_ENVELOPE);
+    assert_eq!(parse_internal::<CliReport>(&bytes).unwrap(), report);
+    let invalid = br#"{"schema_version":1,"command":"verify","outcome":"succeeded","task_id":null,"phase":null,"health":null,"replay_head":null,"approval":null,"accounting":null,"audit":{"chain_valid":true,"accounting_valid":null,"projection_valid":null,"behavior_valid":null,"artifact_valid":null,"extra":true},"diagnostic":null}"#;
+    assert!(parse_internal::<CliReport>(invalid).is_err());
+}
