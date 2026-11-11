@@ -34,6 +34,7 @@ knowledge to those sources.
 | [O-0002 Laboratory results and milestone snapshot](observations/O-0002-laboratory-results-snapshot.md) | agent | false |
 | [D-0002 Runtime charter and boundary](decisions/D-0002-runtime-charter.md) | agent | false |
 | [D-0003 Runtime implementation sequence](decisions/D-0003-runtime-implementation-sequence.md) | agent | false |
+| [D-0004 Runtime compatibility](decisions/D-0004-runtime-compatibility.md) | agent | false |
 | [R-0001 Agent/harness source audit](research/R-0001-agent-harness-landscape.md) | agent | false |
 | [R-0002 Runtime grammar](research/R-0002-runtime-grammar.md) | agent | false |
 | [R-0003 Agent contracts](research/R-0003-agent-contracts.md) | agent | false |
