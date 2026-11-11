@@ -115,7 +115,7 @@ fn largest_valid_receipt_round_trips_through_structural_wrappers() {
     let command = StoreCommand::new(data).unwrap();
     let command_bytes = canonical_bytes(&command, MAX_INTERNAL).unwrap();
     assert_eq!(
-        serde_json::from_slice::<StoreCommand>(&command_bytes).unwrap(),
+        parse_internal::<StoreCommand>(&command_bytes).unwrap(),
         command
     );
     let hash = Digest::new("0".repeat(64)).unwrap();
@@ -135,9 +135,10 @@ fn largest_valid_receipt_round_trips_through_structural_wrappers() {
     })
     .unwrap();
     let encoded = canonical_bytes(&record, MAX_INTERNAL).unwrap();
+    assert_eq!(parse_internal::<JournalRecord>(&encoded).unwrap(), record);
     assert_eq!(
-        serde_json::from_slice::<JournalRecord>(&encoded).unwrap(),
-        record
+        parse_internal::<JournalRecord>(&vec![b' '; MAX_INTERNAL + 1]),
+        Err(ValidationError::Limit)
     );
     let mut too_large = value.data().clone();
     if let ActualUsage::Known { usage } = &mut too_large.usage {

@@ -255,7 +255,11 @@ pub enum StoreResult {
 pub enum StoreError {
     Validation(ValidationError),
     Integrity,
+    /// The write definitely did not commit. Retry the same immutable command.
     Busy,
+    /// An operational failure may leave the commit acknowledgement ambiguous.
+    /// Retry the same immutable command; lookup or duplicate recovery must never
+    /// mint authority, including after an ambiguous admission acknowledgement.
     Operational(BoundedText<MAX_TEXT>),
 }
 
