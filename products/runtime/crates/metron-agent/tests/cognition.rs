@@ -313,3 +313,134 @@ fn known_failure_finalizes_at_cap_and_rejects_wrong_intent() {
         (Phase::Rejected, 1, 2)
     );
 }
+
+fn local_profile() -> LocalProfile {
+    LocalProfile {
+        schema_version: SchemaVersion::V2,
+        auxiliary_repository: BoundedText::new("LiquidAI/LFM3-1.7B").unwrap(),
+        auxiliary_revision: BoundedText::new("1da06bec6a819da10b54c67e5c90972b46d81871").unwrap(),
+        artifact_repository: BoundedText::new("LiquidAI/LFM3-1.7B-GGUF").unwrap(),
+        artifact_revision: BoundedText::new("cd0c74c575b5c416f3011b5b4c298077f26ca8c2").unwrap(),
+        artifact_name: BoundedText::new("LFM3-1.7B-Q4_K_M.gguf").unwrap(),
+        artifact_digest: Digest::new(
+            "3793e1e6e2266919d6e015287221b41100175a98eddaba92e111aed3b05c93c4",
+        )
+        .unwrap(),
+        artifact_bytes: SqlU64::new(1099627808).unwrap(),
+        embedded_tokenizer_digest: gguf_embedded_tokenizer_digest(
+            &Digest::new("3793e1e6e2266919d6e015287221b41100175a98eddaba92e111aed3b05c93c4")
+                .unwrap(),
+        )
+        .unwrap(),
+        template_digest: content_digest(b"template"),
+        prompt_recipe_digest: content_digest(b"recipe"),
+        backend_revision: BoundedText::new("fb4cdc3730dc64b366724e7637a205a8b7747499").unwrap(),
+        backend_build_digest: content_digest(b"build"),
+        cpu_identity: BoundedText::new("test-cpu").unwrap(),
+        cpu_features_digest: content_digest(b"cpu-features"),
+        device: LocalDevice::Cpu,
+        cpu_threads: 2,
+        context_tokens: 2048,
+        max_input_tokens: 1536,
+        max_output_tokens: 512,
+        temperature_milli: 100,
+        top_k: 50,
+        repeat_penalty_milli: 1100,
+        max_sequences: 1,
+        queue_capacity: 8,
+        queue_wait_ms: 5000,
+        deadline_ms: 60000,
+        chunked_prefill: false,
+        scoped_prefix_cache: false,
+        cache_target_bytes: None,
+        strict_memory_cap_bytes: None,
+    }
+}
+#[test]
+fn local_engine_replays_bound_observations_and_rejects_wrong_profile() {
+    let profile = local_profile();
+    let agent = metron_agent::LocalSumAgent::new(&profile).unwrap();
+    let start = initial(8);
+    let Transition::Decision {
+        next: read_state,
+        intent,
+    } = agent.transition(&start, &AgentEvent::TaskAccepted).unwrap()
+    else {
+        panic!("read")
+    };
+    assert_eq!(intent.schema_version, SchemaVersion::V2);
+    let Transition::Decision {
+        next: model_state,
+        intent,
+    } = agent
+        .transition(&read_state, &fixture_event(&read_state))
+        .unwrap()
+    else {
+        panic!("model")
+    };
+    let IntentKind::RequestLocalModel {
+        input_digest,
+        profile_digest,
+        role,
+        output_schema,
+        ..
+    } = intent.kind
+    else {
+        panic!("local model")
+    };
+    assert_eq!(profile_digest, profile.digest().unwrap());
+    assert_eq!(
+        agent.transition(&model_state, &model_event(&model_state, 22)),
+        Err(DecisionError::InvalidEvent)
+    );
+    assert_eq!(
+        (role, output_schema),
+        (LocalRole::Solver, LocalOutputSchema::Sum)
+    );
+    let observation = LocalObservation {
+        schema_version: SchemaVersion::V2,
+        profile_digest,
+        request_digest: content_digest(b"request"),
+        input_digest: input_digest.clone(),
+        content: BoundedText::new("{\"count\":3,\"sum\":22}").unwrap(),
+        reasoning: None,
+        prompt_tokens: 12,
+        completion_tokens: 8,
+        submission_cohort: SubmissionCohort {
+            id: BoundedText::new("c1").unwrap(),
+            size: 1,
+            position: 0,
+        },
+        backend_batch: BatchProvenance::Unknown,
+        response: Some(LocalResponse::Sum(SumResponse { count: 3, sum: 22 })),
+    };
+    let event = AgentEvent::EffectSettled {
+        intent_id: model_state.pending_intent.clone().unwrap(),
+        evidence_id: content_digest(b"evidence"),
+        output: ReceiptOutput::LocalModel {
+            observation: Box::new(observation.clone()),
+        },
+    };
+    let first = agent.transition(&model_state, &event).unwrap();
+    assert_eq!(first, agent.transition(&model_state, &event).unwrap());
+    let Transition::Decision { intent, .. } = first else {
+        panic!("publication")
+    };
+    assert_eq!(intent.schema_version, SchemaVersion::V2);
+    assert!(
+        matches!(intent.kind, IntentKind::PublishArtifact { candidate } if candidate.sum == 22 && candidate.input_digest == input_digest)
+    );
+    let mut bad = observation;
+    bad.profile_digest = content_digest(b"wrong");
+    let invalid = AgentEvent::EffectSettled {
+        intent_id: model_state.pending_intent.clone().unwrap(),
+        evidence_id: content_digest(b"evidence"),
+        output: ReceiptOutput::LocalModel {
+            observation: Box::new(bad),
+        },
+    };
+    assert_eq!(
+        agent.transition(&model_state, &invalid),
+        Err(DecisionError::MissingEvidence)
+    );
+}

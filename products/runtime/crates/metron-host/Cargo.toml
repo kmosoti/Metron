@@ -10,6 +10,9 @@ metron-protocol = { path = "../metron-protocol" }
 metron-agent = { path = "../metron-agent" }
 metron-harness = { path = "../metron-harness" }
 metron-store-sqlite = { path = "../metron-store-sqlite" }
+metron-inference-local = { path = "../metron-inference-local" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 [dev-dependencies]
 rusqlite = { version = "=0.37.0", features = ["bundled"] }

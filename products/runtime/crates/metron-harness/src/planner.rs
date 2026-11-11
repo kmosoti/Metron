@@ -204,3 +204,112 @@ impl Cognition for SumPlanner {
         }
     }
 }
+
+/// Local-profile planner with an immutable replay identity.
+pub const LOCAL_ENGINE_VERSION: &str = "sum-local-harness/v2";
+pub struct LocalSumPlanner {
+    profile_digest: Digest,
+}
+impl LocalSumPlanner {
+    pub fn new(
+        profile: &metron_protocol::LocalProfile,
+    ) -> Result<Self, metron_protocol::ValidationError> {
+        Ok(Self {
+            profile_digest: profile.digest()?,
+        })
+    }
+}
+impl Cognition for LocalSumPlanner {
+    fn transition(
+        &self,
+        state: &AgentState,
+        event: &AgentEvent,
+    ) -> Result<Transition, DecisionError> {
+        if state.phase == Phase::WaitingModel
+            && matches!(
+                event,
+                AgentEvent::EffectSettled {
+                    output: ReceiptOutput::Model { .. },
+                    ..
+                }
+            )
+        {
+            return Err(DecisionError::InvalidEvent);
+        }
+        let mapped = match event {
+            AgentEvent::EffectSettled {
+                intent_id,
+                evidence_id,
+                output: ReceiptOutput::LocalModel { observation },
+            } => {
+                if observation.profile_digest != self.profile_digest {
+                    return Err(DecisionError::MissingEvidence);
+                }
+                let output = match &observation.response {
+                    Some(metron_protocol::LocalResponse::Sum(sum)) => ReceiptOutput::Model {
+                        candidate: metron_protocol::CandidateResult {
+                            count: sum.count,
+                            sum: sum.sum,
+                            input_digest: observation.input_digest.clone(),
+                        },
+                    },
+                    _ => ReceiptOutput::Failure {
+                        diagnostic: BoundedText::new("invalid local response")
+                            .map_err(|_| DecisionError::InvariantViolation)?,
+                    },
+                };
+                AgentEvent::EffectSettled {
+                    intent_id: intent_id.clone(),
+                    evidence_id: evidence_id.clone(),
+                    output,
+                }
+            }
+            _ => event.clone(),
+        };
+        let mut transition = SumPlanner.transition(state, &mapped)?;
+        if let Transition::Decision { intent, .. } = &mut transition {
+            intent.schema_version = SchemaVersion::V2;
+            if let IntentKind::RequestModel {
+                input_digest,
+                context,
+            } = &intent.kind
+            {
+                intent.kind = IntentKind::RequestLocalModel {
+                    input_digest: input_digest.clone(),
+                    context: context.clone(),
+                    profile_digest: self.profile_digest.clone(),
+                    role: metron_protocol::LocalRole::Solver,
+                    output_schema: metron_protocol::LocalOutputSchema::Sum,
+                };
+                let IntentKind::RequestLocalModel {
+                    input_digest,
+                    context,
+                    profile_digest,
+                    role,
+                    output_schema,
+                } = &intent.kind
+                else {
+                    return Err(DecisionError::InvariantViolation);
+                };
+                let request = ApprovedRequest::RequestLocalModel {
+                    input_digest: input_digest.clone(),
+                    context: context.clone(),
+                    profile_digest: profile_digest.clone(),
+                    role: *role,
+                    output_schema: *output_schema,
+                    tariff: Tariff {
+                        model_requests: SqlU64::new(1)
+                            .map_err(|_| DecisionError::InvariantViolation)?,
+                        tool_calls: SqlU64::new(0)
+                            .map_err(|_| DecisionError::InvariantViolation)?,
+                        spend_micros_usd: SqlU64::new(0)
+                            .map_err(|_| DecisionError::InvariantViolation)?,
+                    },
+                };
+                canonical_bytes(&request, MAX_CONTEXT)
+                    .map_err(|_| DecisionError::InvariantViolation)?;
+            }
+        }
+        Ok(transition)
+    }
+}

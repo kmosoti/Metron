@@ -281,6 +281,8 @@ pub struct Genesis {
     pub engine_version: BoundedText<128>,
     pub require_publication_approval: bool,
     pub policy_digest: Digest,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_profile: Option<crate::LocalProfile>,
 }
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -559,6 +561,20 @@ pub trait RuntimeSnapshot: AuditSnapshot {
 /// journal, whose first committed record has sequence one. Later tasks retain
 /// their own task-derived genesis for deterministic intent identities.
 pub fn journal_genesis(task: &Task, genesis: &Genesis) -> Result<Digest, ValidationError> {
+    match (&genesis.local_profile, task.data().schema_version) {
+        (None, SchemaVersion::V1) => {}
+        (Some(profile), SchemaVersion::V2) => {
+            profile.validate()?;
+            let expected = match genesis.mode {
+                EngineMode::Agent => "sum-local-agent/v2",
+                EngineMode::Harness => "sum-local-harness/v2",
+            };
+            if genesis.engine_version.as_str() != expected {
+                return Err(ValidationError::Binding);
+            }
+        }
+        _ => return Err(ValidationError::Version),
+    }
     let operation = StoreOperation::CreateTask {
         task: task.clone(),
         genesis: genesis.clone(),

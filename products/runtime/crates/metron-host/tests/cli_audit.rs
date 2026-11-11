@@ -133,6 +133,7 @@ fn over_limit_audit_is_operational_and_leaves_database_intact() {
         engine_version: BoundedText::new("sum-agent/v1").unwrap(),
         require_publication_approval: false,
         policy_digest: content_digest(b"metron-alpha0-host-policy-v1"),
+        local_profile: None,
     };
     let command = |id: String, operation| {
         StoreCommand::new(CommandData {
