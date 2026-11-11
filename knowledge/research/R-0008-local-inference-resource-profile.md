@@ -9,13 +9,17 @@ human_ratified: false
 
 # Local inference plugin and resource profile
 
-The default local model is **LFM3-1.7B Q4_K_M**. Evaluate
-**LFM2.5-1.2B-Thinking Q4_K_M** as an optional CPU reasoning route. Minimize
-Metron's idle footprint and measure total resource use before enabling a second
-resident model. The plugin and settings below are implementation contracts;
-the product runtime and live inference adapter do not exist yet.
+The default local model is **LFM3-1.7B Q4_K_M**, shared by planning and
+tool-selection roles through the **mistral.rs** integration in
+[R-0009](R-0009-mistralrs-batching-and-cache-contracts.md). The LFM2.5 artifact
+below is a historical size comparison and is excluded from the product profile.
+Minimize idle residency and qualify batching/cache settings against total
+resource use. The product runtime and live inference adapter remain planned.
 
 ## Sources and artifact identities
+
+The first artifact is selected; the second is retained only to audit the earlier
+two-model memory comparison.
 
 Audited on 2026-11-10 using official model cards, repository metadata and bounded
 GGUF header reads. GB means 10^9 bytes; GiB means 2^30 bytes.
@@ -35,8 +39,8 @@ The [LFM3 model card](https://huggingface.co/LiquidAI/LFM3-1.7B/blob/1da06bec6a8
 describes tool calling and structured outputs but discourages agentic coding and
 complex multistep reasoning. The
 [Thinking model card](https://huggingface.co/LiquidAI/LFM2.5-1.2B-Thinking/blob/fa4681e33c27d2861d1eacc9d29ccb68840344a0/README.md)
-also discourages programming and knowledge-intensive tasks. Neither is a proven
-coding backend for Metron. Its coding acceptance gate still requires independent
+also discourages programming and knowledge-intensive tasks. Neither has been validated as a
+coding backend for Metron. The selected model's coding acceptance gate requires independent
 task verification; model size or upstream benchmarks cannot satisfy that gate.
 
 Both checkpoints use **LFM Open License v1.0**, a custom license with commercial
@@ -79,8 +83,8 @@ allocation. They establish neither safety at 2,048 nor failure above it.
 
 The Thinking card advertises a 32,768-token context while its pinned native
 configuration and GGUF header encode 128,000. Do not infer validated long-context
-quality or allocate that maximum by default. Use the explicit small profile
-below; resolve this upstream discrepancy before raising the supported limit.
+quality from the metadata maximum. This discrepancy concerns the historical
+comparison only; it creates no supported Thinking profile in Metron.
 
 Read actual device capacity, free VRAM and Linux `MemAvailable` at admission.
 A 2 GiB Metron device budget is distinct from physical GPU capacity. System RAM
@@ -90,128 +94,52 @@ VRAM. An assumed 18 GB of shared memory cannot establish current headroom.
 ## Proposed plugin boundary
 
 Introduce `products/runtime/crates/metron-inference-local` in alpha.1, after P0
-and alpha.0. It implements the harness model effect port and is wired directly
-by `metron-host`. Alpha.3 can register the same trusted implementation through
-its static registry. No inference dependency enters the agent or laboratory.
+and alpha.0. It implements the harness model effect port and supervises a Rust
+worker using the pinned mistral.rs SDK. Alpha.3 can register the same trusted
+adapter through its static registry. No inference dependency enters the agent
+or laboratory. The component/authority diagram and complete scheduling, cache
+and acceptance contracts are in [R-0009](R-0009-mistralrs-batching-and-cache-contracts.md#composition-and-authority).
 
-```mermaid
-flowchart TB
-    Agent[Pure agent emits model intent] --> Protocol[Versioned protocol]
-    Host[Host composition and resource policy] --> Harness[Trusted harness admission]
-    Host --> Plugin[metron-inference-local]
-    Harness --> Plugin
-    Harness --> Journal[Atomic reservations and durable receipts]
-    Plugin --> Local[Supervised llama.cpp loopback service]
-    Local --> Primary[LFM3 Q4_K_M default GPU candidate]
-    Local -. optional separate CPU worker .-> Thinking[LFM2.5 Thinking Q4_K_M]
-    Plugin --> Journal
-    Weights[Host-owned pinned artifact store] --> Local
-    Plugin --> Protocol
-```
+Use one pinned LFM3 text weight set for multiple roles. Load it on demand, keep
+it for an active task, and release it afterwards. CPU fallback uses that same
+qualified LFM3 checkpoint. Additional LFM3 modalities are gated by actual feature
+needs, artifact/license checks and measured resource fit.
 
-The first backend candidate is MIT-licensed llama.cpp `v0.8.0`, commit
-`8642541b255bfb5dc39cd351a178be09013a55d6`; the
-[official LFM3 GGUF instructions](https://huggingface.co/LiquidAI/LFM3-1.7B-GGUF/blob/cd0c74c575b5c416f3011b5b4c298077f26ca8c2/README.md)
-require at least `b11960` / `v0.8.0`. Pin the tested binary/build identity during
-implementation. Source inspection does not establish local backend compatibility.
-
-The [pinned server reference](https://github.com/ggml-org/llama.cpp/blob/8642541b255bfb5dc39cd351a178be09013a55d6/tools/server/README.md)
-documents explicit context, parallelism, CPU/device placement, cache types and
-RAM prompt-cache limits. Map the profile to checked arguments. In particular,
-disable RAM prompt-cache retention (`--cache-ram 0`), set one slot explicitly,
-and prevent a CPU worker from automatically offloading tensors, KV or operations.
-The backend's default cache allowance is a maximum, not an idle allocation.
-
-## Initial resource policy
-
-These are conservative starting settings to profile, not measured optima:
-
-- LFM3 is the default local route. Thinking is opt-in and loaded only when that
-  route is requested. Do not launch or retain two workers automatically.
-- Start workers on demand and release them when their task finishes. Keep a
-  worker for a task's multi-turn loop; do not reload weights for every turn.
-  A configurable warm-residency policy requires an explicit memory/latency tradeoff.
-- Admit at most one inference request across workers by default. Bound waiting
-  requests, CPU threads, deadlines, context, generated tokens and response bytes.
-  Start each worker at 2,048 total context tokens and at most 512 generated tokens;
-  count system/template/tools/input and output reservation within that context.
-  This is a configuration choice, not a hardware limit.
-- Profile a **2 GiB aggregate Metron VRAM target**, with measured host-RAM
-  headroom and a reserve for other processes. Compare GPU LFM3 plus CPU Thinking
-  against each single-model profile. Dual-GPU residency remains an experiment.
-- Use explicit FP16 KV initially. Any cache quantization, larger context,
-  concurrency or warm secondary worker requires fresh quality and peak-memory
-  evidence. Keep prefill microbatches bounded and record them in the profile.
-- Check admission estimates against current free memory. Refuse a request when
-  its profiled envelope does not fit; an explicitly configured CPU route may be
-  used with the same accounting. Do not silently pull another model or use a
-  hosted fallback. Record actual placement and any selected fallback.
-
-A budget target and telemetry do not constitute a hard CUDA allocation cap.
-Do not advertise a strict 2 GiB guarantee unless the selected backend provides
-enforcement across all device allocations. If that guarantee is requested and
-unsupported, reject that configuration explicitly. Physical OOM can still occur
-after admission when another process consumes the remaining memory.
-
-The suggested asymmetric placement is feasible in principle and avoids keeping
-Thinking's weights/cache in VRAM. Keeping its worker warm still consumes host
-RAM, CPU capacity and energy; superiority in latency or total resources is an
-untested hypothesis. Models propose tool calls; the harness authorizes and
-executes them independently.
+Start at 2,048 total tokens per sequence and at most 512 generated tokens,
+including system/template/tools/input and output reservation in the context.
+Use one active sequence as the measurement baseline; qualify adaptive continuous
+batching, chunked prefill and bounded hybrid prefix reuse through R-0009.
+The 2 GiB aggregate Metron VRAM target is distinct from the KV-pool budget and
+must include every worker allocation. A memory planner or telemetry alone does
+not establish a hard allocator cap.
 
 ## Effect and replay contract
 
-Install weights explicitly, independently of inference requests; verify the full
-artifact against its published digest before first use. Bind supervised workers
-to loopback and fixed model identities. Use typed process arguments and bounded
-HTTP payloads. Models cannot select executable paths or widen endpoint access.
+Install weights explicitly, independently of inference requests; verify complete
+artifacts against published digests. Follow persisted intent, grant/lease/budget
+admission, dispatch and idempotent settlement. Keep per-request identities and
+receipts even when requests share a batch or prefix blocks. Record model/build,
+quantization, template, sampling, device/cache settings, token bounds, actual
+usage and uncertainty. Unknown shared-cost attribution remains explicit.
+Replay recorded model observations; never assume seeded GPU regeneration is
+identical. Only the harness authorizes and executes tools.
 
-Follow the existing persisted intent, admission, reservation, dispatch and
-settlement lifecycle. Receipts identify model revision/hash, quantization,
-backend/build, tokenizer/chat-template identity, sampling, cache/placement,
-context/output bounds, usage, finish/truncation reason and resource observations.
-Unknown usage remains explicit; local inference is not free resource usage.
-Cancellation, backend loss and malformed replies produce typed outcomes and
-preserve uncertainty/accounting. Replay consumes recorded model observations;
-it does not regenerate them or assume seeded GPU inference is reproducible.
-
-## Implementation acceptance and measurement
-
-1. Run both model profiles against the same frozen task inputs, tool schemas and
-   independent acceptance tests using each model's native template. Include the
-   coding fixture, structured calls, malformed output, cancellation and overflow.
-2. Compare LFM3-only GPU, Thinking-only CPU and asymmetric lazy/warm profiles.
-   Test dual-GPU residency only as an additional budget-constrained experiment.
-   Separate loading, cold prefill, warm prefill and decode timings. Do not infer
-   workstation performance from vendor benchmark hardware.
-3. Record artifact/build identities, GPU/CPU/RAM, actual placement, cache dtype,
-   thread count, batch/microbatch, slots, prompt/output lengths and sampling.
-   Report host-only overhead separately from backend RSS/PSS and device memory;
-   account for shared/mapped pages and include transient prefill allocations.
-4. Measure contexts 512, 2,048 and 4,096 with output reservation included; attempt
-   larger contexts only inside the admitted envelope. Establish actual memory
-   high-water marks with backend allocation reporting where available and device
-   telemetry. A sampled memory reading alone is not a hard-limit proof.
-5. Prove one-request admission across workers, bounded queues/caches/threads,
-   zero GPU allocations for the forced-CPU profile, worker release after a task,
-   and typed resource denial/backend failure with no silent fallback.
-6. Demonstrate offline inference after installation, exact model binding,
-   durable usage/overrun receipts, cancellation/restart reconciliation and replay
-   from recorded responses. Publish evidence or close the candidate negative.
+## Evidence and revisit conditions
 
 Only artifact metadata, header contents and arithmetic were checked here; no
 model inference, OOM experiment, task-quality or latency benchmark was run.
-Read the official API metadata with `?blobs=true` at each pinned model revision;
-request `Range: bytes=0-65535` from the immutable GGUF resolve URL and inspect
-the GGUF v3 metadata. The audit read 64 KiB per file, not the complete weights.
+Read official API metadata with `?blobs=true` at each pinned revision; request
+`Range: bytes=0-65535` from immutable GGUF resolve URLs and inspect GGUF v3
+metadata. The audit read 64 KiB per file, not complete weights.
 
 Relations: **implements** the model-adapter plan in
 [D-0003](../decisions/D-0003-runtime-implementation-sequence.md);
 **constrains** [R-0005 plugins and licenses](R-0005-storage-plugins-protocols.md)
 and [R-0006 crate boundaries](R-0006-rust-implementation-contracts.md);
-**registers** untested resource/quality priors in the
+**extended-by** [R-0009 runtime and batching](R-0009-mistralrs-batching-and-cache-contracts.md);
+**registers** resource/quality priors in the
 [canonical ledger](../../docs/research/priors.md).
 
-Revisit when the backend/artifacts change, measured memory exceeds admission
-estimates, task quality fails, supported hardware changes, or a matched benchmark
-shows another placement/residency policy uses fewer resources at acceptable quality.
+Revisit on a new qualifying artifact/backend, failed model-quality or memory
+acceptance, changed hardware, or a matched experiment demonstrating a more
+resource-efficient profile at the required quality and latency.
