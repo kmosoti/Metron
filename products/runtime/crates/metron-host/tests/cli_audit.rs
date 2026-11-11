@@ -14,13 +14,9 @@ fn run(args: &[&str]) -> std::process::Output {
         .unwrap()
 }
 fn decode(output: &std::process::Output) -> CliReport {
-    let bytes = if output.status.success() {
-        &output.stdout
-    } else {
-        &output.stderr
-    };
-    metron_protocol::parse_internal(bytes).unwrap()
+    metron_protocol::parse_internal(&output.stdout).unwrap()
 }
+
 #[test]
 fn replay_and_verify_are_read_only_and_verify_checks_artifact() {
     let root = std::env::temp_dir().join(format!("metron-cli-audit-{}", std::process::id()));
@@ -148,7 +144,7 @@ fn over_limit_audit_is_operational_and_leaves_database_intact() {
     let before = fs::read(&path).unwrap();
     let output = run(&["replay", root.to_str().unwrap()]);
     assert_eq!(output.status.code(), Some(6));
-    let report: CliReport = metron_protocol::parse_internal(&output.stderr).unwrap();
+    let report: CliReport = metron_protocol::parse_internal(&output.stdout).unwrap();
     assert_eq!(
         report.outcome,
         metron_protocol::CliOutcome::OperationalFailure
@@ -158,6 +154,10 @@ fn over_limit_audit_is_operational_and_leaves_database_intact() {
         "audit resource limit exceeded"
     );
     assert!(report.audit.is_none());
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr).trim(),
+        "audit resource limit exceeded"
+    );
     assert_eq!(fs::read(&path).unwrap(), before);
     fs::remove_dir_all(root).unwrap();
 }
@@ -197,10 +197,14 @@ fn corrupted_dedup_cache_exits_as_integrity_failure() {
     drop(connection);
     let output = run(&["replay", dir.to_str().unwrap()]);
     assert_eq!(output.status.code(), Some(5));
-    let report: CliReport = metron_protocol::parse_internal(&output.stderr).unwrap();
+    let report: CliReport = metron_protocol::parse_internal(&output.stdout).unwrap();
     assert_eq!(
         report.outcome,
         metron_protocol::CliOutcome::IntegrityFailure
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr).trim(),
+        "invalid audit data"
     );
     assert!(report.audit.is_none());
     fs::remove_dir_all(root).unwrap();

@@ -64,9 +64,10 @@ metron-runtime approval RUN --request-id ID --action-digest DIGEST --decision ap
 
 Use `deny` to reject the request. Recording a decision does not dispatch an effect;
 run `resume` separately. Replay and verify open the existing database read-only.
-Verify additionally examines the artifact. The JSON report distinguishes command
-success from verified task success and exposes current health, accounting and audit
-results. Exit codes are 0 for a successful command, 1 for semantic rejection, 2 for
+Verify additionally examines the artifact. Every command writes a versioned JSON
+report to stdout; diagnostics may also appear on stderr. The report distinguishes
+command success from verified task success and exposes current health, accounting
+and audit results. Exit codes are 0 for a successful command, 1 for semantic rejection, 2 for
 invalid input, 3 for policy or budget denial, 4 for blocked or uncertain work, 5
 for an integrity failure, and 6 for an operational failure.
 
