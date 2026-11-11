@@ -3070,6 +3070,7 @@ dependencies = [
  "metron-store-sqlite",
  "metron-testkit",
  "rusqlite",
+ "rustix",
  "serde",
  "serde_json",
 ]

@@ -35,6 +35,7 @@ knowledge to those sources.
 | [D-0002 Runtime charter and boundary](decisions/D-0002-runtime-charter.md) | agent | false |
 | [D-0003 Runtime implementation sequence](decisions/D-0003-runtime-implementation-sequence.md) | agent | false |
 | [D-0004 Runtime compatibility](decisions/D-0004-runtime-compatibility.md) | agent | false |
+| [D-0005 Alpha.1 delivery](decisions/D-0005-alpha1-delivery.md) | agent | false |
 | [R-0001 Agent/harness source audit](research/R-0001-agent-harness-landscape.md) | agent | false |
 | [R-0002 Runtime grammar](research/R-0002-runtime-grammar.md) | agent | false |
 | [R-0003 Agent contracts](research/R-0003-agent-contracts.md) | agent | false |
@@ -45,9 +46,11 @@ knowledge to those sources.
 | [R-0008 Local inference and resource profile](research/R-0008-local-inference-resource-profile.md) | agent | false |
 | [R-0009 mistral.rs batching and cache contracts](research/R-0009-mistralrs-batching-and-cache-contracts.md) | agent | false |
 | [R-0010 Native LFM3 inference](research/R-0010-lfm3-native-inference.md) | agent | false |
+| [R-0011 Shared reasoning toolkit](research/R-0011-shared-reasoning-toolkit.md) | agent | false |
 | [O-0003 Runtime contract probes](observations/O-0003-runtime-contract-probes.md) | agent | false |
 | [O-0004 Scripted runtime alpha.0 evidence](observations/O-0004-runtime-alpha0-evidence.md) | agent | false |
 | [O-0005 Native LFM3 CUDA execution](observations/O-0005-native-lfm3-cuda.md) | agent | false |
+| [O-0006 Calculator contract mismatch](observations/O-0006-calculator-contract-mismatch.md) | agent | false |
 
 ## Runtime implementation
 

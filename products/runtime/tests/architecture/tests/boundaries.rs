@@ -90,6 +90,9 @@ fn workspaces_are_isolated_and_product_dependencies_follow_boundaries() {
                 // the inference SDK remains confined to the worker.
                 "serde",
                 "serde_json",
+                // Safe Linux descriptors/sealed executable images belong only
+                // at this operator/effect boundary, never in pure contracts.
+                "rustix",
                 "metron-protocol",
                 "metron-agent",
                 "metron-harness",
