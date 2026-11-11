@@ -29,6 +29,9 @@ The GitHub release API reports Lean 4.35.0 published 2026-10-12. Its x86-64
 Linux archive is 594,481,375 bytes with SHA-256
 `7289597a44543246c9227b8cae501767e095ce17f6d448b95fc4a8dc97268f6d`.
 This identifies the proposed distribution, not an executed proof or installation.
+Later installation and positive/negative probe evidence is recorded in
+[O-0007](../observations/O-0007-toolkit-and-task-foundation.md). It does not
+qualify model-callable runtime adapters or general coding.
 
 The local host has bubblewrap 0.12.0, cgroup v2 and a user systemd manager. A
 basic namespaced `/usr/bin/true` invocation returned zero. This does not establish
