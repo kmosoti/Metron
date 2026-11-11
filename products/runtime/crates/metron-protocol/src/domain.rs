@@ -434,3 +434,18 @@ impl ArtifactPlan {
         self.candidate.artifact_bytes()
     }
 }
+
+/// The fixture's input schema. Arithmetic is intentionally left to consumers.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SumInput {
+    pub values: Vec<i64>,
+}
+
+/// Decode fixture bytes only after enforcing the raw byte limit.
+pub fn parse_sum_input(bytes: &[u8]) -> Result<SumInput, ValidationError> {
+    if bytes.len() > MAX_FIXTURE {
+        return Err(ValidationError::Limit);
+    }
+    serde_json::from_slice(bytes).map_err(|e| ValidationError::Json(e.to_string()))
+}
