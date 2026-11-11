@@ -2029,7 +2029,13 @@ fn verify(
     )?
     .ok_or(StoreError::Integrity)?;
     let pa: AccountSnapshot = decode!(&raw, AccountSnapshot);
-    if ta.incomplete || pa.incomplete || ta.integrity_hold || pa.integrity_hold {
+    if ta.breached
+        || pa.breached
+        || ta.incomplete
+        || pa.incomplete
+        || ta.integrity_hold
+        || pa.integrity_hold
+    {
         return Ok(None);
     }
     let mut stmt = tx
@@ -4182,7 +4188,11 @@ mod authority_tests {
         })
         .unwrap()
     }
-    fn prepare_verification(s: &mut SqliteStore) -> (Task, Receipt, VerificationSelection) {
+    fn prepare_verification(
+        s: &mut SqliteStore,
+        record: bool,
+        overrun: bool,
+    ) -> (Task, Receipt, VerificationSelection) {
         let (task, read) = admitted_read(s, "verify-task");
         let read_receipt = receipt(&task, &read, "read-receipt", known());
         let read_id = read_receipt.evidence_id().unwrap();
@@ -4249,6 +4259,19 @@ mod authority_tests {
             },
             false,
         );
+        let pub_receipt = if overrun {
+            let mut data = pub_receipt.data().clone();
+            data.usage = ActualUsage::Known {
+                usage: UsageVector {
+                    model_requests: DecimalUsage::new("0").unwrap(),
+                    tool_calls: DecimalUsage::new("2").unwrap(),
+                    spend_micros_usd: DecimalUsage::new("0").unwrap(),
+                },
+            };
+            Receipt::new(data).unwrap()
+        } else {
+            pub_receipt
+        };
         let pub_id = pub_receipt.evidence_id().unwrap();
         s.apply(cmd(
             "publication-receipt",
@@ -4287,16 +4310,18 @@ mod authority_tests {
             publication_evidence: pub_id,
             plan_digest: publication.request_digest.clone(),
         };
-        s.apply(cmd(
-            "verification",
-            StoreOperation::RecordVerification {
-                task_id: task.data().task_id.clone(),
-                selection: selection.clone(),
-                accepted: true,
-                reason: BoundedText::new("accepted").unwrap(),
-            },
-        ))
-        .unwrap();
+        if record {
+            s.apply(cmd(
+                "verification",
+                StoreOperation::RecordVerification {
+                    task_id: task.data().task_id.clone(),
+                    selection: selection.clone(),
+                    accepted: true,
+                    reason: BoundedText::new("accepted").unwrap(),
+                },
+            ))
+            .unwrap();
+        }
         (task, read_receipt, selection)
     }
     fn late_conflict(s: &mut SqliteStore, read: &Receipt) {
@@ -4321,7 +4346,7 @@ mod authority_tests {
     #[test]
     fn late_conflict_supersedes_unconsumed_verification_atomically() {
         let (mut s, p) = store();
-        let (task, read, _) = prepare_verification(&mut s);
+        let (task, read, _) = prepare_verification(&mut s, true, false);
         let input = {
             let mut snap = s.audit().unwrap();
             snap.pending_inbox(&task.data().task_id).unwrap().unwrap()
@@ -4350,7 +4375,7 @@ mod authority_tests {
     #[test]
     fn consumed_completion_remains_historical_under_late_hold() {
         let (mut s, p) = store();
-        let (task, read, _) = prepare_verification(&mut s);
+        let (task, read, _) = prepare_verification(&mut s, true, false);
         let (mut state, input) = {
             let mut snap = s.audit().unwrap();
             (
@@ -4698,7 +4723,7 @@ mod authority_tests {
     #[test]
     fn terminal_transition_with_pending_intent_is_rejected_without_mutation() {
         let (mut s, p) = store();
-        let (task, _, _) = prepare_verification(&mut s);
+        let (task, _, _) = prepare_verification(&mut s, true, false);
         let (state, input, head) = {
             let mut snap = s.audit().unwrap();
             let view = snap.projection(&task.data().task_id).unwrap();
@@ -4824,6 +4849,42 @@ mod authority_tests {
                 let _ = std::fs::remove_file(p);
             }
         }
+    }
+    #[test]
+    fn publication_overrun_cannot_record_verification() {
+        let (mut s, p) = store();
+        let (task, _, selection) = prepare_verification(&mut s, false, true);
+        let (state, head) = {
+            let mut snap = s.audit().unwrap();
+            let v = snap.projection(&task.data().task_id).unwrap();
+            assert!(v.task_account.breached && v.principal_account.breached);
+            assert_eq!(v.state.phase, Phase::AwaitingVerification);
+            assert!(snap.pending_inbox(&task.data().task_id).unwrap().is_none());
+            (v.state, v.replay_head)
+        };
+        let result = s
+            .apply(cmd(
+                "verification-after-overrun",
+                StoreOperation::RecordVerification {
+                    task_id: task.data().task_id.clone(),
+                    selection,
+                    accepted: true,
+                    reason: BoundedText::new("accepted").unwrap(),
+                },
+            ))
+            .unwrap();
+        assert_eq!(
+            result,
+            WriteOutcome::NotCommitted(NotCommitted::EvidenceChanged)
+        );
+        let mut snap = s.audit().unwrap();
+        let after = snap.projection(&task.data().task_id).unwrap();
+        assert_eq!(after.state, state);
+        assert_eq!(after.replay_head, head);
+        assert!(snap.pending_inbox(&task.data().task_id).unwrap().is_none());
+        drop(snap);
+        drop(s);
+        let _ = std::fs::remove_file(p);
     }
 }
 
