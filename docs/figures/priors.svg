@@ -46,13 +46,19 @@
   <rect x="350" y="136" width="34" height="34" rx="2" fill="#009E73"/>
   <text x="367" y="157.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">35</text>
   <text x="24" y="204" font-size="13" fill="#56B4E9" font-weight="600">refined</text>
-  <text x="24" y="220" font-size="11" fill="#57606a">3 priors</text>
+  <text x="24" y="220" font-size="11" fill="#57606a">6 priors</text>
   <rect x="150" y="188" width="34" height="34" rx="2" fill="#56B4E9"/>
   <text x="167" y="209.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">8</text>
   <rect x="190" y="188" width="34" height="34" rx="2" fill="#56B4E9"/>
   <text x="207" y="209.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">29</text>
   <rect x="230" y="188" width="34" height="34" rx="2" fill="#56B4E9"/>
   <text x="247" y="209.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">31</text>
+  <rect x="270" y="188" width="34" height="34" rx="2" fill="#56B4E9"/>
+  <text x="287" y="209.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">36</text>
+  <rect x="310" y="188" width="34" height="34" rx="2" fill="#56B4E9"/>
+  <text x="327" y="209.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">37</text>
+  <rect x="350" y="188" width="34" height="34" rx="2" fill="#56B4E9"/>
+  <text x="367" y="209.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">39</text>
   <text x="24" y="256" font-size="13" fill="#D55E00" font-weight="600">falsified</text>
   <text x="24" y="272" font-size="11" fill="#57606a">11 priors</text>
   <rect x="150" y="240" width="34" height="34" rx="2" fill="#D55E00"/>
@@ -78,46 +84,40 @@
   <rect x="550" y="240" width="34" height="34" rx="2" fill="#D55E00"/>
   <text x="567" y="261.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">34</text>
   <text x="24" y="308" font-size="13" fill="#8c959f" font-weight="600">untested</text>
-  <text x="24" y="324" font-size="11" fill="#57606a">20 priors</text>
+  <text x="24" y="324" font-size="11" fill="#57606a">17 priors</text>
   <rect x="150" y="292" width="34" height="34" rx="2" fill="#8c959f"/>
-  <text x="167" y="313.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">36</text>
+  <text x="167" y="313.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">38</text>
   <rect x="190" y="292" width="34" height="34" rx="2" fill="#8c959f"/>
-  <text x="207" y="313.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">37</text>
+  <text x="207" y="313.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">40</text>
   <rect x="230" y="292" width="34" height="34" rx="2" fill="#8c959f"/>
-  <text x="247" y="313.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">38</text>
+  <text x="247" y="313.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">41</text>
   <rect x="270" y="292" width="34" height="34" rx="2" fill="#8c959f"/>
-  <text x="287" y="313.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">39</text>
+  <text x="287" y="313.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">42</text>
   <rect x="310" y="292" width="34" height="34" rx="2" fill="#8c959f"/>
-  <text x="327" y="313.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">40</text>
+  <text x="327" y="313.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">43</text>
   <rect x="350" y="292" width="34" height="34" rx="2" fill="#8c959f"/>
-  <text x="367" y="313.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">41</text>
+  <text x="367" y="313.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">44</text>
   <rect x="390" y="292" width="34" height="34" rx="2" fill="#8c959f"/>
-  <text x="407" y="313.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">42</text>
+  <text x="407" y="313.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">45</text>
   <rect x="430" y="292" width="34" height="34" rx="2" fill="#8c959f"/>
-  <text x="447" y="313.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">43</text>
+  <text x="447" y="313.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">46</text>
   <rect x="470" y="292" width="34" height="34" rx="2" fill="#8c959f"/>
-  <text x="487" y="313.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">44</text>
+  <text x="487" y="313.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">47</text>
   <rect x="510" y="292" width="34" height="34" rx="2" fill="#8c959f"/>
-  <text x="527" y="313.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">45</text>
+  <text x="527" y="313.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">48</text>
   <rect x="550" y="292" width="34" height="34" rx="2" fill="#8c959f"/>
-  <text x="567" y="313.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">46</text>
+  <text x="567" y="313.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">49</text>
   <rect x="590" y="292" width="34" height="34" rx="2" fill="#8c959f"/>
-  <text x="607" y="313.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">47</text>
+  <text x="607" y="313.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">50</text>
   <rect x="630" y="292" width="34" height="34" rx="2" fill="#8c959f"/>
-  <text x="647" y="313.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">48</text>
+  <text x="647" y="313.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">51</text>
   <rect x="670" y="292" width="34" height="34" rx="2" fill="#8c959f"/>
-  <text x="687" y="313.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">49</text>
+  <text x="687" y="313.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">52</text>
   <rect x="150" y="332" width="34" height="34" rx="2" fill="#8c959f"/>
-  <text x="167" y="353.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">50</text>
+  <text x="167" y="353.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">53</text>
   <rect x="190" y="332" width="34" height="34" rx="2" fill="#8c959f"/>
-  <text x="207" y="353.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">51</text>
+  <text x="207" y="353.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">54</text>
   <rect x="230" y="332" width="34" height="34" rx="2" fill="#8c959f"/>
-  <text x="247" y="353.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">52</text>
-  <rect x="270" y="332" width="34" height="34" rx="2" fill="#8c959f"/>
-  <text x="287" y="353.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">53</text>
-  <rect x="310" y="332" width="34" height="34" rx="2" fill="#8c959f"/>
-  <text x="327" y="353.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">54</text>
-  <rect x="350" y="332" width="34" height="34" rx="2" fill="#8c959f"/>
-  <text x="367" y="353.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">55</text>
+  <text x="247" y="353.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">55</text>
   <text x="24" y="402" font-size="12.5" fill="#24292f">Priors about established mathematics held; priors about the design's own glue failed most often.</text>
 </svg>
