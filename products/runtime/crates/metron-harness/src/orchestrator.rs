@@ -55,6 +55,14 @@ pub enum DriveStatus {
     MultipleEvidence,
 }
 
+fn publication_error(error: std::io::Error) -> DriveError {
+    if error.kind() == std::io::ErrorKind::InvalidData {
+        DriveError::Integrity
+    } else {
+        DriveError::Operational
+    }
+}
+
 fn command(operation: StoreOperation) -> Result<StoreCommand, DriveError> {
     let bytes = canonical_bytes(&operation, MAX_INTERNAL).map_err(|_| DriveError::Invalid)?;
     let id = structural_digest("command/v1", &[&bytes]).map_err(|_| DriveError::Invalid)?;
@@ -465,7 +473,7 @@ pub fn reconcile<S: StorePort>(
         if existing != intent.selected_evidence || existing.is_none() {
             return Err(DriveError::Integrity);
         }
-        return if crate::publication::inspect(run_dir, plan).map_err(|_| DriveError::Integrity)? {
+        return if crate::publication::inspect(run_dir, plan).map_err(publication_error)? {
             Ok(DriveStatus::Complete)
         } else {
             Err(DriveError::Integrity)
@@ -487,7 +495,7 @@ pub fn reconcile<S: StorePort>(
         Some(StoreResult::ReconciliationClaimed { lease_epoch, .. }) => lease_epoch,
         _ => return Ok(DriveStatus::Blocked),
     };
-    if !crate::publication::reconcile(run_dir, plan).map_err(|_| DriveError::Integrity)? {
+    if !crate::publication::reconcile(run_dir, plan).map_err(publication_error)? {
         return Ok(DriveStatus::Blocked);
     }
     let usage = ActualUsage::Known {

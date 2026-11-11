@@ -63,7 +63,7 @@ fn replay_and_verify_are_read_only_and_verify_checks_artifact() {
         );
         assert_eq!(fs::read(&db_path).unwrap(), before);
     }
-    let path = {
+    let (path, intent_id) = {
         let mut store = SqliteStore::open_read_only(&db_path).unwrap();
         let mut snap = store.audit().unwrap();
         let page = snap.intents(&TaskId::new("audit").unwrap(), None).unwrap();
@@ -77,14 +77,37 @@ fn replay_and_verify_are_read_only_and_verify_checks_artifact() {
                 })
             })
             .unwrap();
-        run_dir.join(intent.relative_path.as_str())
+        (
+            run_dir.join(intent.relative_path.as_str()),
+            intent.intent_id,
+        )
     };
-    fs::write(path, b"corrupt").unwrap();
+    fs::write(&path, b"corrupt").unwrap();
     let output = run(&["verify", run_dir.to_str().unwrap()]);
     assert!(!output.status.success());
     let report = decode(&output);
     assert_eq!(report.command, CliCommand::Verify);
     assert_eq!(report.audit.unwrap().artifact_valid, Some(false));
+    assert_eq!(fs::read(&db_path).unwrap(), before);
+    let parent = path.parent().unwrap();
+    fs::remove_dir_all(parent).unwrap();
+    fs::write(parent, b"not a directory").unwrap();
+    let output = run(&[
+        "reconcile",
+        run_dir.to_str().unwrap(),
+        "--intent",
+        intent_id.as_str(),
+    ]);
+    assert_eq!(output.status.code(), Some(6));
+    let report = decode(&output);
+    assert_eq!(
+        report.outcome,
+        metron_protocol::CliOutcome::OperationalFailure
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr).trim(),
+        "orchestration unavailable"
+    );
     assert_eq!(fs::read(&db_path).unwrap(), before);
     fs::remove_dir_all(root).unwrap();
 }
