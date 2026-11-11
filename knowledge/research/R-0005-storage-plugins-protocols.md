@@ -12,7 +12,7 @@ source_proposal: 4c3781daa7211efd39bcdb95dcb15491be1abe39
 
 ## The Sans-IO split is physical, not rhetorical
 
-`metron-protocol` and cognition logic expose serializable domain objects and pure decision functions. Their dependency graph **must not contain** `tokio`, `reqwest`, `rusqlite` or OS/browser adapters, and their source must not call `std::process` or ambient I/O. The composition root owns async scheduling, dependency injection and port implementations.
+`metron-protocol` and cognition logic expose serializable domain objects and pure decision functions. Their dependency graph **must not contain** `tokio`, `reqwest`, `rusqlite` or OS/browser adapters, and their source must not call `std::process` or ambient I/O. The composition root owns scheduling, dependency injection and port implementations. Alpha.0 uses synchronous bounded driver and store ports; asynchronous scheduling is a later design question.
 
 **Do not hide an effect behind a “helpful” utility in the core.** A time provider, RNG, model client, terminal, filesystem, persistence backend or secret store must be an injected effect at an adapter boundary. Logical clock and seeded pseudo-random values may be explicit event inputs.
 
@@ -190,10 +190,9 @@ The default is **safe Rust and explicit ownership**. Do not tell coding agents t
 
 ## Toolchain and implementation language
 
-Keep the existing laboratory pinned to Rust 1.97.0 until a separately verified
-change updates its toolchain and MSRV. The product workspace selects and tests
-its own pinned stable toolchain at P0. Upstream version claims require a dated
-source and an executed build at implementation time.
+P0 migrates both workspaces to edition 2024, MSRV 1.100, and the exact
+`beta-2026-11-07` compiler pin. Stable 1.100 adoption requires separate
+qualification. See [ADR 0019](../../docs/adr/0019-runtime-compatibility.md).
 
 Metron-owned product code is Rust. Conventional SQLite includes a C engine.
 Dependency manifests, binary artifacts and local model weights need individual
