@@ -318,6 +318,7 @@ fn cli_report_retains_large_reported_usage_and_unrun_audit_checks() {
         outcome: CliOutcome::IntegrityFailure,
         task_id: None,
         phase: Some(Phase::Completed),
+        pending_intent: None,
         health: Some(CliHealth {
             verified_success: false,
             pending_input: false,
@@ -456,5 +457,78 @@ fn journal_and_inbox_bindings_match_independent_vectors() {
     assert_eq!(
         inbox_digest(&input).unwrap().as_str(),
         "d2ca7b036dcc3223c90f34f4be044f0d5f6d88828f093298bbc897e379e9c47d"
+    );
+}
+
+#[test]
+fn terminal_and_waiting_phase_pending_invariants_are_enforced() {
+    let mut state = AgentState {
+        task_id: TaskId::new("task").unwrap(),
+        genesis_digest: content_digest(b"genesis"),
+        max_decision_steps: 8,
+        revision: SqlU64::new(0).unwrap(),
+        decision_steps: 1,
+        phase: Phase::WaitingRead,
+        pending_intent: Some(content_digest(b"intent")),
+    };
+    assert!(state.validate().is_ok());
+    for phase in [
+        Phase::New,
+        Phase::AwaitingVerification,
+        Phase::Completed,
+        Phase::Rejected,
+    ] {
+        state.phase = phase;
+        assert!(state.validate().is_err());
+    }
+    state.pending_intent = None;
+    for phase in [
+        Phase::New,
+        Phase::AwaitingVerification,
+        Phase::Completed,
+        Phase::Rejected,
+    ] {
+        state.phase = phase;
+        assert!(state.validate().is_ok());
+    }
+    for phase in [
+        Phase::WaitingRead,
+        Phase::WaitingModel,
+        Phase::WaitingArtifact,
+    ] {
+        state.phase = phase;
+        assert!(state.validate().is_err());
+    }
+    state.phase = Phase::WaitingRead;
+    state.pending_intent = Some(content_digest(b"intent"));
+    let mut next = state.clone();
+    next.revision = SqlU64::new(1).unwrap();
+    next.phase = Phase::Rejected;
+    assert!(
+        Transition::Finalization { next }
+            .validate_from(&state)
+            .is_err()
+    );
+}
+
+#[test]
+fn verified_finalization_cannot_inject_pending_intent() {
+    let previous = AgentState {
+        task_id: TaskId::new("task").unwrap(),
+        genesis_digest: content_digest(b"genesis"),
+        max_decision_steps: 8,
+        revision: SqlU64::new(3).unwrap(),
+        decision_steps: 3,
+        phase: Phase::AwaitingVerification,
+        pending_intent: None,
+    };
+    let mut next = previous.clone();
+    next.revision = SqlU64::new(4).unwrap();
+    next.phase = Phase::Completed;
+    next.pending_intent = Some(content_digest(b"injected"));
+    assert!(
+        Transition::Finalization { next }
+            .validate_from(&previous)
+            .is_err()
     );
 }

@@ -364,6 +364,11 @@ impl From<JournalRecord> for JournalRecordData {
         value.0
     }
 }
+/// Alpha.0 operational audit budget; larger histories remain valid but require
+/// an auditor with a higher qualified capacity.
+pub const MAX_AUDIT_RECORDS: usize = 4096;
+/// Maximum canonical journal bytes accepted by the alpha.0 auditor.
+pub const MAX_AUDIT_JOURNAL_BYTES: usize = 8 * 1024 * 1024;
 pub const MAX_PAGE_RECORDS: usize = 16;
 pub const MAX_PAGE_BYTES: usize = 1024 * 1024;
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -380,7 +385,10 @@ pub trait AuditSnapshot {
     fn pending_inbox(&mut self, task: &TaskId) -> Result<Option<InboxInput>, StoreError>;
 }
 /// Each first committed command appends exactly one `CommandCommitted` record;
-/// duplicates and rejected attempts append none. That record's sequence is the
+/// semantic no-ops acknowledged under a new command ID also append and persist
+/// their result (with `PreviouslyCommitted` disposition), while same-ID
+/// duplicates and rejected attempts append none. Semantic no-ops do not change
+/// inboxes, evidence or accounting. That record's sequence is the
 /// source sequence for generated inbox inputs. Each operation emits at most one
 /// input, at output ordinal zero: task creation, denial, first uncertainty,
 /// successful authoritative settlement, and verification respectively. Other

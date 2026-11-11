@@ -255,10 +255,16 @@ pub struct AgentState {
 impl AgentState {
     pub fn validate(&self) -> Result<(), ValidationError> {
         if self.max_decision_steps > 64 || self.decision_steps > self.max_decision_steps {
-            Err(ValidationError::Limit)
-        } else {
-            Ok(())
+            return Err(ValidationError::Limit);
         }
+        let pending_required = matches!(
+            self.phase,
+            Phase::WaitingRead | Phase::WaitingModel | Phase::WaitingArtifact
+        );
+        if self.pending_intent.is_some() != pending_required {
+            return Err(ValidationError::Binding);
+        }
+        Ok(())
     }
 }
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]

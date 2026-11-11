@@ -87,6 +87,14 @@ fn workspaces_are_isolated_and_product_dependencies_follow_boundaries() {
         };
         for dependency in package["dependencies"].as_array().unwrap() {
             let dep = dependency["name"].as_str().unwrap();
+            if name == "metron-host" && dep == "rusqlite" {
+                assert_eq!(
+                    dependency["kind"].as_str(),
+                    Some("dev"),
+                    "host may use rusqlite only in tests"
+                );
+                continue;
+            }
             assert!(allowed.contains(&dep), "{name} must not depend on {dep}");
         }
     }
