@@ -47,6 +47,7 @@ knowledge to those sources.
 | [R-0010 Native LFM3 inference](research/R-0010-lfm3-native-inference.md) | agent | false |
 | [O-0003 Runtime contract probes](observations/O-0003-runtime-contract-probes.md) | agent | false |
 | [O-0004 Scripted runtime alpha.0 evidence](observations/O-0004-runtime-alpha0-evidence.md) | agent | false |
+| [O-0005 Native LFM3 CUDA execution](observations/O-0005-native-lfm3-cuda.md) | agent | false |
 
 ## Runtime implementation
 
