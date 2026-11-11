@@ -1536,7 +1536,14 @@ fn apply_lifecycle(state: &mut Reconstruction, op: &StoreOperation, result: &Sto
                 let Some(approval) = &mut item.approval else {
                     return false;
                 };
+                if approval.decision == Some(*decision) && &approval.action_digest == action_digest
+                {
+                    return true;
+                }
                 if &approval.action_digest != action_digest || approval.expires_at <= state.tick {
+                    return false;
+                }
+                if item.status != DispatchStatus::AwaitingApproval || approval.decision.is_some() {
                     return false;
                 }
                 approval.decision = Some(*decision);
@@ -1834,7 +1841,11 @@ fn apply_lifecycle(state: &mut Reconstruction, op: &StoreOperation, result: &Sto
                     );
                 }
             }
-            if !select_evidence(state, evidence_id) {
+            if state.evidence.get(evidence_id).is_none_or(|evidence| {
+                evidence.receipt.data().task_id != *id
+                    || evidence.receipt.data().intent_id != *intent_id
+            }) || !select_evidence(state, evidence_id)
+            {
                 return false;
             }
         }
@@ -2466,6 +2477,74 @@ mod tests {
             &operation,
             &StoreResult::ReconciliationSettled { evidence_id }
         ));
+
+        let receipt = usage_receipt(&check, "0", "1");
+        let evidence_id = receipt.evidence_id().unwrap();
+        state.evidence.insert(
+            evidence_id.clone(),
+            EvidenceSnapshot {
+                evidence_id: evidence_id.clone(),
+                receipt,
+                selected: false,
+                conflict: false,
+            },
+        );
+        let other_id = content_digest(b"other intent");
+        let mut other = state.intents[&check.intent_id].clone();
+        other.intent_id = other_id.clone();
+        other.reconciliation_lease = Some(LeaseSnapshot {
+            worker: check.worker.clone(),
+            epoch: check.lease_epoch,
+            expires_at: SqlU64::new(30).unwrap(),
+        });
+        state.intents.insert(other_id.clone(), other);
+        let cross_intent = StoreOperation::SettleReconciliation {
+            task_id: task.data().task_id.clone(),
+            intent_id: other_id,
+            worker: check.worker.clone(),
+            lease_epoch: check.lease_epoch,
+            expected_evidence_revision: zero,
+            evidence_id: evidence_id.clone(),
+            reconciled_receipt: None,
+        };
+        assert!(!apply_lifecycle(
+            &mut state,
+            &cross_intent,
+            &StoreResult::ReconciliationSettled { evidence_id }
+        ));
+
+        let request_id = ApprovalId::new("approval").unwrap();
+        let item = state.intents.get_mut(&check.intent_id).unwrap();
+        item.status = DispatchStatus::Denied;
+        item.approval = Some(ApprovalSnapshot {
+            task_id: task.data().task_id.clone(),
+            intent_id: check.intent_id.clone(),
+            request_id: request_id.clone(),
+            action_digest: check.prepared.action_digest.clone(),
+            expires_at: SqlU64::new(30).unwrap(),
+            decision: None,
+        });
+        let approval = StoreOperation::RecordApproval {
+            request_id,
+            action_digest: check.prepared.action_digest.clone(),
+            decision: ApprovalDecision::Approve,
+        };
+        assert!(!apply_lifecycle(
+            &mut state,
+            &approval,
+            &StoreResult::ApprovalRecorded
+        ));
+        let item = state.intents.get_mut(&check.intent_id).unwrap();
+        item.approval.as_mut().unwrap().decision = Some(ApprovalDecision::Approve);
+        assert!(apply_lifecycle(
+            &mut state,
+            &approval,
+            &StoreResult::ApprovalRecorded
+        ));
+        assert_eq!(
+            state.intents[&check.intent_id].status,
+            DispatchStatus::Denied
+        );
     }
     #[test]
     fn previously_committed_admission_after_settlement_does_not_reserve_again() {
