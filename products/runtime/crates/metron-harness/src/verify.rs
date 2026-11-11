@@ -98,7 +98,13 @@ pub fn verify(
         && published
         && publication_receipt.data().intent_id == plan.intent_id
         && publication_receipt.data().dispatch_id == plan.dispatch_id;
-    let exists = publication::inspect(run_dir, plan).map_err(|_| VerifyError::Operational)?;
+    let exists = publication::inspect(run_dir, plan).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::InvalidData {
+            VerifyError::InvalidEvidence("invalid artifact plan")
+        } else {
+            VerifyError::Operational
+        }
+    })?;
     let plan_digest = structural_digest(
         "approved-request/v1",
         &[&canonical_bytes(
