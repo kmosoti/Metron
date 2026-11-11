@@ -2,7 +2,7 @@
   <title>Every prior is a hypothesis</title>
   <rect x="0.5" y="0.5" width="759" height="423" rx="10" fill="#ffffff" stroke="#d0d7de"/>
   <text x="24" y="36" font-size="18" fill="#24292f" font-weight="600">Every prior is a hypothesis</text>
-  <text x="24" y="58" font-size="12.5" fill="#57606a">54 priors the design relies on, each with a test or a primary source (docs/research/priors.md)</text>
+  <text x="24" y="58" font-size="12.5" fill="#57606a">55 priors the design relies on, each with a test or a primary source (docs/research/priors.md)</text>
   <text x="24" y="112" font-size="13" fill="#009E73" font-weight="600">validated</text>
   <text x="24" y="128" font-size="11" fill="#57606a">20 priors</text>
   <rect x="150" y="96" width="34" height="34" rx="2" fill="#009E73"/>
@@ -84,7 +84,7 @@
   <rect x="550" y="240" width="34" height="34" rx="2" fill="#D55E00"/>
   <text x="567" y="261.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">34</text>
   <text x="24" y="308" font-size="13" fill="#8c959f" font-weight="600">untested</text>
-  <text x="24" y="324" font-size="11" fill="#57606a">17 priors</text>
+  <text x="24" y="324" font-size="11" fill="#57606a">18 priors</text>
   <rect x="150" y="292" width="34" height="34" rx="2" fill="#8c959f"/>
   <text x="167" y="313.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">38</text>
   <rect x="190" y="292" width="34" height="34" rx="2" fill="#8c959f"/>
@@ -119,5 +119,7 @@
   <text x="207" y="353.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">54</text>
   <rect x="230" y="332" width="34" height="34" rx="2" fill="#8c959f"/>
   <text x="247" y="353.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">55</text>
+  <rect x="270" y="332" width="34" height="34" rx="2" fill="#8c959f"/>
+  <text x="287" y="353.5" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="600">56</text>
   <text x="24" y="402" font-size="12.5" fill="#24292f">Priors about established mathematics held; priors about the design's own glue failed most often.</text>
 </svg>
