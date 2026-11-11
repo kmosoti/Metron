@@ -81,12 +81,15 @@ pub enum StoreOperation {
         intent_id: Digest,
         reason: BoundedText<MAX_TEXT>,
     },
+    /// Store derives expiry from its current logical tick plus
+    /// `APPROVAL_TTL_TICKS`, using checked arithmetic under the write lock.
     CreateApprovalRequest {
         task_id: TaskId,
         request_id: ApprovalId,
         intent_id: Digest,
         action_digest: Digest,
     },
+    /// Reject an approval when its expiry is at or before the current DB tick.
     RecordApproval {
         request_id: ApprovalId,
         action_digest: Digest,
@@ -392,6 +395,10 @@ pub trait AuditSnapshot {
 /// snapshot or cannot settle; that outcome is committed as evidence rather than
 /// returned as NotCommitted. Verification uses the task-wide evidence revision;
 /// intent snapshots carry the per-intent reconciliation evidence revision.
+/// Approval creation uses checked current database tick plus 30 logical ticks;
+/// recording a decision and admitting a dispatch both reject an approval whose
+/// `expires_at` is at or before the current database tick, independently of the
+/// worker lease. No wall clock is involved.
 /// Only a FirstCommit admission acknowledgement can support authority.
 pub trait StorePort {
     type Audit<'a>: RuntimeSnapshot
@@ -421,6 +428,9 @@ pub struct LeaseSnapshot {
     pub epoch: SqlU64,
     pub expires_at: SqlU64,
 }
+/// Fixed logical lifetime for an approval request, independent of leases.
+pub const APPROVAL_TTL_TICKS: u64 = 30;
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ApprovalSnapshot {
@@ -428,6 +438,7 @@ pub struct ApprovalSnapshot {
     pub intent_id: Digest,
     pub request_id: ApprovalId,
     pub action_digest: Digest,
+    pub expires_at: SqlU64,
     pub decision: Option<ApprovalDecision>,
 }
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
