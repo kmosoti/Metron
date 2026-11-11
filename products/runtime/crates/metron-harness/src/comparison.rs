@@ -411,7 +411,7 @@ mod tests {
     fn setup(tag: &str) -> (std::path::PathBuf, ComparisonSession) {
         let dir = std::env::var_os("CARGO_TARGET_DIR")
             .map(std::path::PathBuf::from)
-            .unwrap()
+            .unwrap_or_else(std::env::temp_dir)
             .join(format!("comparison-test-{}-{tag}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let mut profile = local_profile();
@@ -478,7 +478,7 @@ mod tests {
     fn wrong_binding_permanently_blocks() {
         let dir = std::env::var_os("CARGO_TARGET_DIR")
             .map(std::path::PathBuf::from)
-            .unwrap()
+            .unwrap_or_else(std::env::temp_dir)
             .join(format!("comparison-binding-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let mut profile = local_profile();
@@ -513,7 +513,7 @@ mod tests {
     fn known_result_consumes_budget() {
         let dir = std::env::var_os("CARGO_TARGET_DIR")
             .map(std::path::PathBuf::from)
-            .unwrap()
+            .unwrap_or_else(std::env::temp_dir)
             .join(format!("comparison-budget-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let mut profile = local_profile();
