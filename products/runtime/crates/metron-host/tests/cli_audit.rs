@@ -32,6 +32,8 @@ fn replay_and_verify_are_read_only_and_verify_checks_artifact() {
     let run_dir = root.join("run");
     let output = run(&[
         "run",
+        "--task-family",
+        "sum-v1",
         "--task",
         task_file.to_str().unwrap(),
         "--run-dir",
@@ -201,6 +203,8 @@ fn corrupted_dedup_cache_exits_as_integrity_failure() {
     let dir = root.join("run");
     let output = run(&[
         "run",
+        "--task-family",
+        "sum-v1",
         "--task",
         file.to_str().unwrap(),
         "--run-dir",

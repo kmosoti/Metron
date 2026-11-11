@@ -2,7 +2,7 @@
 id: D-0003
 type: decision
 status: proposed
-updated: 2026-11-10
+updated: 2026-11-11
 added_by: agent
 human_ratified: false
 source_proposal: 4c3781daa7211efd39bcdb95dcb15491be1abe39
@@ -10,15 +10,15 @@ source_proposal: 4c3781daa7211efd39bcdb95dcb15491be1abe39
 
 # 06 — Product alpha release vector and success contracts
 
-These are **proposed product releases**, not the existing laboratory's M0–M6. Nothing below is currently claimed as implemented. The labels are semantic slices, not deadlines. A milestone can be closed as negative and that is a useful result.
+These are product release contracts, distinct from the laboratory's M0–M6. Alpha.0 is reached (O-0004); later capabilities require their own evidence. Labels are semantic slices, not deadlines. A milestone can be closed as negative and that is a useful result.
 
 Implementation is tracked in [issue #7](https://github.com/kmosoti/Metron/issues/7)
-on the new `feat/metron-runtime` branch.
+through focused `feat/alpha1-*` feature branches. [D-0005](D-0005-alpha1-delivery.md) is the current alpha.1 feature/evidence matrix; issue #7 closes after that release, with later alphas tracked separately.
 
 ## Ordered implementation slices
 
 The implementation issue tracks P0 and alpha.0 as its first runnable milestone,
-then progresses through the later release contracts below. Use independently
+then completes alpha.1 through D-0005. The later release contracts below are separate follow-ups. Use independently
 reviewable feature PRs from `develop`, following the repository's stack workflow.
 The implementation branch is `feat/metron-runtime`.
 
@@ -122,7 +122,7 @@ so its authority and replay tests can run without claiming OS containment.
 
 **Silos:** S2/S5/S6. **Entry:** alpha.0 replay/authority tests.
 
-**Deliverable:** workspace-scoped file read, structured edit/diff and test/command execution in a verified OS sandbox; a local inference plugin behind the model adapter (pinned LFM3-1.7B Q4_K_M through mistral.rs; one shared weight set for multiple roles); CLI with bounded event streaming. Tool output includes truncation and evidence refs.
+**Deliverable:** workspace-scoped file read, structured edit/diff and test/command execution in a verified OS sandbox; a local inference plugin behind the model adapter (pinned LFM3-1.7B Q4_K_M through mistral.rs; one shared weight set for multiple roles); CLI with bounded event streaming. Tool output includes truncation and evidence refs. [ADR 0022](../../docs/adr/0022-alpha1-coding-and-memory.md) and [D-0005](D-0005-alpha1-delivery.md) add the shared jj/ripgrep/Z3/Lean toolkit, scoped cross-task SQLite memory, bounded context and static personas to this release. The remaining autonomous lifecycle stays alpha.2.
 
 **Success:**
 1. Complete a known synthetic Rust coding task: read fixture, apply edit, run checks, inspect diff, produce artifact, independently verify.
@@ -138,7 +138,7 @@ so its authority and replay tests can run without claiming OS containment.
 
 **Silos:** S1/S3/S5. **Entry:** alpha.1 bounded effects and stable schema.
 
-**Deliverable:** durable goals, versioned identity/role/persona/skill references, source-tagged observations/claims/beliefs, wakeup scheduling, memory query interface and restart recovery. SQLite remains canonical.
+**Deliverable:** durable goals, versioned identity/role/persona/skill references, wakeup scheduling and autonomous restart recovery. Build on alpha.1's source-tagged scoped cross-task SQLite memory and query interface; do not duplicate that store.
 
 **Success:**
 1. Goal resumes correctly after process restart without hallucinated completion.

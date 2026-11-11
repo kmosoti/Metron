@@ -103,7 +103,7 @@ A minimal task file is:
 ```
 
 ```sh
-cargo run -p metron-host -- run --task task.json --run-dir run-1
+cargo run -p metron-host -- run --task-family sum-v1 --task task.json --run-dir run-1
 cargo run -p metron-host -- replay run-1
 cargo run -p metron-host -- verify run-1
 ```
@@ -112,6 +112,35 @@ cargo run -p metron-host -- verify run-1
 planner; the default is `--mode agent`. Add `--require-publication-approval` to
 require an operator decision before publishing. The immutable artifact path is
 `artifacts/<intent-id>/<dispatch-id>/result.json` under the run directory.
+
+New runs require explicit `--task-family sum-v1` selection. The task's objective
+is descriptive; this legacy family verifies only the fixed sum fixture. Missing
+or unsupported families reject before creating run state or loading a model.
+Existing persisted runs can still resume, replay and verify without this flag.
+Coding tasks remain unavailable until their tool and acceptance contracts land.
+
+### Pinned tool inventory
+
+`metron-runtime toolkit inspect CATALOG.json` checks operator-selected executable
+hashes before fixed version probes and reports the linked SQLite/FTS5 capability.
+On Linux, executable bytes are copied into a bounded sealed image and the
+verified image is executed, so replacing the original file cannot substitute a
+different executable. Interpreters and shared libraries remain operator-trusted
+dependencies; this check does not qualify a full distribution or sandbox.
+The report is inventory only; it cannot authorize tools or qualify a runtime
+profile. Version output and process waits are bounded. Missing files, digest or
+version mismatches and uncertain probes return a nonzero status.
+
+A catalog has `schema_version: 1` and a `tools` array. Each entry contains `tool`
+(`jj`, `ripgrep`, `z3`, `lean`, `cargo`, `rustc` or `bubblewrap`), an absolute
+`executable`, its full `sha256`, and `version_prefix`. Use immutable trusted tool
+paths rather than auto-installing shims. The catalog digest can be bound into a
+coding-task contract; it is not a permission set.
+
+The public [admission models](contracts/README.md) provide positive/negative SMT
+and Lean checks for development. Runtime adapters for these tools remain gated
+on confinement and admission. [D-0005](../../knowledge/decisions/D-0005-alpha1-delivery.md)
+tracks alpha.1's implementation and release evidence.
 
 If a run is blocked, `resume RUN` processes durable work without polling or
 advancing time. Its `pending_intent` field identifies the current intent.

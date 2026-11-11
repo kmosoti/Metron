@@ -26,3 +26,4 @@ mark them superseded. Template: context, decision, consequences.
 | 0019 | Runtime workspace compatibility | accepted; human ratification pending |
 | 0020 | Durable bounded runtime execution | accepted; human ratification pending |
 | 0021 | Bounded native local inference | accepted; human ratification pending |
+| 0022 | Explicit coding contracts and scoped cross-task memory | proposed |

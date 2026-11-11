@@ -13,6 +13,7 @@ metron-store-sqlite = { path = "../metron-store-sqlite" }
 metron-inference-local = { path = "../metron-inference-local" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+rustix = { version = "=1.1.6", features = ["fs"] }
 
 [dev-dependencies]
 rusqlite = { version = "=0.37.0", features = ["bundled"] }

@@ -10,6 +10,7 @@ mod qualification;
 mod qualification_capture;
 mod qualification_runner;
 mod session_identity;
+mod toolkit;
 use metron_harness::{
     orchestrator::{self, DriveError, DriveStatus, NoObserver},
     planner::{LocalSumPlanner, SumPlanner},
@@ -182,6 +183,7 @@ fn validate_args(command: CliCommand, args: &[String]) -> bool {
     let options: &[&str] = match command {
         CliCommand::Run => &[
             "--task",
+            "--task-family",
             "--run-dir",
             "--mode",
             "--require-publication-approval",
@@ -240,6 +242,16 @@ fn validate_args(command: CliCommand, args: &[String]) -> bool {
 fn action(command: CliCommand, args: &[String]) -> Result<CliReport, (CliOutcome, &'static str)> {
     if !validate_args(command, args) {
         return Err((CliOutcome::InvalidInput, "invalid arguments"));
+    }
+    // Objective text is descriptive, not an executable task contract. Until
+    // coding is wired to its own effects and verifier, only explicit fixture
+    // selection may reach the legacy planner. Check before touching run state
+    // or loading an inference profile.
+    if command == CliCommand::Run && flag(args, "--task-family").as_deref() != Some("sum-v1") {
+        return Err((
+            CliOutcome::InvalidInput,
+            "unsupported or missing task family; use --task-family sum-v1 only for the legacy fixture",
+        ));
     }
     let run_dir = match command {
         CliCommand::Run => flag(args, "--run-dir").map(PathBuf::from),
@@ -616,6 +628,9 @@ fn main() -> ExitCode {
     let args: Vec<String> = env::args().skip(1).collect();
     if args.first().is_some_and(|arg| arg == "model") {
         return model_cli::execute(&args[1..]);
+    }
+    if args.first().is_some_and(|arg| arg == "toolkit") {
+        return toolkit::execute(&args[1..]);
     }
     let command = match args.first().map(String::as_str) {
         Some("run") => CliCommand::Run,
