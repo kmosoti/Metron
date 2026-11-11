@@ -391,3 +391,35 @@ fn tagged_model_request_limit_accounts_for_metadata_and_json_escaping() {
         Err(ValidationError::Limit)
     );
 }
+
+#[test]
+fn approval_expiry_round_trips_and_tick_addition_is_checked() {
+    let expires_at = SqlU64::new(4)
+        .unwrap()
+        .checked_add(APPROVAL_TTL_TICKS)
+        .unwrap();
+    assert_eq!(expires_at.get(), 34);
+    assert!(
+        SqlU64::new(MAX_SQL_INTEGER - 29)
+            .unwrap()
+            .checked_add(APPROVAL_TTL_TICKS)
+            .is_err()
+    );
+    let approval = ApprovalSnapshot {
+        task_id: TaskId::new("task").unwrap(),
+        intent_id: content_digest(b"intent"),
+        request_id: ApprovalId::new("approval").unwrap(),
+        action_digest: content_digest(b"action"),
+        expires_at,
+        decision: None,
+    };
+    let encoded = canonical_bytes(&approval, MAX_ENVELOPE).unwrap();
+    assert_eq!(
+        parse_envelope::<ApprovalSnapshot>(&encoded).unwrap(),
+        approval
+    );
+    let invalid = String::from_utf8(encoded)
+        .unwrap()
+        .replace("\"expires_at\":34", "\"expires_at\":9223372036854775808");
+    assert!(parse_envelope::<ApprovalSnapshot>(invalid.as_bytes()).is_err());
+}
