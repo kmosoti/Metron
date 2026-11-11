@@ -1,1 +1,480 @@
-fn main() {}
+//! Composition root for the scripted alpha.0 runtime.
+#![forbid(unsafe_code)]
+use metron_harness::{
+    orchestrator::{self, DriveStatus, NoObserver},
+    planner::SumPlanner,
+};
+use metron_protocol::{
+    cli::{CliAccounting, CliApproval, CliAudit, CliCommand, CliHealth, CliOutcome, CliReport},
+    domain::{Cognition, Phase, Task},
+    store::{
+        ApprovalDecision, AuditSnapshot, CommandData, EngineMode, Genesis, RuntimeSnapshot,
+        StoreCommand, StoreError, StoreOperation, StorePort, WriteOutcome,
+    },
+    types::{
+        ApprovalId, BoundedText, CommandId, Digest, MAX_INTERNAL, SchemaVersion, SqlU64,
+        canonical_bytes, content_digest, parse_envelope, structural_digest,
+    },
+};
+use metron_store_sqlite::SqliteStore;
+use std::{env, fs, io::Read, path::PathBuf, process::ExitCode};
+
+fn report(command: CliCommand, outcome: CliOutcome, diagnostic: Option<&str>) -> CliReport {
+    CliReport {
+        schema_version: SchemaVersion::V1,
+        command,
+        outcome,
+        task_id: None,
+        phase: None,
+        pending_intent: None,
+        health: None,
+        replay_head: None,
+        approval: None,
+        accounting: None,
+        audit: None,
+        diagnostic: diagnostic.and_then(|s| BoundedText::new(s).ok()),
+    }
+}
+fn emit(report: CliReport) -> ExitCode {
+    let code = match report.outcome {
+        CliOutcome::Succeeded => 0,
+        CliOutcome::Rejected => 1,
+        CliOutcome::InvalidInput => 2,
+        CliOutcome::Denied => 3,
+        CliOutcome::Blocked => 4,
+        CliOutcome::IntegrityFailure => 5,
+        CliOutcome::OperationalFailure => 6,
+    };
+    match report.encode() {
+        Ok(bytes) => {
+            let line = String::from_utf8_lossy(&bytes);
+            if code == 0 || code == 4 {
+                println!("{line}");
+            } else {
+                eprintln!("{line}");
+            }
+        }
+        Err(_) => eprintln!("{{\"schema_version\":1,\"outcome\":\"operational_failure\"}}"),
+    }
+    ExitCode::from(code)
+}
+fn make_command(
+    operation: StoreOperation,
+    supplied: Option<CommandId>,
+) -> Result<StoreCommand, ()> {
+    let id = match supplied {
+        Some(id) => id,
+        None => {
+            let bytes = canonical_bytes(&operation, MAX_INTERNAL).map_err(|_| ())?;
+            let digest = structural_digest("command/v1", &[&bytes]).map_err(|_| ())?;
+            CommandId::new(digest.as_str()).map_err(|_| ())?
+        }
+    };
+    StoreCommand::new(CommandData {
+        schema_version: SchemaVersion::V1,
+        command_id: id,
+        operation,
+    })
+    .map_err(|_| ())
+}
+fn audit_error(error: StoreError) -> (CliOutcome, &'static str) {
+    match error {
+        StoreError::Integrity | StoreError::Validation(_) => {
+            (CliOutcome::IntegrityFailure, "invalid audit data")
+        }
+        StoreError::Busy | StoreError::Operational(_) => (
+            CliOutcome::OperationalFailure,
+            "audit unavailable or resource limit exceeded",
+        ),
+    }
+}
+fn flag(args: &[String], name: &str) -> Option<String> {
+    args.windows(2).find(|w| w[0] == name).map(|w| w[1].clone())
+}
+fn validate_args(command: CliCommand, args: &[String]) -> bool {
+    let options: &[&str] = match command {
+        CliCommand::Run => &[
+            "--task",
+            "--run-dir",
+            "--mode",
+            "--require-publication-approval",
+        ],
+        CliCommand::Resume => &["--advance-tick", "--expected-tick", "--command-id"],
+        CliCommand::Reconcile => &[
+            "--intent",
+            "--advance-tick",
+            "--expected-tick",
+            "--command-id",
+        ],
+        CliCommand::Approval => &[
+            "--request-id",
+            "--action-digest",
+            "--decision",
+            "--command-id",
+        ],
+        CliCommand::Replay | CliCommand::Verify => &[],
+    };
+    let mut i = if command == CliCommand::Run {
+        0
+    } else if args.first().is_some_and(|v| !v.starts_with('-')) {
+        1
+    } else {
+        return false;
+    };
+    let mut seen = Vec::new();
+    while i < args.len() {
+        let option = args[i].as_str();
+        if !options.contains(&option) || seen.contains(&option) {
+            return false;
+        }
+        seen.push(option);
+        i += 1;
+        if option != "--require-publication-approval" {
+            if i >= args.len() || args[i].starts_with("--") {
+                return false;
+            }
+            i += 1;
+        }
+    }
+    true
+}
+fn action(command: CliCommand, args: &[String]) -> Result<CliReport, (CliOutcome, &'static str)> {
+    if !validate_args(command, args) {
+        return Err((CliOutcome::InvalidInput, "invalid arguments"));
+    }
+    let run_dir = match command {
+        CliCommand::Run => flag(args, "--run-dir").map(PathBuf::from),
+        _ => args
+            .first()
+            .filter(|s| !s.starts_with('-'))
+            .map(PathBuf::from),
+    }
+    .ok_or((CliOutcome::InvalidInput, "missing run directory"))?;
+    let db_path = run_dir.join("runtime.sqlite");
+    let mut store = if command == CliCommand::Run {
+        let task_path = flag(args, "--task").ok_or((CliOutcome::InvalidInput, "missing task"))?;
+        let input = fs::File::open(task_path)
+            .map_err(|_| (CliOutcome::InvalidInput, "cannot read task"))?;
+        let mut bytes = Vec::new();
+        input
+            .take((metron_protocol::MAX_ENVELOPE + 1) as u64)
+            .read_to_end(&mut bytes)
+            .map_err(|_| (CliOutcome::InvalidInput, "cannot read task"))?;
+        let task: Task =
+            parse_envelope(&bytes).map_err(|_| (CliOutcome::InvalidInput, "invalid task"))?;
+        let mode = match flag(args, "--mode").as_deref().unwrap_or("agent") {
+            "agent" => EngineMode::Agent,
+            "harness" => EngineMode::Harness,
+            _ => return Err((CliOutcome::InvalidInput, "unknown mode")),
+        };
+        if run_dir.exists() {
+            if !run_dir.is_dir()
+                || fs::read_dir(&run_dir)
+                    .map_err(|_| {
+                        (
+                            CliOutcome::OperationalFailure,
+                            "cannot inspect run directory",
+                        )
+                    })?
+                    .next()
+                    .is_some()
+            {
+                return Err((CliOutcome::InvalidInput, "run directory is populated"));
+            }
+        } else {
+            fs::create_dir_all(&run_dir).map_err(|_| {
+                (
+                    CliOutcome::OperationalFailure,
+                    "cannot create run directory",
+                )
+            })?;
+        }
+        let mut store = SqliteStore::create(&db_path)
+            .map_err(|_| (CliOutcome::OperationalFailure, "cannot create database"))?;
+        let version = match mode {
+            EngineMode::Agent => "sum-agent/v1",
+            EngineMode::Harness => "sum-harness/v1",
+        };
+        let genesis = Genesis {
+            mode,
+            engine_version: BoundedText::new(version)
+                .map_err(|_| (CliOutcome::InvalidInput, "invalid version"))?,
+            require_publication_approval: args
+                .iter()
+                .any(|a| a == "--require-publication-approval"),
+            policy_digest: content_digest(b"metron-alpha0-host-policy-v1"),
+        };
+        let command = make_command(StoreOperation::CreateTask { task, genesis }, None)
+            .map_err(|_| (CliOutcome::InvalidInput, "invalid task command"))?;
+        if !matches!(
+            store
+                .apply(command)
+                .map_err(|_| (CliOutcome::OperationalFailure, "task creation failed"))?,
+            WriteOutcome::Committed(_)
+        ) {
+            return Err((CliOutcome::Rejected, "task not created"));
+        }
+        store
+    } else if matches!(command, CliCommand::Replay | CliCommand::Verify) {
+        SqliteStore::open_read_only(&db_path).map_err(audit_error)?
+    } else {
+        SqliteStore::open_existing(&db_path)
+            .map_err(|_| (CliOutcome::OperationalFailure, "cannot open database"))?
+    };
+    let ids = store
+        .task_ids()
+        .map_err(|_| (CliOutcome::OperationalFailure, "cannot list task"))?;
+    if ids.len() != 1 {
+        return Err((CliOutcome::IntegrityFailure, "expected one task"));
+    }
+    let task_id = ids[0].clone();
+    if matches!(command, CliCommand::Resume | CliCommand::Reconcile) {
+        let tick = flag(args, "--advance-tick");
+        let expected = flag(args, "--expected-tick");
+        let id = flag(args, "--command-id");
+        if tick.is_some() || expected.is_some() || id.is_some() {
+            let parse_tick = |s: Option<String>| {
+                s.and_then(|v| v.parse::<u64>().ok())
+                    .and_then(|v| SqlU64::new(v).ok())
+                    .ok_or((CliOutcome::InvalidInput, "invalid tick arguments"))
+            };
+            let op = StoreOperation::AdvanceTick {
+                expected_tick: parse_tick(expected)?,
+                new_tick: parse_tick(tick)?,
+            };
+            let id = CommandId::new(id.ok_or((CliOutcome::InvalidInput, "missing command id"))?)
+                .map_err(|_| (CliOutcome::InvalidInput, "invalid command id"))?;
+            if !matches!(
+                store
+                    .apply(
+                        make_command(op, Some(id))
+                            .map_err(|_| (CliOutcome::InvalidInput, "invalid tick command"))?
+                    )
+                    .map_err(|_| (CliOutcome::OperationalFailure, "tick update failed"))?,
+                WriteOutcome::Committed(_)
+            ) {
+                return Err((CliOutcome::Blocked, "tick conflict"));
+            }
+        }
+    }
+    let mut result = report(command, CliOutcome::Succeeded, None);
+    if command == CliCommand::Approval {
+        let request_id = ApprovalId::new(
+            flag(args, "--request-id").ok_or((CliOutcome::InvalidInput, "missing request id"))?,
+        )
+        .map_err(|_| (CliOutcome::InvalidInput, "invalid request id"))?;
+        let action_digest = Digest::new(
+            flag(args, "--action-digest")
+                .ok_or((CliOutcome::InvalidInput, "missing action digest"))?,
+        )
+        .map_err(|_| (CliOutcome::InvalidInput, "invalid action digest"))?;
+        let decision = match flag(args, "--decision").as_deref() {
+            Some("approve") => ApprovalDecision::Approve,
+            Some("deny") => ApprovalDecision::Deny,
+            _ => return Err((CliOutcome::InvalidInput, "invalid decision")),
+        };
+        let id = CommandId::new(
+            flag(args, "--command-id").ok_or((CliOutcome::InvalidInput, "missing command id"))?,
+        )
+        .map_err(|_| (CliOutcome::InvalidInput, "invalid command id"))?;
+        let op = StoreOperation::RecordApproval {
+            request_id,
+            action_digest,
+            decision,
+        };
+        if !matches!(
+            store
+                .apply(
+                    make_command(op, Some(id))
+                        .map_err(|_| (CliOutcome::InvalidInput, "invalid approval"))?
+                )
+                .map_err(|_| (CliOutcome::OperationalFailure, "approval failed"))?,
+            WriteOutcome::Committed(_)
+        ) {
+            return Err((CliOutcome::Rejected, "approval rejected"));
+        }
+    } else if command == CliCommand::Reconcile {
+        let intent = Digest::new(
+            flag(args, "--intent").ok_or((CliOutcome::InvalidInput, "missing intent"))?,
+        )
+        .map_err(|_| (CliOutcome::InvalidInput, "invalid intent"))?;
+        let status = orchestrator::reconcile(&mut store, &task_id, &intent, &run_dir)
+            .map_err(|_| (CliOutcome::OperationalFailure, "reconciliation failed"))?;
+        if matches!(status, DriveStatus::Blocked | DriveStatus::MultipleEvidence) {
+            result.outcome = CliOutcome::Blocked;
+            if status == DriveStatus::MultipleEvidence {
+                result.diagnostic = Some(
+                    BoundedText::new("multiple evidence records remain unresolved")
+                        .map_err(|_| (CliOutcome::OperationalFailure, "diagnostic failure"))?,
+                );
+            }
+        }
+    } else if matches!(command, CliCommand::Run | CliCommand::Resume) {
+        let genesis = {
+            let mut snapshot = store
+                .audit()
+                .map_err(|_| (CliOutcome::OperationalFailure, "snapshot failed"))?;
+            snapshot
+                .projection(&task_id)
+                .map_err(|_| (CliOutcome::IntegrityFailure, "projection missing"))?
+                .genesis
+        };
+        let agent = metron_agent::SumAgent;
+        let planner = SumPlanner;
+        let engine: &dyn Cognition = match (genesis.mode, genesis.engine_version.as_str()) {
+            (EngineMode::Agent, "sum-agent/v1") => &agent,
+            (EngineMode::Harness, "sum-harness/v1") => &planner,
+            _ => return Err((CliOutcome::IntegrityFailure, "unknown engine version")),
+        };
+        let status = orchestrator::drive(&mut store, &task_id, engine, &run_dir, &mut NoObserver)
+            .map_err(|_| (CliOutcome::OperationalFailure, "orchestration failed"))?;
+        result.outcome = match status {
+            DriveStatus::Complete => CliOutcome::Succeeded,
+            DriveStatus::Rejected => CliOutcome::Rejected,
+            DriveStatus::Denied => CliOutcome::Denied,
+            DriveStatus::Blocked | DriveStatus::MultipleEvidence => CliOutcome::Blocked,
+        };
+    }
+    let mut snapshot = store
+        .audit()
+        .map_err(|_| (CliOutcome::OperationalFailure, "snapshot failed"))?;
+    let projection = snapshot
+        .projection(&task_id)
+        .map_err(|_| (CliOutcome::IntegrityFailure, "projection missing"))?;
+    if matches!(command, CliCommand::Replay | CliCommand::Verify) {
+        let checks = metron_harness::audit::verify(&mut snapshot, &task_id).map_err(audit_error)?;
+        let agent = metron_agent::SumAgent;
+        let planner = SumPlanner;
+        let engine: &dyn Cognition = match (
+            projection.genesis.mode,
+            projection.genesis.engine_version.as_str(),
+        ) {
+            (EngineMode::Agent, "sum-agent/v1") => &agent,
+            (EngineMode::Harness, "sum-harness/v1") => &planner,
+            _ => return Err((CliOutcome::IntegrityFailure, "unknown engine version")),
+        };
+        let behavior = if checks.chain_valid {
+            Some(
+                metron_harness::replay::behavior(&mut snapshot, &task_id, engine)
+                    .map_err(audit_error)?,
+            )
+        } else {
+            None
+        };
+        let artifact = if command == CliCommand::Verify
+            && projection.verification.plan.is_some()
+            && !projection.verification.unresolved
+            && !projection.verification.conflict
+        {
+            match metron_harness::verify::verify(&run_dir, &projection.verification) {
+                Ok((_, accepted)) => Some(accepted),
+                Err(metron_harness::verify::VerifyError::InvalidEvidence(_)) => Some(false),
+                Err(metron_harness::verify::VerifyError::Operational) => {
+                    return Err((CliOutcome::OperationalFailure, "artifact inaccessible"));
+                }
+            }
+        } else {
+            None
+        };
+        let valid = checks.chain_valid
+            && checks.accounting_valid
+            && checks.projection_valid
+            && behavior == Some(true)
+            && artifact != Some(false);
+        result.audit = Some(CliAudit {
+            chain_valid: Some(checks.chain_valid),
+            accounting_valid: checks.chain_valid.then_some(checks.accounting_valid),
+            projection_valid: checks.chain_valid.then_some(checks.projection_valid),
+            behavior_valid: behavior,
+            artifact_valid: artifact,
+        });
+        if !valid {
+            result.outcome = CliOutcome::IntegrityFailure;
+        }
+    }
+    let pending = snapshot
+        .pending_inbox(&task_id)
+        .map_err(|_| (CliOutcome::OperationalFailure, "inbox failed"))?
+        .is_some();
+    let mut cursor = None;
+    let mut held = false;
+    let mut approval = None;
+    loop {
+        let page = snapshot
+            .intents(&task_id, cursor)
+            .map_err(|_| (CliOutcome::OperationalFailure, "intents failed"))?;
+        for intent in page.records {
+            held |= intent
+                .reservation
+                .is_some_and(|r| r.status == metron_protocol::store::ReservationStatus::Held);
+            if let Some(a) = intent.approval {
+                approval = Some(CliApproval {
+                    request_id: a.request_id,
+                    action_digest: a.action_digest,
+                    decision: a.decision,
+                });
+            }
+        }
+        cursor = page.next;
+        if cursor.is_none() {
+            break;
+        }
+    }
+    let v = &projection.verification;
+    let breached = projection.task_account.breached || projection.principal_account.breached;
+    let incomplete = projection.task_account.incomplete || projection.principal_account.incomplete;
+    let integrity_hold = projection.task_account.integrity_hold
+        || projection.principal_account.integrity_hold
+        || v.conflict;
+    result.health = Some(CliHealth {
+        verified_success: result.outcome != CliOutcome::IntegrityFailure
+            && projection.state.phase == Phase::Completed
+            && !pending
+            && !v.unresolved
+            && !held
+            && !breached
+            && !incomplete
+            && !integrity_hold,
+        pending_input: pending,
+        unresolved_dispatch: v.unresolved,
+        reservations_held: held,
+        incomplete,
+        breached,
+        integrity_hold,
+    });
+    result.accounting = Some(CliAccounting {
+        task_posted: projection.task_account.posted,
+        principal_posted: projection.principal_account.posted,
+        reported_read: v.read.as_ref().map(|r| r.data().usage.clone()),
+        reported_model: v.model.as_ref().map(|r| r.data().usage.clone()),
+        reported_publication: v.publication.as_ref().map(|r| r.data().usage.clone()),
+    });
+    result.pending_intent = projection.state.pending_intent.clone();
+    result.phase = Some(projection.state.phase);
+    result.replay_head = Some(projection.replay_head);
+    result.approval = approval;
+    result.task_id = Some(task_id);
+    Ok(result)
+}
+fn main() -> ExitCode {
+    let args: Vec<String> = env::args().skip(1).collect();
+    let command = match args.first().map(String::as_str) {
+        Some("run") => CliCommand::Run,
+        Some("resume") => CliCommand::Resume,
+        Some("reconcile") => CliCommand::Reconcile,
+        Some("approval") => CliCommand::Approval,
+        Some("replay") => CliCommand::Replay,
+        Some("verify") => CliCommand::Verify,
+        _ => {
+            return emit(report(
+                CliCommand::Run,
+                CliOutcome::InvalidInput,
+                Some("unknown command"),
+            ));
+        }
+    };
+    match action(command, &args[1..]) {
+        Ok(result) => emit(result),
+        Err((outcome, message)) => emit(report(command, outcome, Some(message))),
+    }
+}
