@@ -164,10 +164,11 @@ The model adapter takes a typed request with model identifier, message sequence,
 
 Provider routing is host policy after alpha.0, outside the core. Alpha.1 wires
 the trusted local inference plugin directly; alpha.3 supplies the generic static
-registry. The default LFM3 profile and optional CPU Thinking route use a custom
-model license and do not establish an entirely-FOSS deployment. Exact identities,
+registry. The default LFM3 profile uses a custom
+model license and does not establish an entirely-FOSS deployment. Exact identities,
 resource policy and acceptance requirements are in
-[R-0008](R-0008-local-inference-resource-profile.md). Remote providers remain
+[R-0008](R-0008-local-inference-resource-profile.md). The mistral.rs scheduling
+and cache boundary is specified in [R-0009](R-0009-mistralrs-batching-and-cache-contracts.md). Remote providers remain
 optional, explicitly configured adapters.
 
 The context assembler:
