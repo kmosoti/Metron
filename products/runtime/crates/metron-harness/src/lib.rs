@@ -2,10 +2,13 @@
 #![forbid(unsafe_code)]
 
 pub mod audit;
+pub mod comparison;
 pub mod driver;
 pub mod orchestrator;
 pub mod planner;
 pub mod policy;
 mod publication;
+pub mod qualification;
+pub mod qualification_proof;
 pub mod replay;
 pub mod verify;

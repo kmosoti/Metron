@@ -62,6 +62,8 @@ fn workspaces_are_isolated_and_product_dependencies_follow_boundaries() {
             "metron-store-sqlite",
             "metron-testkit",
             "metron-host",
+            "metron-inference-local",
+            "metron-inference-worker",
             "metron-runtime-architecture-tests"
         ]
         .into_iter()
@@ -75,12 +77,25 @@ fn workspaces_are_isolated_and_product_dependencies_follow_boundaries() {
             "metron-agent" | "metron-harness" => &["metron-protocol"],
             "metron-store-sqlite" => &["metron-protocol", "rusqlite"],
             "metron-testkit" => &["metron-protocol", "metron-harness"],
+            "metron-inference-local" => &["metron-protocol", "metron-harness", "sha2"],
+            "metron-inference-worker" => &[
+                "metron-protocol",
+                "metron-inference-local",
+                "mistralrs",
+                "either",
+                "tokio",
+            ],
             "metron-host" => &[
+                // The composition root owns operational report serialization;
+                // the inference SDK remains confined to the worker.
+                "serde",
+                "serde_json",
                 "metron-protocol",
                 "metron-agent",
                 "metron-harness",
                 "metron-store-sqlite",
                 "metron-testkit",
+                "metron-inference-local",
             ],
             "metron-runtime-architecture-tests" => &["serde_json"],
             _ => panic!("unexpected package {name}"),

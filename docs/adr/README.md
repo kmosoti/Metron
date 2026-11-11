@@ -25,3 +25,4 @@ mark them superseded. Template: context, decision, consequences.
 | 0018 | M3 is reached: the hand-authored Bayes router pays, learned routing does not | accepted |
 | 0019 | Runtime workspace compatibility | accepted; human ratification pending |
 | 0020 | Durable bounded runtime execution | accepted; human ratification pending |
+| 0021 | Bounded native local inference | accepted; human ratification pending |

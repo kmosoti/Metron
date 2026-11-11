@@ -59,10 +59,11 @@ impl DispatchAdmission {
         }
         check
             .prepared
-            .validate_against(
+            .validate_against_genesis(
                 &intent.intent,
                 &projection.task.data().principal_id,
                 &projection.state.genesis_digest,
+                &projection.genesis,
             )
             .map_err(StoreError::Validation)?;
         if policy.publication_approval
@@ -112,10 +113,14 @@ impl DispatchAdmission {
 /// ```
 pub struct AuthorizedEffect {
     prepared: PreparedIntent,
+    schema_version: metron_protocol::SchemaVersion,
 }
 impl AuthorizedEffect {
     pub fn request(&self) -> &PreparedIntent {
         &self.prepared
+    }
+    pub fn schema_version(&self) -> metron_protocol::SchemaVersion {
+        self.schema_version
     }
 }
 
@@ -189,6 +194,7 @@ pub(crate) fn admit<S: StorePort>(
                 {
                     Ok(AdmissionOutcome::Authorized(Box::new(AuthorizedEffect {
                         prepared: admission.check.prepared,
+                        schema_version: projection.task.data().schema_version,
                     })))
                 }
                 StoreResult::Denied => Ok(AdmissionOutcome::Denied),

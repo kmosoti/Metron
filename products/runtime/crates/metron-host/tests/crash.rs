@@ -47,6 +47,7 @@ fn setup(root: &Path) {
         engine_version: BoundedText::new("sum-agent/v1").unwrap(),
         require_publication_approval: false,
         policy_digest: content_digest(b"metron-alpha0-host-policy-v1"),
+        local_profile: None,
     };
     assert!(matches!(
         store
