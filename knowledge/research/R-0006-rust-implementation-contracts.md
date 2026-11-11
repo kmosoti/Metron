@@ -28,7 +28,8 @@ products/runtime/
 │   │   └── src/{lib.rs,model.rs,tool.rs,policy.rs,effect.rs,verify.rs}
 │   ├── metron-store-sqlite/
 │   ├── metron-driver-local/
-│   ├── metron-inference-local/     # alpha.1 local model effect adapter
+│   ├── metron-inference-local/     # alpha.1 supervised model adapter
+│   ├── metron-inference-worker/    # alpha.1 mistral.rs SDK binary
 │   ├── metron-host/                # executable composition root
 │   └── metron-testkit/
 └── tests/{architecture,end_to_end,adversarial}/
@@ -42,8 +43,9 @@ metron-agent -> metron-protocol
 metron-harness -> metron-protocol
 metron-store-sqlite -> metron-protocol + SQLite library
 metron-driver-local -> metron-protocol + metron-harness + OS/async adapters
-metron-inference-local -> metron-protocol + metron-harness + process/HTTP adapters
-metron-host -> all product crates (sole composition root)
+metron-inference-local -> metron-protocol + metron-harness + process/IPC adapters
+metron-inference-worker -> metron-protocol + pinned mistralrs SDK
+metron-host -> product libraries (top-level composition root)
 metron-testkit -> pure port implementations and scripted drivers
 
 FORBIDDEN:
@@ -57,10 +59,12 @@ The current root laboratory remains unchanged until an approved ADR establishes 
 
 The alpha.1 local inference crate implements the harness model port, supervises
 bounded local backend workers and journals model observations through normal
-effect admission. LFM3 is the default local model; Thinking is an optional CPU
-route. See [R-0008](R-0008-local-inference-resource-profile.md) for artifact pins,
+effect admission. A supervised mistral.rs worker shares the pinned LFM3 text
+weights across roles; an optional CPU route uses the same checkpoint. See [R-0008](R-0008-local-inference-resource-profile.md) for artifact pins,
 resource limits, architecture and acceptance gates. The host wires this adapter
 directly before alpha.3 introduces a generic static plugin registry.
+[R-0009](R-0009-mistralrs-batching-and-cache-contracts.md) defines the pinned
+backend, adaptive batching, hybrid cache isolation and measurement obligations.
 
 ## Source: pure task and identity protocol
 

@@ -243,7 +243,7 @@ engine. [GraphLite documentation](https://docs.rs/graphlite/latest/graphlite/).
 
 - All new Metron-owned source and public manifests: **Apache-2.0** (SPDX header where suitable).
 - Dependencies: automated license review plus manual checks for transitive source/binary/assets and notices; not every “open repo” has a compatible license.
-- Default local profile: LFM3-1.7B Q4_K_M, with optional LFM2.5 Thinking CPU inference. Both use the custom LFM Open License v1.0. Audit source, backend binaries and weights separately; this profile is not an entirely-FOSS distribution. Exact identities and license sources are in [R-0008](R-0008-local-inference-resource-profile.md).
+- Default local profile: LFM3-1.7B Q4_K_M through mistral.rs, with shared weights for multiple roles and an explicitly qualified LFM3 CPU route. The selected weights use the custom LFM Open License v1.0. Audit source, backend binaries and weights separately; this profile is not an entirely-FOSS distribution. Exact identities and license sources are in [R-0008](R-0008-local-inference-resource-profile.md).
 - Proprietary hosted models may be supported through optional adapters but do **not** make the end-to-end runtime entirely FOSS.
 - Model prompt output and derived source require a provenance and IP policy; no copying upstream Pi/DSH implementation merely because it is readable.
 
