@@ -10,6 +10,11 @@ source_proposal: 4c3781daa7211efd39bcdb95dcb15491be1abe39
 
 # 07 — Implementation contract written as the target code
 
+> The sketches below predate P0 and are historical design material. The
+> [P0 compatibility ADR](../../docs/adr/0019-runtime-compatibility.md) and
+> the alpha.0 contract take precedence where they differ, including synchronous
+> bounded ports and accounting semantics.
+
 > **Instructions to coding agents:** Treat ownership, types, paths, boundaries, and tests here as normative targets. The snippets are implementation sketches, **not claims of compilation**. A spec-shaped prompt might reduce ambiguity; only executed compiler, behavior and security tests establish compliance.
 
 ## Proposed workspace (created only after P0 ADR)
@@ -18,7 +23,7 @@ source_proposal: 4c3781daa7211efd39bcdb95dcb15491be1abe39
 products/runtime/
 ├── Cargo.toml                      # separate workspace from laboratory
 ├── Cargo.lock
-├── rust-toolchain.toml             # pin validated stable compiler
+├── rust-toolchain.toml             # pin beta-2026-11-07 compiler
 ├── crates/
 │   ├── metron-protocol/
 │   │   └── src/{lib.rs,task.rs,identity.rs,event.rs,intent.rs,receipt.rs}

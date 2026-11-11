@@ -734,7 +734,7 @@ pub(crate) fn count_junta(arity: usize, k: usize, observed: &[(usize, bool)]) ->
                 .count() as f64;
         }
         // Next subset with the same number of bits (Gosper's hack).
-        let c = set & set.wrapping_neg();
+        let c = set.isolate_lowest_one();
         let r = set + c;
         set = (((r ^ set) >> 2) / c) | r;
     }
