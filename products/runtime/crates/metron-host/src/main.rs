@@ -35,8 +35,8 @@ fn report(command: CliCommand, outcome: CliOutcome, diagnostic: Option<&str>) ->
         diagnostic: diagnostic.and_then(|s| BoundedText::new(s).ok()),
     }
 }
-fn emit(report: CliReport) -> ExitCode {
-    let code = match report.outcome {
+fn emit(response: CliReport) -> ExitCode {
+    let code = match response.outcome {
         CliOutcome::Succeeded => 0,
         CliOutcome::Rejected => 1,
         CliOutcome::InvalidInput => 2,
@@ -45,18 +45,28 @@ fn emit(report: CliReport) -> ExitCode {
         CliOutcome::IntegrityFailure => 5,
         CliOutcome::OperationalFailure => 6,
     };
-    match report.encode() {
+    match response.encode() {
         Ok(bytes) => {
-            let line = String::from_utf8_lossy(&bytes);
-            if code == 0 || code == 4 {
-                println!("{line}");
-            } else {
-                eprintln!("{line}");
+            println!("{}", String::from_utf8_lossy(&bytes));
+            if code != 0
+                && let Some(diagnostic) = &response.diagnostic
+            {
+                eprintln!("{}", diagnostic.as_str());
             }
+            ExitCode::from(code)
         }
-        Err(_) => eprintln!("{{\"schema_version\":1,\"outcome\":\"operational_failure\"}}"),
+        Err(_) => {
+            let fallback = report(
+                response.command,
+                CliOutcome::OperationalFailure,
+                Some("report encoding failed"),
+            );
+            let bytes = fallback.encode().expect("bounded fallback report");
+            println!("{}", String::from_utf8_lossy(&bytes));
+            eprintln!("report encoding failed");
+            ExitCode::from(6)
+        }
     }
-    ExitCode::from(code)
 }
 fn make_command(
     operation: StoreOperation,
