@@ -217,6 +217,13 @@ pub fn parse_envelope<T: for<'de> Deserialize<'de>>(bytes: &[u8]) -> Result<T, V
     }
     serde_json::from_slice(bytes).map_err(|e| ValidationError::Json(e.to_string()))
 }
+/// Parse a bounded internal command or journal record before allocating its values.
+pub fn parse_internal<T: for<'de> Deserialize<'de>>(bytes: &[u8]) -> Result<T, ValidationError> {
+    if bytes.len() > MAX_INTERNAL {
+        return Err(ValidationError::Limit);
+    }
+    serde_json::from_slice(bytes).map_err(|e| ValidationError::Json(e.to_string()))
+}
 pub fn canonical_bytes<T: Serialize>(value: &T, max: usize) -> Result<Vec<u8>, ValidationError> {
     let bytes = serde_json::to_vec(value).map_err(|e| ValidationError::Json(e.to_string()))?;
     if bytes.len() > max {
