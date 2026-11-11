@@ -46,6 +46,9 @@ are in ADR 0021. Staggered overlap uses a worker-owned snapshot of SDK streams
 whose terminal choices have not yet been consumed; buffered host replies cannot
 establish that fact. This does not measure simultaneous GPU execution. A measured failure to meet them can leave no selectable
 candidate. The Q6 proof above is not a substitute for those measurements.
+[O-0005](../observations/O-0005-native-lfm3-cuda.md) records the later Q4 CUDA
+proof and entry failures for all twelve configurations; the scored comparison
+did not complete and no profile was selected.
 
 **Relations:** extends R-0009; supports ADR 0021; does not supersede the frozen
 production qualification. Revisit after the fixed comparison, on a model/backend
