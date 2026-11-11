@@ -43,6 +43,8 @@ pub struct VerificationSelection {
     pub read_evidence: Digest,
     pub model_evidence: Digest,
     pub publication_evidence: Digest,
+    /// Publication `PreparedIntent.request_digest` over the tagged request
+    /// using the `approved-request/v1` domain.
     pub plan_digest: Digest,
 }
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
