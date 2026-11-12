@@ -64,8 +64,9 @@ fn coding_recipe_hash_and_role_are_bound() {
         output_schema: LocalOutputSchema::Text,
         context: BoundedText::new(context).unwrap(),
         native_tools: None,
+        previous_tool_turn: None,
         profile: Box::new(profile),
-        artifact_path: BoundedText::new("/model.gguf").unwrap(),
+        artifact_path: Box::new(BoundedText::new("/model.gguf").unwrap()),
         cohort: Box::new(SubmissionCohort {
             id: BoundedText::new("cohort").unwrap(),
             size: 1,
@@ -196,8 +197,9 @@ fn coding_v2_recipe_is_frozen_and_binds_role_and_profile_limits() {
         output_schema: LocalOutputSchema::Text,
         context: BoundedText::new(context).unwrap(),
         native_tools: None,
+        previous_tool_turn: None,
         profile: Box::new(profile),
-        artifact_path: BoundedText::new("/model.gguf").unwrap(),
+        artifact_path: Box::new(BoundedText::new("/model.gguf").unwrap()),
         cohort: Box::new(SubmissionCohort {
             id: BoundedText::new("cohort").unwrap(),
             size: 1,
@@ -404,8 +406,9 @@ fn native_request_and_observation_bind_catalog_and_raw_evidence() {
         output_schema: LocalOutputSchema::Text,
         context: BoundedText::new(context).unwrap(),
         native_tools: Some(Box::new(vec![CodingTool::Plan])),
+        previous_tool_turn: None,
         profile: Box::new(profile.clone()),
-        artifact_path: BoundedText::new("/model.gguf").unwrap(),
+        artifact_path: Box::new(BoundedText::new("/model.gguf").unwrap()),
         cohort: Box::new(cohort.clone()),
     };
     assert!(request.validate().is_ok());
@@ -533,8 +536,9 @@ fn v4_requires_trusted_catalog_and_plain_observation() {
         output_schema: LocalOutputSchema::Text,
         context: BoundedText::new(context).unwrap(),
         native_tools: Some(Box::new(vec![CodingTool::Plan])),
+        previous_tool_turn: None,
         profile: Box::new(profile.clone()),
-        artifact_path: BoundedText::new("/model.gguf").unwrap(),
+        artifact_path: Box::new(BoundedText::new("/model.gguf").unwrap()),
         cohort: Box::new(cohort.clone()),
     };
     assert!(request.validate().is_ok());
@@ -659,8 +663,9 @@ fn v5_requires_trusted_catalog_and_plain_observation() {
         output_schema: LocalOutputSchema::Text,
         context: BoundedText::new(context).unwrap(),
         native_tools: Some(Box::new(vec![CodingTool::Plan])),
+        previous_tool_turn: None,
         profile: Box::new(profile.clone()),
-        artifact_path: BoundedText::new("/model.gguf").unwrap(),
+        artifact_path: Box::new(BoundedText::new("/model.gguf").unwrap()),
         cohort: Box::new(cohort.clone()),
     };
     assert!(request.validate().is_ok());
@@ -802,10 +807,22 @@ fn v6_requires_supported_catalog_and_native_evidence() {
         output_schema: LocalOutputSchema::Text,
         context: BoundedText::new(context).unwrap(),
         native_tools: Some(Box::new(vec![CodingTool::Plan])),
+        previous_tool_turn: None,
         profile: Box::new(profile.clone()),
-        artifact_path: BoundedText::new("/model.gguf").unwrap(),
+        artifact_path: Box::new(BoundedText::new("/model.gguf").unwrap()),
         cohort: Box::new(cohort.clone()),
     };
+    let legacy_bytes = canonical_bytes(&request, MAX_LOCAL_REQUEST_FRAME).unwrap();
+    let legacy_json: serde_json::Value = serde_json::from_slice(&legacy_bytes).unwrap();
+    assert!(legacy_json.get("previous_tool_turn").is_none());
+    assert_eq!(
+        canonical_bytes(
+            &serde_json::from_slice::<WorkerRequest>(&legacy_bytes).unwrap(),
+            MAX_LOCAL_REQUEST_FRAME
+        )
+        .unwrap(),
+        legacy_bytes
+    );
     assert!(request.validate().is_ok());
     if let WorkerRequest::Generate { native_tools, .. } = &mut request {
         *native_tools = None;
@@ -868,4 +885,22 @@ fn v6_requires_supported_catalog_and_native_evidence() {
             .validate(&profile, &digest, LocalOutputSchema::Text)
             .is_err()
     );
+}
+
+#[test]
+fn v7_recipe_binds_projection_and_preserves_v6_identity() {
+    let identity = format!(
+        "{LOCAL_CODING_V7_SYSTEM}\n{LOCAL_CODING_V7_RENDER_MODE}\n{LOCAL_CODING_V2_SCHEMA}"
+    );
+    assert_eq!(
+        content_digest(identity.as_bytes()).as_str(),
+        LOCAL_CODING_V7_RECIPE_SHA
+    );
+    assert_ne!(LOCAL_CODING_V6_RECIPE_SHA, LOCAL_CODING_V7_RECIPE_SHA);
+    let mut profile = local_profile();
+    profile.prompt_recipe_digest = Digest::new(LOCAL_CODING_V7_RECIPE_SHA).unwrap();
+    profile.embedded_tokenizer_digest =
+        gguf_lfm3_corrected_tokenizer_digest(&profile.artifact_digest).unwrap();
+    assert!(profile.validate().is_ok());
+    assert!(native_xml_coding_grammar(&[metron_protocol::coding::CodingTool::Search]).is_err());
 }

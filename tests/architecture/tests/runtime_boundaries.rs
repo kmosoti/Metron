@@ -131,7 +131,7 @@ fn root_workspace_members_and_dependency_boundaries() {
                 );
             }
             assert!(
-                dep != "mistralrs" || name == "metron-inference-worker",
+                !matches!(dep, "mistralrs" | "mistralrs-core") || name == "metron-inference-worker",
                 "SDK dependency in {name}"
             );
         }
@@ -155,6 +155,7 @@ fn root_workspace_members_and_dependency_boundaries() {
                 "metron-protocol",
                 "metron-inference-local",
                 "mistralrs",
+                "mistralrs-core",
                 "either",
                 "tokio",
             ],

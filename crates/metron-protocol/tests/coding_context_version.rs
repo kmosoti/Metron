@@ -682,7 +682,9 @@ fn native_function_catalog_is_bound_to_phase_and_policy_not_prompt_contents() {
         }
     ));
     let bytes = canonical_bytes(old_step, MAX_ENVELOPE).unwrap();
-    assert!(!String::from_utf8(bytes).unwrap().contains("native_tools"));
+    let text = String::from_utf8(bytes).unwrap();
+    assert!(!text.contains("native_tools"));
+    assert!(!text.contains("previous_tool_turn"));
 }
 
 fn settled_model(t: &Transition, content: &str, evidence: &[u8]) -> AgentEvent {
@@ -1029,4 +1031,304 @@ fn format_neutral_recovery_preserves_historical_feedback_and_source_binding() {
             assert!(diagnostic.contains("function"));
         }
     }
+}
+
+fn paired_after_plan() -> (CodingTask, CodingPolicy, Transition) {
+    let (task, policy, state) = fixtures();
+    let initial =
+        coding_transition_paired(&task, &policy, &state, &AgentEvent::TaskAccepted).unwrap();
+    assert!(matches!(
+        step(&initial).1,
+        CodingStep::Model {
+            previous_tool_turn: None,
+            ..
+        }
+    ));
+    let event = settled_model(&initial, r#"{"tool":"plan","steps":["inspect"]}"#, b"plan");
+    let after = coding_transition_paired(&task, &policy, step(&initial).0, &event).unwrap();
+    assert!(matches!(
+        step(&after).1,
+        CodingStep::Model {
+            previous_tool_turn: None,
+            ..
+        }
+    ));
+    (task, policy, after)
+}
+fn paired_tool_event(t: &Transition, tool: CodingTool, body: &str) -> AgentEvent {
+    AgentEvent::EffectSettled {
+        intent_id: step(t).0.pending_intent.clone().unwrap(),
+        evidence_id: content_digest(b"tool-receipt"),
+        output: ReceiptOutput::Coding {
+            observation: Box::new(CodingObservation::Tool {
+                output: CodingToolOutput {
+                    tool,
+                    status: ToolStatus::Succeeded,
+                    body: BoundedText::new(body).unwrap(),
+                    truncated: false,
+                    exit_code: None,
+                    files: vec![],
+                    process_tree_closed: true,
+                },
+                memory_selection: None,
+            }),
+        },
+    }
+}
+#[test]
+fn paired_turn_requires_matching_known_receipt_and_survives_invalid_proposal() {
+    let (task, policy, after_plan) = paired_after_plan();
+    let proposal = r#"{"tool":"read","path":"λ.txt","first_line":1,"line_count":7}"#;
+    let event = settled_model(&after_plan, proposal, b"read-model");
+    let tool = coding_transition_paired(&task, &policy, step(&after_plan).0, &event).unwrap();
+    let state = step(&tool).0;
+    assert!(
+        state
+            .coding_context
+            .as_ref()
+            .unwrap()
+            .previous_tool_turn
+            .is_none()
+    );
+    let uncertain = coding_transition_paired(
+        &task,
+        &policy,
+        state,
+        &AgentEvent::EffectUncertain {
+            intent_id: state.pending_intent.clone().unwrap(),
+        },
+    )
+    .unwrap();
+    assert!(
+        matches!(uncertain, Transition::Finalization { next } if next.pending_intent == state.pending_intent && next.coding_context.as_ref().unwrap().previous_tool_turn.is_none())
+    );
+    let wrong = paired_tool_event(&tool, CodingTool::Edit, "no");
+    assert!(coding_transition_paired(&task, &policy, state, &wrong).is_err());
+    let event = paired_tool_event(&tool, CodingTool::Read, "text");
+    let next = coding_transition_paired(&task, &policy, state, &event).unwrap();
+    let CodingStep::Model {
+        previous_tool_turn: Some(turn),
+        context,
+        ..
+    } = step(&next).1
+    else {
+        panic!("paired turn")
+    };
+    let CompletedToolTurn::Complete {
+        action,
+        model_evidence,
+        tool_intent,
+        tool_evidence,
+        observation,
+    } = turn.as_ref()
+    else {
+        panic!("complete")
+    };
+    assert_eq!(action, &parse_coding_action(proposal.as_bytes()).unwrap());
+    assert_eq!(model_evidence, &content_digest(b"read-model"));
+    assert_eq!(tool_intent, state.pending_intent.as_ref().unwrap());
+    assert_eq!(tool_evidence, &content_digest(b"tool-receipt"));
+    assert_eq!(observation.body.as_str(), "text");
+    let prompt: serde_json::Value = serde_json::from_str(context.as_str()).unwrap();
+    assert_eq!(
+        prompt["previous_tool_turn_untrusted"],
+        serde_json::to_value(
+            step(&next)
+                .0
+                .coding_context
+                .as_ref()
+                .unwrap()
+                .previous_tool_turn
+                .as_ref()
+                .unwrap()
+        )
+        .unwrap()
+    );
+    let invalid = settled_model(
+        &next,
+        r#"{"tool":"read","path":"/absolute","first_line":1,"line_count":1}"#,
+        b"bad",
+    );
+    let retried = coding_transition_paired(&task, &policy, step(&next).0, &invalid).unwrap();
+    assert_eq!(
+        step(&retried)
+            .0
+            .coding_context
+            .as_ref()
+            .unwrap()
+            .previous_tool_turn,
+        step(&next)
+            .0
+            .coding_context
+            .as_ref()
+            .unwrap()
+            .previous_tool_turn
+    );
+}
+#[test]
+fn oversized_action_is_wholly_omitted_with_provenance() {
+    let (task, mut policy, after_plan) = paired_after_plan();
+    policy.allowed_tools.push(CodingTool::Edit);
+    let proposal = serde_json::json!({"tool":"edit","path":"note.txt","expected_digest":null,"content":"ü".repeat(4200)}).to_string();
+    let event = settled_model(&after_plan, &proposal, b"large-model");
+    let tool = coding_transition_paired(&task, &policy, step(&after_plan).0, &event).unwrap();
+    let state = step(&tool).0;
+    assert!(
+        state
+            .coding_context
+            .as_ref()
+            .unwrap()
+            .pending_tool_turn
+            .as_ref()
+            .unwrap()
+            .action
+            .is_none()
+    );
+    let next = coding_transition_paired(
+        &task,
+        &policy,
+        state,
+        &paired_tool_event(&tool, CodingTool::Edit, "edited"),
+    )
+    .unwrap();
+    let CodingStep::Model {
+        previous_tool_turn: Some(turn),
+        ..
+    } = step(&next).1
+    else {
+        panic!("whole action omission")
+    };
+    let CompletedToolTurn::Omitted {
+        action_digest,
+        tool,
+        model_evidence,
+        tool_intent,
+        tool_evidence,
+        ..
+    } = turn.as_ref()
+    else {
+        panic!("omitted")
+    };
+    assert_eq!(*tool, CodingTool::Edit);
+    let action = parse_coding_action(proposal.as_bytes()).unwrap();
+    assert_eq!(
+        action_digest,
+        &content_digest(&canonical_bytes(&action, MAX_INTERNAL).unwrap())
+    );
+    assert_eq!(model_evidence, &content_digest(b"large-model"));
+    assert_eq!(tool_intent, state.pending_intent.as_ref().unwrap());
+    assert_eq!(tool_evidence, &content_digest(b"tool-receipt"));
+}
+
+#[test]
+fn paired_edit_retains_full_unicode_and_literal_null_text() {
+    let (task, mut policy, after_plan) = paired_after_plan();
+    policy.allowed_tools.push(CodingTool::Edit);
+    let proposal = r#"{"tool":"edit","path":"λ.txt","expected_digest":null,"content":"null λ\n"}"#;
+    let event = settled_model(&after_plan, proposal, b"edit-model");
+    let tool = coding_transition_paired(&task, &policy, step(&after_plan).0, &event).unwrap();
+    let next = coding_transition_paired(
+        &task,
+        &policy,
+        step(&tool).0,
+        &paired_tool_event(&tool, CodingTool::Edit, "written"),
+    )
+    .unwrap();
+    let CodingStep::Model {
+        previous_tool_turn: Some(turn),
+        ..
+    } = step(&next).1
+    else {
+        panic!("paired edit")
+    };
+    let CompletedToolTurn::Complete {
+        action:
+            CodingAction::Edit {
+                path,
+                expected_digest,
+                content,
+            },
+        ..
+    } = turn.as_ref()
+    else {
+        panic!("complete edit")
+    };
+    assert_eq!(path.as_str(), "λ.txt");
+    assert_eq!(expected_digest, &None);
+    assert_eq!(content.as_str(), "null λ\n");
+}
+
+#[test]
+fn consecutive_large_actions_use_explicit_context_limit_omission() {
+    let (task, mut policy, after_plan) = paired_after_plan();
+    policy.allowed_tools.push(CodingTool::Edit);
+    let proposal = serde_json::json!({"tool":"edit","path":"note.txt","expected_digest":null,"content":"x".repeat(7900)}).to_string();
+    let first = coding_transition_paired(
+        &task,
+        &policy,
+        step(&after_plan).0,
+        &settled_model(&after_plan, &proposal, b"first"),
+    )
+    .unwrap();
+    let next = coding_transition_paired(
+        &task,
+        &policy,
+        step(&first).0,
+        &paired_tool_event(&first, CodingTool::Edit, "written"),
+    )
+    .unwrap();
+    assert!(
+        matches!(step(&next).1, CodingStep::Model { previous_tool_turn: Some(turn), .. } if matches!(turn.as_ref(), CompletedToolTurn::Complete { .. }))
+    );
+    let second = coding_transition_paired(
+        &task,
+        &policy,
+        step(&next).0,
+        &settled_model(&next, &proposal, b"second"),
+    )
+    .unwrap();
+    let after = coding_transition_paired(
+        &task,
+        &policy,
+        step(&second).0,
+        &paired_tool_event(&second, CodingTool::Edit, "written"),
+    )
+    .unwrap();
+    assert!(
+        matches!(step(&after).1, CodingStep::Model { previous_tool_turn: Some(turn), .. } if matches!(turn.as_ref(), CompletedToolTurn::Omitted { reason: PairedOmissionReason::ContextLimit, .. }))
+    );
+}
+
+#[test]
+fn paired_context_rejects_forged_action_digest_and_mismatched_observation() {
+    let action =
+        parse_coding_action(br#"{"tool":"read","path":"a.txt","first_line":1,"line_count":1}"#)
+            .unwrap();
+    let mut context = CodingContext {
+        pending_tool_turn: Some(Box::new(PendingToolTurn {
+            action: Some(action.clone()),
+            omission_reason: None,
+            action_digest: content_digest(b"wrong"),
+            tool: CodingTool::Read,
+            model_evidence: content_digest(b"model"),
+        })),
+        ..CodingContext::default()
+    };
+    assert!(context.validate().is_err());
+    context.pending_tool_turn = None;
+    context.previous_tool_turn = Some(Box::new(CompletedToolTurn::Complete {
+        action,
+        model_evidence: content_digest(b"model"),
+        tool_intent: content_digest(b"intent"),
+        tool_evidence: content_digest(b"receipt"),
+        observation: FocusedToolView {
+            tool: CodingTool::Edit,
+            status: ToolStatus::Succeeded,
+            body: BoundedText::new("x").unwrap(),
+            truncated: false,
+            file_refs: vec![],
+            skipped_file_count: 0,
+        },
+    }));
+    assert!(context.validate().is_err());
 }
