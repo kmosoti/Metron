@@ -88,7 +88,16 @@ pub fn validate_coding_receipt(
     }
     let model = matches!(step.as_ref(), CodingStep::Model { .. });
     match (step.as_ref(), &receipt.data().output) {
-        (CodingStep::Model { input_digest, .. }, ReceiptOutput::LocalModel { observation }) => {
+        (
+            CodingStep::Model {
+                context,
+                input_digest,
+                profile_digest,
+                previous_tool_turn,
+                ..
+            },
+            ReceiptOutput::LocalModel { observation },
+        ) => {
             let profile = genesis
                 .local_profile
                 .as_ref()
@@ -96,7 +105,22 @@ pub fn validate_coding_receipt(
             if *input_digest != observation.input_digest {
                 return Err(ValidationError::Binding);
             }
-            observation.validate(profile, &prepared.request_digest, LocalOutputSchema::Text)?;
+            if profile.prompt_recipe_digest.as_str() == LOCAL_CODING_V10_RECIPE_SHA {
+                if content_digest(context.as_str().as_bytes()) != *input_digest
+                    || *profile_digest != profile.digest()?
+                {
+                    return Err(ValidationError::Binding);
+                }
+                observation.validate_with_context(
+                    profile,
+                    &prepared.request_digest,
+                    LocalOutputSchema::Text,
+                    context.as_str(),
+                    previous_tool_turn.as_deref(),
+                )?;
+            } else {
+                observation.validate(profile, &prepared.request_digest, LocalOutputSchema::Text)?;
+            }
         }
         (CodingStep::Model { input_digest, .. }, ReceiptOutput::Coding { observation }) => {
             let CodingObservation::ScriptedModel {

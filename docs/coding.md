@@ -115,6 +115,42 @@ flowchart LR
     Authority --> Receipt[Known receipt or unresolved reservation]
 ```
 
+Recipe v10 exposes native `create(path, content)` and `edit(content)` calls.
+Both produce the existing canonical Edit action and require the existing Edit
+grant. Create uses no-replace semantics. Edit replaces the file from the latest
+completed Read turn: the observation must be successful and untruncated, retain
+one file reference with the same path as the Read action, and omit no references.
+A requested line range can be partial; its digest still identifies the full file.
+This contract does not assert that the model saw the whole file.
+
+The adapter obtains that path and digest from the admitted context. It does not
+resolve a target from task prose or a model-supplied digest. A missing, failed,
+omitted or mismatched Read cannot bind an edit. The host still rejects a stale
+version or creation over an existing file. Driver, receipt and audit validation
+rederive the canonical action using the persisted profile and prepared input;
+context-free validation is unavailable for v10. No extra filesystem read occurs
+during normalization.
+
+V10 string arguments use JSON encoding inside XML, with escaped markup delimiters,
+then decode exactly once after SDK parsing. Recorded native history uses the same
+encoding and file-call signatures. Existing output bounds still apply: oversized
+encoded evidence produces an explicit overflow and an invalid proposal. Earlier
+recipes retain their original argument and history handling. Interface checks do
+not establish successful model-written coding; see
+[the native file-tool observations](../knowledge/observations/O-0014-native-file-tool-contract.md).
+
+```mermaid
+flowchart LR
+    Read[Selected Read receipt: action, path and full-file digest] --> Context[Admitted model context]
+    Context --> Codec[Worker: versioned native codec]
+    Model[Model: create or edit proposal] --> Codec
+    Codec --> Typed[Canonical typed Edit proposal]
+    Context --> Check[Driver, store and audit: independently rederive binding]
+    Typed --> Check
+    Check --> Host[Host: grants, durable admission and file CAS]
+    Host --> Result[Known receipt or unresolved reservation]
+```
+
 ## Inputs and invocation
 
 Provide separate absolute paths for an owner-private workspace and the private
