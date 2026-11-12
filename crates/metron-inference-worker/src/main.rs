@@ -274,6 +274,7 @@ async fn load(request: &WorkerRequest, writer: &Writer) -> Result<Arc<Model>, St
             | metron_protocol::LOCAL_CODING_V5_RECIPE_SHA
             | metron_protocol::LOCAL_CODING_V6_RECIPE_SHA
             | metron_protocol::LOCAL_CODING_V7_RECIPE_SHA
+            | metron_protocol::LOCAL_CODING_V8_RECIPE_SHA
     );
     let tokenizer_identity = if corrected_tokenizer {
         metron_protocol::gguf_lfm3_corrected_tokenizer_digest(&profile.artifact_digest)
@@ -445,13 +446,21 @@ async fn generate(model: Arc<Model>, request: WorkerRequest, writer: Writer, in_
         profile.prompt_recipe_digest.as_str() == metron_protocol::LOCAL_CODING_V6_RECIPE_SHA;
     let native_v7 =
         profile.prompt_recipe_digest.as_str() == metron_protocol::LOCAL_CODING_V7_RECIPE_SHA;
-    let native = native_v3 || native_v6 || native_v7;
-    let xml_grammar = if native_v6 || native_v7 {
+    let native_v8 =
+        profile.prompt_recipe_digest.as_str() == metron_protocol::LOCAL_CODING_V8_RECIPE_SHA;
+    let paired = native_v7 || native_v8;
+    let native = native_v3 || native_v6 || paired;
+    let xml_grammar = if native_v6 || paired {
         let Some(allowed) = native_tools.as_deref().map(Vec::as_slice) else {
             reject(&writer, dispatch_id, "missing trusted coding catalog");
             return;
         };
-        match metron_protocol::native_xml_coding_grammar(allowed) {
+        let grammar = if native_v8 {
+            metron_protocol::native_xml_coding_v8_grammar(allowed)
+        } else {
+            metron_protocol::native_xml_coding_grammar(allowed)
+        };
+        match grammar {
             Ok(grammar) => Some(grammar),
             Err(_) => {
                 reject(
@@ -507,7 +516,12 @@ async fn generate(model: Arc<Model>, request: WorkerRequest, writer: Writer, in_
             reject(&writer, dispatch_id, "missing trusted native tool catalog");
             return;
         };
-        let Ok(schemas) = metron_protocol::native_coding_tool_schemas(allowed) else {
+        let schemas = if native_v8 {
+            metron_protocol::native_coding_v8_tool_schemas(allowed)
+        } else {
+            metron_protocol::native_coding_tool_schemas(allowed)
+        };
+        let Ok(schemas) = schemas else {
             reject(&writer, dispatch_id, "invalid trusted native tool catalog");
             return;
         };
@@ -518,11 +532,19 @@ async fn generate(model: Arc<Model>, request: WorkerRequest, writer: Writer, in_
     } else {
         None
     };
-    let projection = if native_v7 {
-        match metron_inference_local::paired_history::project(
-            context.as_str(),
-            previous_tool_turn.as_deref(),
-        ) {
+    let projection = if paired {
+        let result = if native_v8 {
+            metron_inference_local::paired_history::project_v8(
+                context.as_str(),
+                previous_tool_turn.as_deref(),
+            )
+        } else {
+            metron_inference_local::paired_history::project(
+                context.as_str(),
+                previous_tool_turn.as_deref(),
+            )
+        };
+        match result {
             Ok(value) => Some(value),
             Err(error) => {
                 reject(&writer, dispatch_id, error);
@@ -533,7 +555,7 @@ async fn generate(model: Arc<Model>, request: WorkerRequest, writer: Writer, in_
         None
     };
     let build_v7 = || build_v7_messages(system, projection.as_ref().expect("v7 projection"));
-    let token_result = if native_v7 {
+    let token_result = if paired {
         let request = build_v7();
         let (tx, mut rx) = tokio::sync::mpsc::channel(1);
         let tokenize = mistralrs_core::Request::Tokenize(mistralrs_core::TokenizationRequest {
@@ -606,7 +628,7 @@ async fn generate(model: Arc<Model>, request: WorkerRequest, writer: Writer, in_
     // Validate the actual SDK-rendered token stream, not just the template filename.
     let rendered = match model.detokenize(tokens.clone(), false).await {
         Ok(rendered)
-            if rendered.contains(system) && (native_v7 || rendered.contains(context.as_str())) =>
+            if rendered.contains(system) && (paired || rendered.contains(context.as_str())) =>
         {
             rendered
         }
@@ -641,7 +663,7 @@ async fn generate(model: Arc<Model>, request: WorkerRequest, writer: Writer, in_
     sampling.top_k = Some(profile.top_k as usize);
     sampling.repetition_penalty = Some(f32::from(profile.repeat_penalty_milli) / 1000.0);
     sampling.max_len = Some(profile.max_output_tokens as usize);
-    let request = if native_v7 {
+    let request = if paired {
         build_v7()
     } else {
         RequestBuilder::new()
@@ -1268,6 +1290,42 @@ mod tests {
         );
         assert_eq!(messages[4]["role"], either::Either::Left("user".to_owned()));
         assert!(format!("{:?}", messages[2]["tool_calls"]).contains("expected_digest"));
+    }
+    #[test]
+    fn v8_list_and_feedback_use_the_same_structured_preflight_messages() {
+        use metron_inference_local::paired_history::{PairedCall, PairedProjection};
+        use mistralrs::RequestLike;
+        let projection = PairedProjection {
+            context: "context".into(),
+            pair: Some(PairedCall {
+                name: "list".into(),
+                arguments: r#"{"directory":null}"#.into(),
+                alias: "intent".into(),
+                result: "untrusted list result".into(),
+            }),
+            feedback: Some(
+                r#"{"model_feedback":{"detail":{"rejected_preview_untrusted":"<tool_call>"}}}"#
+                    .into(),
+            ),
+        };
+        let a = super::build_v7_messages("system", &projection);
+        let b = super::build_v7_messages("system", &projection);
+        assert_eq!(a.messages_ref(), b.messages_ref());
+        let messages = a.messages_ref();
+        assert_eq!(messages.len(), 5);
+        assert_eq!(
+            messages[2]["role"],
+            either::Either::Left("assistant".into())
+        );
+        assert!(format!("{:?}", messages[2]["tool_calls"]).contains("list"));
+        assert!(format!("{:?}", messages[2]["tool_calls"]).contains("directory"));
+        assert_eq!(messages[3]["role"], either::Either::Left("tool".into()));
+        assert_eq!(
+            messages[3]["tool_call_id"],
+            either::Either::Left("intent".into())
+        );
+        assert_eq!(messages[4]["role"], either::Either::Left("user".into()));
+        assert!(format!("{:?}", messages[4]["content"]).contains("rejected_preview_untrusted"));
     }
     use super::{InFlight, StreamGuard};
     use metron_protocol::content_digest;

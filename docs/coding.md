@@ -67,6 +67,35 @@ flowchart LR
     Host --> Controller
 ```
 
+The v3.10 controller (context11) includes bounded diagnostic data after a known
+invalid proposal: the actual validation error, up to 512 UTF-8 bytes of the
+rejected proposal, and an explicit truncation flag. The preview is untrusted
+text, never an executed call. It is bound to the recorded model observation;
+unknown execution still holds and three known invalid proposals still stop.
+At the context limit, the controller can omit a previous complete action as a
+whole, retaining its digest, provenance and observation. It preserves the
+current model observation needed to bind feedback. Older controller routes keep
+their previous feedback bytes.
+
+Recipe v8 retains V7's exact structured-message preflight and adds the existing
+`list` action only when admitted by policy. Its directory can be null for the
+workspace root. V6/V7 keep their five-tool catalogs. Completed List results use
+the same actual action/receipt pairing; omitted actions create no assistant
+call. Feedback previews are labeled `rejected_preview_untrusted` in model-facing
+data. Native completion remains unqualified; see
+[the execution evidence](../knowledge/observations/O-0013-native-coding-feedback.md).
+
+```mermaid
+flowchart LR
+    Result[Model proposal] --> Validate[Agent or standalone planner: validate]
+    Validate -->|known invalid| Feedback[Bounded error and rejected preview: untrusted]
+    Feedback --> Next[Worker: exact structured preflight and generation]
+    Validate -->|valid proposal| Host[Host: admission and workspace authority]
+    Host -->|known receipt, including List| Pair[Durable completed action/result pair]
+    Pair --> Next
+    Host -->|unknown execution| Hold[Hold reservation; no fabricated result]
+```
+
 ## Inputs and invocation
 
 Provide separate absolute paths for an owner-private workspace and the private

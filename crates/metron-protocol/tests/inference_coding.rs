@@ -904,3 +904,94 @@ fn v7_recipe_binds_projection_and_preserves_v6_identity() {
     assert!(profile.validate().is_ok());
     assert!(native_xml_coding_grammar(&[metron_protocol::coding::CodingTool::Search]).is_err());
 }
+
+#[test]
+fn v8_list_catalog_grammar_schema_and_native_arguments_are_bound() {
+    use metron_protocol::coding::{CodingAction, CodingTool};
+    let identity = format!(
+        "{LOCAL_CODING_V8_SYSTEM}\n{LOCAL_CODING_V8_RENDER_MODE}\n{LOCAL_CODING_V2_SCHEMA}"
+    );
+    assert_eq!(
+        content_digest(identity.as_bytes()).as_str(),
+        LOCAL_CODING_V8_RECIPE_SHA
+    );
+    assert_ne!(LOCAL_CODING_V8_RECIPE_SHA, LOCAL_CODING_V7_RECIPE_SHA);
+    assert!(native_xml_coding_grammar(&[CodingTool::List]).is_err());
+    let old = [
+        CodingTool::Edit,
+        CodingTool::Read,
+        CodingTool::Run,
+        CodingTool::Finish,
+    ];
+    assert_eq!(
+        native_xml_coding_v8_grammar(&old).unwrap(),
+        native_xml_coding_grammar(&old).unwrap()
+    );
+    let list = native_xml_coding_v8_grammar(&[CodingTool::List]).unwrap();
+    assert!(list.contains("call_list: \"<function=list>\""));
+    assert!(list.contains("\"<parameter=directory>\" \"\\n\"? directory"));
+    assert!(list.contains("directory: path | \"null\""));
+    assert!(
+        !native_xml_coding_v8_grammar(&[CodingTool::Plan])
+            .unwrap()
+            .contains("call_list")
+    );
+    assert!(native_xml_coding_v8_grammar(&[CodingTool::List, CodingTool::Search]).is_err());
+    assert!(native_xml_coding_v8_grammar(&[CodingTool::List, CodingTool::List]).is_err());
+    let schemas = native_coding_v8_tool_schemas(&[CodingTool::List]).unwrap();
+    assert_eq!(schemas[0].0, "list");
+    assert_eq!(schemas[0].1["required"], serde_json::json!(["directory"]));
+    assert_eq!(
+        schemas[0].1["properties"]["directory"]["type"],
+        serde_json::json!(["string", "null"])
+    );
+    for (args, expected) in [
+        (
+            r#"{"directory":null}"#,
+            CodingAction::List { directory: None },
+        ),
+        (
+            r#"{"directory":"src"}"#,
+            CodingAction::List {
+                directory: Some(metron_protocol::coding::WorkspacePath::new("src").unwrap()),
+            },
+        ),
+    ] {
+        let evidence =
+            NativeCallEvidence::capture(1, vec![("list".into(), args.into())], None).unwrap();
+        let action: CodingAction =
+            serde_json::from_str(&evidence.action_content().unwrap()).unwrap();
+        assert_eq!(action, expected);
+        action.validate().unwrap();
+    }
+    let mut profile = local_profile();
+    profile.prompt_recipe_digest = Digest::new(LOCAL_CODING_V8_RECIPE_SHA).unwrap();
+    profile.embedded_tokenizer_digest =
+        gguf_lfm3_corrected_tokenizer_digest(&profile.artifact_digest).unwrap();
+    let context = "task";
+    let mut request = WorkerRequest::Generate {
+        dispatch_id: content_digest(b"dispatch"),
+        request_digest: content_digest(b"request"),
+        task_id: TaskId::new("task").unwrap(),
+        principal_id: PrincipalId::new("principal").unwrap(),
+        action_digest: content_digest(b"action"),
+        input_digest: content_digest(context.as_bytes()),
+        role: LocalRole::Reasoner,
+        output_schema: LocalOutputSchema::Text,
+        context: BoundedText::new(context).unwrap(),
+        native_tools: Some(Box::new(vec![CodingTool::List])),
+        previous_tool_turn: None,
+        profile: Box::new(profile),
+        artifact_path: Box::new(BoundedText::new("/model.gguf").unwrap()),
+        cohort: Box::new(SubmissionCohort {
+            id: BoundedText::new("cohort").unwrap(),
+            size: 1,
+            position: 0,
+        }),
+    };
+    assert!(request.validate().is_ok());
+    if let WorkerRequest::Generate { profile, .. } = &mut request {
+        profile.prompt_recipe_digest = Digest::new(LOCAL_CODING_V7_RECIPE_SHA).unwrap();
+    }
+    assert!(request.validate().is_err());
+}
