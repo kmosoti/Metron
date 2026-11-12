@@ -12,14 +12,15 @@ human_ratified: false
 ## Source and scope
 
 This record preserves the laboratory findings and milestone summary from the
-[main README at 0170c22](https://github.com/kmosoti/Metron/blob/0170c22c7e8de92cc73740f4e34a7bb25f2d4980/README.md).
+[main README at 0170c22](https://github.com/kmosoti/Metron/blob/0170c22c7e8de92cc73740f4e34a7bb25f2d4980/README.md); the
+preserved reports, manifests, figures and laboratory docs are now grouped in
+the [archive](../archive/laboratory/README.md), pinned to source revision
+[`898bae3d868fce6db3454a556a2afd91d246d7e1`](https://github.com/kmosoti/Metron/tree/898bae3d868fce6db3454a556a2afd91d246d7e1).
 The findings apply to the Boolean-function laboratories and workloads described
 below. Product runtime work has its own proposal and release criteria.
 
-The text and milestone diagram capture that source revision. The linked figures
-continue to be generated from committed reports and the priors ledger, with
-freshness checked by the architecture suite. The source revision retains the
-original figure versions for historical comparison.
+The text and milestone diagram capture historical findings. The figures are
+retained as snapshots; current product checks do not regenerate them.
 
 ## What the laboratory has found
 
@@ -29,13 +30,13 @@ by about log2 6 probes: exactly the information in the family label. It
 sits below the entropy floor, so no router that has to find the label for
 itself could get there.
 
-![Cost ladder: exhaustive, verified affine, greedy over the pool, perfect router](../../docs/figures/headroom.svg)
+![Cost ladder: exhaustive, verified affine, greedy over the pool, perfect router](../archive/laboratory/figures/headroom.svg)
 
 **But the label it routes on is not in the probes.** A real router has to
 learn the family from the same probes it is trying to save. It cannot: more
 prefix only walks it back to the single best strategy.
 
-![Solved rate of the most-survivors router against prefix length](../../docs/figures/selectors.svg)
+![Solved rate of the most-survivors router against prefix length](../archive/laboratory/figures/selectors.svg)
 
 **Where the structure is in the function, routing pays.** In a
 laboratory with no published pool, each class (affine, symmetric,
@@ -46,27 +47,27 @@ and beats the best fixed order given the same probes. That took three
 pre-registered runs, and learned routers never beat the hand-written
 Bayes rule.
 
-![Routers against the single best cascade on the structure-keyed laboratory](../../docs/figures/routing.svg)
+![Routers against the single best cascade on the structure-keyed laboratory](../archive/laboratory/figures/routing.svg)
 
 **Exact beats hyperdimensional for these objects.** Retrieving every stored
 function consistent with a few observed rows, the bitmask index is complete,
 smallest and fastest.
 
-![Recall against bytes per entry for exact, Bloom and hyperdimensional indexes](../../docs/figures/retrieval.svg)
+![Recall against bytes per entry for exact, Bloom and hyperdimensional indexes](../archive/laboratory/figures/retrieval.svg)
 
 **The system proposes; the laboratory decides.** Compositions extracted from
 episodes are judged on held-out targets, never on the episodes that produced
 them.
 
-![Held-out pass rates of proposed compositions](../../docs/figures/promotion.svg)
+![Held-out pass rates of proposed compositions](../archive/laboratory/figures/promotion.svg)
 
 **Every prior is a hypothesis.** Whatever the design relies on, whether
 recalled, cited or derived, carries a test or a primary source.
 
-![The priors ledger by status](../../docs/figures/priors.svg)
+![The priors ledger by status](../archive/laboratory/figures/priors.svg)
 
-These pictures are drawn from the committed reports by `metron figures`, and
-the test suite fails if a report changes without its picture.
+These figures are historical report projections and are not current product
+verification artifacts.
 
 ## Where it stands
 
@@ -93,10 +94,10 @@ by a negative result is a result.
 
 ## Relations
 
-- supported-by [committed experiment reports](../../experiments/reports/README.md)
+- supported-by [archived experiment reports](../archive/laboratory/reports/README.md)
 - explained-by [architecture decisions](../../docs/adr/README.md)
 - contextualized-by [scientific priors](../../docs/research/priors.md)
-- tracked-by [laboratory milestone criteria](../../docs/architecture/milestones.md)
+- tracked-by [archived laboratory milestones](../archive/laboratory/docs/milestones.md)
 - linked-from [project overview](../../README.md)
 
 ## Revisit when

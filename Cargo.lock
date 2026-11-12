@@ -3046,16 +3046,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "metron-adapters"
-version = "0.1.0"
-dependencies = [
- "metron-core",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
-]
-
-[[package]]
 name = "metron-agent"
 version = "0.1.0"
 dependencies = [
@@ -3063,49 +3053,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "metron-app"
-version = "0.1.0"
-dependencies = [
- "metron-core",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
-]
-
-[[package]]
 name = "metron-architecture-tests"
 version = "0.1.0"
 dependencies = [
- "metron-adapters",
- "metron-app",
- "metron-cli",
- "metron-core",
- "metron-lab",
- "metron-operators",
  "serde_json",
-]
-
-[[package]]
-name = "metron-cli"
-version = "0.1.0"
-dependencies = [
- "metron-adapters",
- "metron-app",
- "metron-core",
- "metron-lab",
- "metron-operators",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "metron-core"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -3151,25 +3102,6 @@ dependencies = [
  "mistralrs",
  "mistralrs-core",
  "tokio",
-]
-
-[[package]]
-name = "metron-lab"
-version = "0.1.0"
-dependencies = [
- "metron-core",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "metron-operators"
-version = "0.1.0"
-dependencies = [
- "metron-core",
- "serde_json",
- "thiserror 2.0.21",
 ]
 
 [[package]]

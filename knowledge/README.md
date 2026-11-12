@@ -19,11 +19,12 @@ link superseding decisions so readers can follow the history.
 Distinguish observed facts, deductions, hypotheses and unknowns when they affect
 a decision. Include typed relations and a condition for revisiting the record.
 
-Stable architectural contracts remain in [docs/](../docs/architecture/overview.md).
+Current product boundaries are in [architecture](../docs/architecture/overview.md).
 Architectural decisions continue in [ADRs](../docs/adr/README.md), scientific
-assumptions in the [priors ledger](../docs/research/priors.md), and experimental
-measurements in [reports](../experiments/reports/README.md). Link supporting
-knowledge to those sources.
+assumptions in the [priors ledger](../docs/research/priors.md), and historical
+Boolean-laboratory measurements in the
+[laboratory archive](archive/laboratory/README.md). Link supporting knowledge
+to those sources.
 
 ## Records
 
@@ -59,6 +60,7 @@ knowledge to those sources.
 | [O-0012 Paired tool history diagnostic](observations/O-0012-paired-tool-history.md) | agent | false |
 | [O-0013 Native coding execution and feedback](observations/O-0013-native-coding-feedback.md) | agent | false |
 | [O-0014 Native file-tool contract](observations/O-0014-native-file-tool-contract.md) | agent | false |
+| [O-0015 Native V10 coding cases and context capacity](observations/O-0015-native-coding-v10-and-context.md) | agent | false |
 
 ## Runtime implementation
 

@@ -1,174 +1,80 @@
 # Working in Metron
 
-This file is for coding agents and people alike. Read it before changing
-the shape of anything.
+Metron develops a Rust-native agent and execution harness. Read
+[CONTRIBUTING.md](CONTRIBUTING.md), the [knowledge index](knowledge/README.md)
+and [architecture overview](docs/architecture/overview.md) before substantive
+changes. Historical Boolean-laboratory evidence is in
+`knowledge/archive/laboratory/`; its executable sources and fixtures are not
+part of the current product.
 
-## What this repository is
+## Product boundaries
 
-Metron develops `metron-agent` and `metron-harness` as first-class crates in the
-root Cargo workspace. Supporting storage, host and inference crates sit beside
-them under `crates/`. Fixtures and temporary probes do not define product
-components. See `docs/architecture/overview.md` for the implemented boundaries.
-
-The retained Boolean-function laboratory has its own sealed evaluator and
-experimental rules. The four invariants and laboratory-specific rules below
-continue to govern its six crates. Keep the inference SDK in
-`metron-inference-worker`; pure agent/protocol code has no ambient I/O.
-Progress follows outcome milestones and exit criteria, never dates (ADR 0008).
-
-## The four invariants (do not break; extend the tests when you extend the code)
-
-1. `metron-core` is pure: `serde`, `serde_json`, `sha2`, `thiserror` only;
-   no I/O, no models, no experiment internals. Inner crates depend on the
-   core alone; only `metron-cli` composes them.
-2. The laboratory owns ground truth. Hidden targets, the judge and the
-   promotion criteria live in `metron-lab`, sealed. The system reaches the
-   target only through the `Oracle` port.
-3. Every external operation produces a `ResourceReceipt`, issued by the
-   port and journaled by the runner. Cost is charged from receipts. Journals
-   replay to the same head hash for the same manifest and seed.
-4. Representations connect only through validated `TransformContract`s.
-   Observe writes `observations`; consult writes `consultations`;
-   transform writes its contract's target frame; commit writes nothing;
-   only observe obtains observations; only consult calls a service.
-
-`cargo test --workspace` runs `tests/architecture`, which fails if any of
-these is violated. Details and the mechanism for each are in
-`docs/architecture/invariants.md`.
+- `metron-agent` and `metron-protocol` keep coordination and typed contracts
+  free of ambient I/O. The harness coordinates bounded effects; the host
+  composes concrete tools and verification; SQLite owns durable admission,
+  receipts and replay; the local supervisor owns worker lifecycle; only the
+  worker links the pinned inference SDK.
+- Keep proposal, grant, admission, effect, receipt/unknown outcome, settlement
+  and independent artifact verification as distinct authority transitions.
+  Unknown outcomes retain reservations and are not redispatched automatically.
+- Keep filesystem mutation confined and CAS-bound. Scoped memory may provide
+  evidence but never grants execution authority. Model output, roles and notes
+  do not grant authority.
+- `metron-testkit` is development-only support. Its fixtures do not define
+  product task architecture. The current alpha.1 gates remain open until
+  independently accepted native coding and required resource evidence pass.
+- Keep the `sum-v1` compatibility boundary explicit; it is not a general task
+  framework. Preserve legacy journal/read-only replay behavior unless a
+  separately reviewed migration establishes compatibility.
 
 ## Layout
 
-```
-crates/metron-agent       pure agent coordination
-crates/metron-harness     admission, effect orchestration and standalone planning
-crates/metron-protocol    typed tasks, transitions, intents, receipts and contracts
-crates/metron-host        CLI composition, sandboxed tools and independent verification
-crates/metron-store-sqlite durable journal, accounting and scoped notes
-crates/metron-inference-local bounded local worker supervision and artifact checks
-crates/metron-inference-worker pinned local inference SDK and model execution
-crates/metron-testkit     test fixtures and controlled adapters
-crates/metron-core        pure domain + ports
-crates/metron-app         use cases: registry, schedules, episode runner
-crates/metron-lab         immutable evaluator: hidden targets, oracle, judge, promotion gate, manifests
-crates/metron-operators   reference operators (one complete pipeline)
-crates/metron-adapters    effects: clock, files, results
-crates/metron-cli         composition root (library + binary): run | resume | answer | replay | headroom | route | promote | retrieval | verify | explain | figures
-experiments/manifests     experiment definitions (lab property)
-experiments/fixtures      hidden targets as data (lab property)
-experiments/results       generated run directories (not committed)
-experiments/reports       committed reports (headroom, decisions)
-docs/architecture         overview and invariants
-docs/research             archived inputs (proposal, prior-art review)
-docs/adr                  decisions
-docs/figures              laboratory figures, generated from experiments/reports
-tests/architecture        executable invariants
-```
+The current product crates live under `crates/`: `metron-agent`,
+`metron-harness`, `metron-protocol`, `metron-host`, `metron-store-sqlite`,
+`metron-inference-local`, `metron-inference-worker`, and development-only
+`metron-testkit`. `tests/architecture` checks product dependency and authority
+boundaries. Architecture and interface documentation lives in `docs/`; dated
+evidence and decisions live in `knowledge/`.
 
-## Rules of the road
+## Development and verification
 
-- Run before you push: `cargo fmt --all --check`,
-  `cargo clippy --workspace --all-targets -- -D warnings`,
-  `cargo test --workspace`. CI runs the same.
-- Adding an operator: implement `metron_core::operator::Operator<W>` with
-  the narrowest `W` bound you need (`W: Oracle` only if you probe,
-  `W: Knowledge` to read the pool, `W: ExternalService` to consult). Pick
-  exactly one kind. A transform must carry a validated contract that says
-  what it preserves, loses and assumes, and whether it is exact. Declare
-  `reads` and `writes`. Register it in the right group in
-  `metron_operators::all_operators`.
-- Language-model inference: there is no API client and none will be added
-  (ADR 0009). A consult operator calls the `llm` service; the
-  `ClaudeCodeBridge` writes `llm/requests/<id>.json` under the run directory
-  and the episode suspends. To answer as the session: read the request's
-  `prompt`, then `metron answer <run-dir> --text "<formula>" --by "<who>"`
-  and `metron resume <run-dir>`. Never write the answer into any other
-  file, never edit the journal, never read the fixture to answer.
-- Measuring: `metron headroom experiments/manifests/headroom-arity5.json`
-  produces the SBS/VBS/gap report; `metron promote
-  experiments/manifests/promotion-arity5.json` proposes candidates from the
-  train split and has the gate judge them on the test split. Copy reports
-  worth keeping to `experiments/reports/` with the manifest hash in the
-  file name, then run `metron figures`: the figures linked from the
-  laboratory knowledge record are drawn from those reports and the suite
-  fails when they drift apart.
-- The root README introduces the current project and links its entry points.
-  Keep dated findings and milestone snapshots in `knowledge/`. Reference
-  material goes in `docs/` and `experiments/README.md`.
-- Promotion: the system proposes (`metron_app::propose`), the laboratory
-  judges (`PromotionGate`). A promoted candidate is a report, not a
-  registered operator; turning it into a strategy is a manifest edit.
-- Adding a task family: it goes in `metron-lab`, sealed like
-  `HiddenFunction`, exposing only a `Question` and the `Oracle` port.
-  Fixtures are data under `experiments/fixtures/`.
-- Changing the cost model (`metron_core::cost::Cost`) or the journal
-  format is an ADR-level change.
-- Hyperdimensional memory is closed (ADR 0013): on the laboratory's
-  native objects the bitmask index wins on recall, bytes and time. Do not
-  add an HDC crate; `metron-lab::retrieval` is the standing comparison.
-- Routing (M3) is reached on the structure-keyed laboratory (ADR 0018):
-  the hand-authored Bayes router (`metron route`, `RouterSelector` with
-  `RoutingPolicy::PosteriorOrder`) closes about half the label-free gap
-  and beats the best fixed order run after the same prefix. Learned
-  routing is closed negative there. On the family-labelled laboratory
-  routing stays closed (ADR 0011), and the entropy floor explains why
-  (ADR 0015). A new routing claim needs the floor in its headroom
-  report, label-free strategies as the only SBS and VBS candidates,
-  splits that stay NPN-clean when seeds are pooled, a negative control,
-  and a baseline that spends the router's own prefix. It also needs a
-  pre-registered primary comparison whose interval excludes zero on
-  fresh seeds.
-- Do not copy the deep-research proposal's architecture. It is an archived
-  input, not the design (`docs/research/README.md`).
-- Record decisions as ADRs. Do not edit accepted ADRs; supersede them.
-- Priors are hypotheses (ADR 0014). Anything a change relies on that
-  was recalled, taken from the review, or derived in your head goes into
-  `docs/research/priors.md` with a test or a primary source before the
-  change is merged. When the laboratory contradicts a prior, the code
-  follows the measurement and the ledger records the falsification. Look
-  at every result from more than one perspective (information, Bayesian,
-  algorithm selection, cost, identifiability, implementation) and write
-  down where the perspectives disagree.
-- Keep wall-clock time out of decisions and out of hashes.
-- Never give the system a way to read `experiments/fixtures/`, a `Verdict`
-  during an episode, or `PromotionCriteria` values.
+- Run `cargo fmt --all --check`,
+  `cargo clippy --workspace --all-targets -- -D warnings`, and
+  `cargo test --workspace`; CI runs the full product checks.
+- Preserve exact journal/replay semantics, one-shot admission, receipt-based
+  accounting, crash recovery, path confinement, CAS mutation, SDK isolation,
+  and independent verification. Changes to wire formats, durable state or
+  authority boundaries require an ADR and focused regression evidence.
+- Distinguish model weight artifact bytes, KV/cache state, runtime workspace
+  and measured device memory. A trained context limit or KV estimate alone
+  does not establish physical fit. Permit larger trained contexts only when
+  the selected runtime path and observed physical headroom support them.
+- Record decisions as new ADRs; do not rewrite accepted ADRs. Priors are
+  hypotheses and need a primary source or discriminating test. Keep historical
+  laboratory results explicitly scoped to their original revision/workload.
+- Keep wall-clock time out of decisions and deterministic hashes.
+- Do not add a generic task DSL or workflow framework without a concrete,
+  reviewed product requirement.
 
-## Vocabulary
+## Collaboration and cleanup
 
-Inquiry, Question, View, Frame, TransformContract, Observation, Evidence,
-Operator (observe | transform | consult | commit), ResourceReceipt,
-ServiceAnswer, Episode, Journal, Checkpoint, Verdict, HypothesisPool,
-TaskSet, Split, CapabilityCandidate, PromotionGate. Not "capsule", not
-"ledger", not "kernel loop". See ADR 0007.
+For this product-core effort, Luna (GPT-6 Luna, medium) owns knowledge and
+documentation; Sol (GPT-6.1 Sol, medium) owns product implementation; Sol
+(GPT-6.1 Sol, high) owns architecture synthesis and direction. Use high effort
+for complex design synthesis, medium for routine implementation and review;
+never use max or ultra for review. Coordinate path ownership before edits.
 
-## Development workflow
+Remove task-owned temporary execution/build artifacts after their work is
+complete and provenance is retained. Preserve shared model, SDK and kernel
+caches, active immutable executables, journals, sealed audits, and anything
+with unresolved replay or compatibility obligations. Do not keep every
+executable revision by default; preserve a concise provenance record and the
+specific artifacts required by active validation.
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md) and the
-[knowledge index](knowledge/README.md) before starting work.
+## Review and release
 
-- Base day-to-day branches and stacks on `develop@origin`. Land each stack
-  bottom-up through rebased PRs into `develop`.
-- Delegate review and landing to an independent agent from another model
-  family. When unavailable, use a fresh independent agent at medium reasoning.
-  Use low or medium reasoning for routine verification and review, and high
-  when complexity warrants it. Never use max or ultra for verification or review.
-  The reviewer owns merging after checks pass and conversations are resolved.
-- `main` is the human-gated release branch. Agents may prepare release PRs
-  from `develop`. Only a human approves the `main-release` environment and
-  merges into `main`. Agents must never approve or bypass that gate or merge
-  a PR targeting `main`.
-- Every PR submitted for human review must include or link a current architecture
-  diagram showing relevant components, dependencies and authority boundaries.
-  Update diagrams when those boundaries change. Follow the diagram requirements
-  in [CONTRIBUTING.md](CONTRIBUTING.md#architecture-diagrams-for-human-review).
-- Prefer colocated Jujutsu (`jj git init --colocate`) for stacks. Git with
-  `git rebase --update-refs` is supported. Follow the commit and PR templates.
-- Both integration and release branches require linear history and resolved
-  conversations. Preserve the existing laboratory checks.
-- Record dated decisions, research and observations in `knowledge/` with
-  `added_by` and `human_ratified`. Continue using agent-authored records with
-  `human_ratified: false`. Mark ratification only on explicit human direction.
-  Obtain human approval before overturning a ratified decision.
-- Continue recording architectural contracts as new ADRs and scientific priors
-  in `docs/research/priors.md`. Link knowledge records to these existing sources.
-  The runtime proposal requires its P0 compatibility decision before product
-  implementation.
+Read [CONTRIBUTING.md](CONTRIBUTING.md) for branch and review workflow. Keep
+human release approval mandatory for `main`; agents do not approve or bypass
+that gate. Human-review changes include a current architecture diagram showing
+dependencies and authority boundaries. Never claim incomplete alpha.1 gates as
+passed.
