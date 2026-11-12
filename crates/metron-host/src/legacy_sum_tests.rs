@@ -1,4 +1,4 @@
-use metron_agent::{ENGINE_VERSION, SumAgent};
+use super::*;
 use metron_protocol::*;
 
 fn initial(limit: u8) -> AgentState {
@@ -56,7 +56,7 @@ fn published(state: &AgentState) -> AgentEvent {
 #[test]
 fn scripted_path_emits_three_decisions_and_two_free_finalizations() {
     assert_eq!(ENGINE_VERSION, "sum-agent/v1");
-    let agent = SumAgent;
+    let agent = FrozenSum::scripted();
     let start = initial(8);
     let read = agent.transition(&start, &AgentEvent::TaskAccepted).unwrap();
     assert_eq!(
@@ -147,7 +147,7 @@ fn scripted_path_emits_three_decisions_and_two_free_finalizations() {
 }
 #[test]
 fn cap_preserves_pending_inputs_but_allows_finalization() {
-    let agent = SumAgent;
+    let agent = FrozenSum::scripted();
     assert_eq!(
         agent.transition(&initial(0), &AgentEvent::TaskAccepted),
         Err(DecisionError::DecisionLimit)
@@ -196,7 +196,7 @@ fn cap_preserves_pending_inputs_but_allows_finalization() {
 }
 #[test]
 fn rejects_unbound_evidence_wrong_phase_and_revision_overflow() {
-    let agent = SumAgent;
+    let agent = FrozenSum::scripted();
     let read = next(
         agent
             .transition(&initial(8), &AgentEvent::TaskAccepted)
@@ -241,7 +241,7 @@ fn rejects_unbound_evidence_wrong_phase_and_revision_overflow() {
 
 #[test]
 fn limits_two_and_three_block_only_next_decision() {
-    let agent = SumAgent;
+    let agent = FrozenSum::scripted();
     for limit in [2, 3] {
         let read = next(
             agent
@@ -283,7 +283,7 @@ fn limits_two_and_three_block_only_next_decision() {
 
 #[test]
 fn known_failure_finalizes_at_cap_and_rejects_wrong_intent() {
-    let agent = SumAgent;
+    let agent = FrozenSum::scripted();
     let read = next(
         agent
             .transition(&initial(1), &AgentEvent::TaskAccepted)
@@ -360,7 +360,7 @@ fn local_profile() -> LocalProfile {
 #[test]
 fn local_engine_replays_bound_observations_and_rejects_wrong_profile() {
     let profile = local_profile();
-    let agent = metron_agent::LocalSumAgent::new(&profile).unwrap();
+    let agent = FrozenSum::new(&profile).unwrap();
     let start = initial(8);
     let Transition::Decision {
         next: read_state,
@@ -445,4 +445,42 @@ fn local_engine_replays_bound_observations_and_rejects_wrong_profile() {
         agent.transition(&model_state, &invalid),
         Err(DecisionError::MissingEvidence)
     );
+}
+
+#[test]
+fn reader_recognizes_only_exact_historical_mode_and_profile_bindings() {
+    use metron_protocol::EngineMode;
+    for (mode, name, profile) in [
+        (EngineMode::Agent, "sum-agent/v1", None),
+        (EngineMode::Harness, "sum-harness/v1", None),
+        (
+            EngineMode::Agent,
+            "sum-local-agent/v2",
+            Some(local_profile()),
+        ),
+        (
+            EngineMode::Harness,
+            "sum-local-harness/v2",
+            Some(local_profile()),
+        ),
+    ] {
+        let mut g = metron_protocol::Genesis {
+            mode,
+            engine_version: BoundedText::new(name).unwrap(),
+            local_profile: profile,
+            coding_policy: None,
+            require_publication_approval: false,
+            policy_digest: content_digest(b"frozen"),
+        };
+        assert!(reader(&g).is_ok());
+        g.mode = if mode == EngineMode::Agent {
+            EngineMode::Harness
+        } else {
+            EngineMode::Agent
+        };
+        assert!(reader(&g).is_err());
+        g.mode = mode;
+        g.engine_version = BoundedText::new("sum-agent/v0").unwrap();
+        assert!(reader(&g).is_err());
+    }
 }

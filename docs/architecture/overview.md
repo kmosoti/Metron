@@ -1,8 +1,9 @@
 # Architecture overview
 
 Metron develops a Rust-native agent and execution harness in one Cargo workspace.
-`metron-agent` and `metron-harness` are the primary crates. The host, storage and
-local inference adapters compose their explicit interfaces. Test fixtures and
+`metron-agent` and `metron-harness` provide coding coordination and durable
+orchestration. The host, storage and local inference adapters compose explicit
+interfaces. Historical sum replay is private and read-only. Test fixtures and
 operational measurements validate these components; they are not product layers.
 
 ## Crates and the direction of dependency
@@ -12,7 +13,7 @@ flowchart TD
     Host[metron-host: composition and sandboxed effects] --> Agent[metron-agent: pure cognition]
     Host --> Harness[metron-harness: admission and orchestration]
     Host --> Store[metron-store-sqlite: durable state]
-    Host --> Local[metron-inference-local: worker supervisor]
+    Host --> Local[metron-inference-local: supervisor, comparison and qualification]
     Agent --> Protocol[metron-protocol: typed contracts]
     Host --> Protocol
     Harness --> Protocol
@@ -41,7 +42,7 @@ not executable product components.
 
 ```mermaid
 sequenceDiagram
-    participant C as Agent or standalone planner
+    participant C as Coding agent or standalone planner
     participant H as Harness and host policy
     participant S as SQLite admission and journal
     participant E as Tool or local model effect
@@ -49,7 +50,7 @@ sequenceDiagram
     C->>H: Typed proposed transition
     H->>S: Commit intent and reserve bounded usage
     S-->>H: Fresh one-shot admission
-    H->>E: Consume admitted effect
+    H->>E: Consume admitted effect through explicit port
     E-->>H: Receipt or unresolved outcome
     H->>S: Settle known receipt or retain unknown reservation
     S-->>H: Persisted observation
@@ -59,10 +60,19 @@ sequenceDiagram
     H->>S: Record selected verification
 ```
 
-Model output proposes work. Host grants and durable admission control execution.
+Model output proposes coding work. Host grants and durable admission control execution.
 Roles, personas, notes and tool content do not grant authority. Unknown execution
 retains its reservation and is not automatically repeated. Final acceptance is
-separate from the model's completion claim.
+separate from the model's completion claim. The harness has no filesystem
+fallback: effects and coding verification enter through explicit caller-supplied
+ports. The host owns concrete tools and historical read-only compatibility. Its
+private FrozenSum reducer is selected only for recognized noncoding journals;
+it has no execution, publication or reconciliation writer.
+
+The `EffectReturned` observation checkpoint means the supplied effect returned
+to the harness before receipt persistence. It is not a general filesystem
+durability guarantee. The coding host separately exercises persisted artifact
+freeze recovery.
 
 ## Repository layout
 

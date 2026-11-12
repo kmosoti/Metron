@@ -1,8 +1,7 @@
 //! Bounded synchronous orchestration. All external calls follow durable admission.
 use crate::{
-    driver::{DriverOutcome, ScriptedDriver},
+    driver::DriverOutcome,
     policy::{self, AdmissionOutcome, EffectDriver},
-    verify,
 };
 use metron_protocol::{
     domain::{Cognition, DecisionError, Phase, PreparedIntent},
@@ -15,14 +14,13 @@ use metron_protocol::{
         canonical_bytes, structural_digest,
     },
 };
-use std::path::Path;
 
-/// Durable checkpoints at which a test observer can block a real child process.
+/// Observation checkpoints around durable admission, effect return and settlement.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Checkpoint {
     OutboxCommitted,
     AdmissionCommitted,
-    PublicationSynced,
+    EffectReturned,
     ReceiptCommitted,
     VerificationCommitted,
 }
@@ -55,14 +53,6 @@ pub enum DriveStatus {
     MultipleEvidence,
 }
 
-fn publication_error(error: std::io::Error) -> DriveError {
-    if error.kind() == std::io::ErrorKind::InvalidData {
-        DriveError::Integrity
-    } else {
-        DriveError::Operational
-    }
-}
-
 fn command(operation: StoreOperation, version: SchemaVersion) -> Result<StoreCommand, DriveError> {
     let bytes = canonical_bytes(&operation, MAX_INTERNAL).map_err(|_| DriveError::Invalid)?;
     let id = structural_digest("command/v1", &[&bytes]).map_err(|_| DriveError::Invalid)?;
@@ -84,27 +74,15 @@ fn commit<S: StorePort>(
     }
 }
 
-/// Drive at most a fixed number of steps; callers never poll or advance the clock implicitly.
-pub fn drive<S: StorePort>(
-    store: &mut S,
-    task: &TaskId,
-    engine: &dyn Cognition,
-    run_dir: &Path,
-    observer: &mut dyn Observer,
-) -> Result<DriveStatus, DriveError> {
-    drive_inner(store, task, engine, run_dir, observer, None, None)
-}
-
-/// Drive with a local inference port; the port is called only after fresh admission.
+/// Drive with caller-supplied effects, called only after fresh admission.
 pub fn drive_with_driver<S: StorePort>(
     store: &mut S,
     task: &TaskId,
     engine: &dyn Cognition,
-    run_dir: &Path,
     observer: &mut dyn Observer,
     driver: &mut dyn EffectDriver<Outcome = DriverOutcome>,
 ) -> Result<DriveStatus, DriveError> {
-    drive_inner(store, task, engine, run_dir, observer, Some(driver), None)
+    drive_inner(store, task, engine, observer, driver, None)
 }
 
 /// Independent host verifier; it receives only a coherent persisted projection.
@@ -115,34 +93,23 @@ pub trait CodingVerifier {
         projection: &metron_protocol::Projection,
     ) -> Result<(metron_protocol::CodingVerificationSelection, bool), DriveError>;
 }
-#[allow(clippy::too_many_arguments)]
 pub fn drive_coding_with_driver<S: StorePort>(
     store: &mut S,
     task: &TaskId,
     engine: &dyn Cognition,
-    run_dir: &Path,
     observer: &mut dyn Observer,
     driver: &mut dyn EffectDriver<Outcome = DriverOutcome>,
     verifier: &mut dyn CodingVerifier,
 ) -> Result<DriveStatus, DriveError> {
-    drive_inner(
-        store,
-        task,
-        engine,
-        run_dir,
-        observer,
-        Some(driver),
-        Some(verifier),
-    )
+    drive_inner(store, task, engine, observer, driver, Some(verifier))
 }
 
 fn drive_inner<S: StorePort>(
     store: &mut S,
     task: &TaskId,
     engine: &dyn Cognition,
-    run_dir: &Path,
     observer: &mut dyn Observer,
-    mut local_driver: Option<&mut dyn EffectDriver<Outcome = DriverOutcome>>,
+    local_driver: &mut dyn EffectDriver<Outcome = DriverOutcome>,
     mut coding_verifier: Option<&mut dyn CodingVerifier>,
 ) -> Result<DriveStatus, DriveError> {
     let version = {
@@ -232,33 +199,7 @@ fn drive_inner<S: StorePort>(
             continue;
         }
         if projection.state.phase == Phase::AwaitingVerification {
-            let (selection, accepted) =
-                verify::verify(run_dir, &projection.verification).map_err(|error| match error {
-                    verify::VerifyError::InvalidEvidence(_) => DriveError::Integrity,
-                    verify::VerifyError::Operational => DriveError::Operational,
-                })?;
-            let reason = BoundedText::new(if accepted {
-                "verified"
-            } else {
-                "candidate or artifact mismatch"
-            })
-            .map_err(|_| DriveError::Invalid)?;
-            if commit(
-                store,
-                version,
-                StoreOperation::RecordVerification {
-                    task_id: task.clone(),
-                    selection,
-                    accepted,
-                    reason,
-                },
-            )?
-            .is_none()
-            {
-                return Ok(DriveStatus::Blocked);
-            }
-            observer.checkpoint(Checkpoint::VerificationCommitted);
-            continue;
+            return Ok(DriveStatus::Blocked);
         }
         if matches!(projection.state.phase, Phase::Completed | Phase::Rejected) {
             if projection.state.phase == Phase::Rejected {
@@ -333,14 +274,6 @@ fn drive_inner<S: StorePort>(
             continue;
         }
         let prepared = intent.prepared.clone().ok_or(DriveError::Integrity)?;
-        if matches!(
-            prepared.request,
-            metron_protocol::ApprovedRequest::RequestLocalModel { .. }
-                | metron_protocol::ApprovedRequest::Coding { .. }
-        ) && local_driver.is_none()
-        {
-            return Ok(DriveStatus::Blocked);
-        }
         let needs_approval = match &prepared.request {
             metron_protocol::ApprovedRequest::Coding { step, .. } => projection
                 .genesis
@@ -471,23 +404,8 @@ fn drive_inner<S: StorePort>(
             AdmissionOutcome::Blocked => return Ok(DriveStatus::Blocked),
         };
         observer.checkpoint(Checkpoint::AdmissionCommitted);
-        let outcome = if matches!(
-            effect.request().request,
-            metron_protocol::ApprovedRequest::RequestLocalModel { .. }
-                | metron_protocol::ApprovedRequest::Coding { .. }
-        ) {
-            local_driver
-                .as_deref_mut()
-                .ok_or(DriveError::Integrity)?
-                .execute(effect)
-        } else {
-            let mut callback = || observer.checkpoint(Checkpoint::PublicationSynced);
-            ScriptedDriver {
-                run_dir: run_dir.to_path_buf(),
-                publication_synced: &mut callback,
-            }
-            .execute(effect)
-        };
+        let outcome = local_driver.execute(effect);
+        observer.checkpoint(Checkpoint::EffectReturned);
         match outcome {
             DriverOutcome::Receipt(receipt) => {
                 let result = commit(
@@ -521,309 +439,4 @@ fn drive_inner<S: StorePort>(
         }
     }
     Ok(DriveStatus::Blocked)
-}
-
-/// Reconcile only a previously dispatched publication. It does not drive cognition.
-pub fn reconcile<S: StorePort>(
-    store: &mut S,
-    task: &TaskId,
-    intent_id: &metron_protocol::types::Digest,
-    run_dir: &Path,
-) -> Result<DriveStatus, DriveError> {
-    use metron_protocol::{
-        domain::{ActualUsage, ApprovedRequest, Receipt, ReceiptData, ReceiptOutput, UsageVector},
-        types::{DecimalUsage, ProducerReceiptId},
-    };
-    let version = {
-        let mut snapshot = store.audit()?;
-        snapshot.projection(task)?.task.data().schema_version
-    };
-    let worker = WorkerId::new("reconciler").map_err(|_| DriveError::Invalid)?;
-    let (intent, evidence, tick) = {
-        let mut snapshot = store.audit()?;
-        let tick = snapshot.projection(task)?.tick;
-        let intent = snapshot.intent(intent_id)?.ok_or(DriveError::Invalid)?;
-        let mut evidence = Vec::new();
-        let mut cursor = None;
-        loop {
-            let page = snapshot.evidence(intent_id, cursor)?;
-            evidence.extend(page.records);
-            cursor = page.next;
-            if evidence.len() > 1 || cursor.is_none() {
-                break;
-            }
-        }
-        (intent, evidence, tick)
-    };
-    if intent.status == DispatchStatus::Dispatched {
-        let Some(lease) = intent.lease.as_ref() else {
-            return Ok(DriveStatus::Blocked);
-        };
-        if lease.expires_at > tick {
-            return Ok(DriveStatus::Blocked);
-        }
-        let Some(dispatch_id) = intent.dispatch_id.clone() else {
-            return Err(DriveError::Integrity);
-        };
-        if !matches!(
-            commit(
-                store,
-                version,
-                StoreOperation::RecordUncertainty {
-                    task_id: task.clone(),
-                    intent_id: intent_id.clone(),
-                    dispatch_id,
-                    lease_epoch: lease.epoch,
-                    reason: BoundedText::new("dispatch lease expired")
-                        .map_err(|_| DriveError::Invalid)?,
-                }
-            )?,
-            Some(StoreResult::UncertaintyRecorded)
-        ) {
-            return Ok(DriveStatus::Blocked);
-        }
-        let status = {
-            let mut snapshot = store.audit()?;
-            snapshot
-                .intent(intent_id)?
-                .ok_or(DriveError::Integrity)?
-                .status
-        };
-        if status != DispatchStatus::Uncertain {
-            return Ok(DriveStatus::Blocked);
-        }
-        return reconcile(store, task, intent_id, run_dir);
-    }
-    let prepared = intent.prepared.ok_or(DriveError::Integrity)?;
-    let plan = match &prepared.request {
-        ApprovedRequest::PublishArtifact { plan } => plan,
-        _ => return Ok(DriveStatus::Blocked),
-    };
-    let existing = match supported_publication_evidence(&evidence, &prepared) {
-        Ok(existing) => existing,
-        Err(EvidenceIssue::Multiple) => return Ok(DriveStatus::MultipleEvidence),
-        Err(EvidenceIssue::Unsupported) => return Ok(DriveStatus::Blocked),
-    };
-    if intent.status == DispatchStatus::Settled {
-        if existing != intent.selected_evidence || existing.is_none() {
-            return Err(DriveError::Integrity);
-        }
-        return if crate::publication::inspect(run_dir, plan).map_err(publication_error)? {
-            Ok(DriveStatus::Complete)
-        } else {
-            Err(DriveError::Integrity)
-        };
-    }
-    if intent.status != DispatchStatus::Uncertain {
-        return Ok(DriveStatus::Blocked);
-    }
-    let lease_epoch = match commit(
-        store,
-        version,
-        StoreOperation::ClaimReconciliation {
-            task_id: task.clone(),
-            intent_id: intent_id.clone(),
-            worker: worker.clone(),
-            expected_epoch: intent.reconciliation_epoch,
-            expected_evidence_revision: intent.evidence_revision,
-        },
-    )? {
-        Some(StoreResult::ReconciliationClaimed { lease_epoch, .. }) => lease_epoch,
-        _ => return Ok(DriveStatus::Blocked),
-    };
-    if !crate::publication::reconcile(run_dir, plan).map_err(publication_error)? {
-        return Ok(DriveStatus::Blocked);
-    }
-    let usage = ActualUsage::Known {
-        usage: UsageVector {
-            model_requests: DecimalUsage::new("0").map_err(|_| DriveError::Invalid)?,
-            tool_calls: DecimalUsage::new("1").map_err(|_| DriveError::Invalid)?,
-            spend_micros_usd: DecimalUsage::new("0").map_err(|_| DriveError::Invalid)?,
-        },
-    };
-    let receipt = Receipt::new(ReceiptData {
-        schema_version: version,
-        producer_receipt_id: ProducerReceiptId::new(prepared.action.dispatch_id.as_str())
-            .map_err(|_| DriveError::Invalid)?,
-        task_id: task.clone(),
-        intent_id: intent_id.clone(),
-        dispatch_id: prepared.action.dispatch_id.clone(),
-        action_digest: prepared.action_digest.clone(),
-        usage,
-        output: ReceiptOutput::Published {
-            artifact_id: plan.artifact_id.clone(),
-            content_digest: plan.content_digest.clone(),
-            content_length: plan.content_length,
-        },
-    })
-    .map_err(|_| DriveError::Invalid)?;
-    let (evidence_id, reconciled_receipt) = match existing {
-        Some(id) => (id, None),
-        None => (
-            receipt.evidence_id().map_err(|_| DriveError::Invalid)?,
-            Some(receipt),
-        ),
-    };
-    match commit(
-        store,
-        version,
-        StoreOperation::SettleReconciliation {
-            task_id: task.clone(),
-            intent_id: intent_id.clone(),
-            worker,
-            lease_epoch,
-            expected_evidence_revision: intent.evidence_revision,
-            evidence_id,
-            reconciled_receipt,
-        },
-    )? {
-        Some(StoreResult::ReconciliationSettled { .. }) => Ok(DriveStatus::Complete),
-        _ => Ok(DriveStatus::Blocked),
-    }
-}
-
-#[derive(Debug, Eq, PartialEq)]
-enum EvidenceIssue {
-    Multiple,
-    Unsupported,
-}
-
-/// Existing evidence must never be replaced by an inferred tariff receipt.
-fn supported_publication_evidence(
-    evidence: &[metron_protocol::store::EvidenceSnapshot],
-    prepared: &PreparedIntent,
-) -> Result<Option<metron_protocol::types::Digest>, EvidenceIssue> {
-    use metron_protocol::domain::{ActualUsage, ApprovedRequest, ReceiptOutput};
-    let ApprovedRequest::PublishArtifact { plan } = &prepared.request else {
-        return Err(EvidenceIssue::Unsupported);
-    };
-    if evidence.len() > 1 {
-        return Err(EvidenceIssue::Multiple);
-    }
-    let Some(evidence) = evidence.first() else {
-        return Ok(None);
-    };
-    let data = evidence.receipt.data();
-    let supported_usage = match &data.usage {
-        ActualUsage::Known { usage } => [
-            &usage.model_requests,
-            &usage.tool_calls,
-            &usage.spend_micros_usd,
-        ]
-        .iter()
-        .all(|value| value.as_u64().is_some_and(|n| n <= i64::MAX as u64)),
-        ActualUsage::Unknown { .. } => false,
-    };
-    let published = matches!(&data.output, ReceiptOutput::Published { artifact_id, content_digest, content_length } if *artifact_id == plan.artifact_id && *content_digest == plan.content_digest && *content_length == plan.content_length);
-    if evidence.conflict
-        || !supported_usage
-        || !published
-        || data.task_id != prepared.action.task_id
-        || data.intent_id != prepared.intent_id
-        || data.dispatch_id != prepared.action.dispatch_id
-        || data.action_digest != prepared.action_digest
-        || evidence
-            .receipt
-            .evidence_id()
-            .map_err(|_| EvidenceIssue::Unsupported)?
-            != evidence.evidence_id
-    {
-        return Err(EvidenceIssue::Unsupported);
-    }
-    Ok(Some(evidence.evidence_id.clone()))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use metron_protocol::{
-        domain::{
-            ActualUsage, CandidateResult, Intent, IntentKind, Receipt, ReceiptData, ReceiptOutput,
-            UsageVector,
-        },
-        store::EvidenceSnapshot,
-        types::{DecimalUsage, PrincipalId, ProducerReceiptId, content_digest},
-    };
-    #[test]
-    fn reconciliation_never_infers_away_unknown_or_conflicting_usage() {
-        let digest = content_digest(b"fixture");
-        let intent = Intent {
-            schema_version: SchemaVersion::V1,
-            task_id: TaskId::new("task").unwrap(),
-            ordinal: 2,
-            kind: IntentKind::PublishArtifact {
-                candidate: CandidateResult {
-                    count: 3,
-                    sum: 22,
-                    input_digest: digest.clone(),
-                },
-            },
-        };
-        let prepared =
-            PreparedIntent::materialize(&intent, &PrincipalId::new("principal").unwrap(), &digest)
-                .unwrap();
-        let metron_protocol::domain::ApprovedRequest::PublishArtifact { plan } = &prepared.request
-        else {
-            panic!("expected plan")
-        };
-        let make = |usage| {
-            Receipt::new(ReceiptData {
-                schema_version: SchemaVersion::V1,
-                producer_receipt_id: ProducerReceiptId::new("producer").unwrap(),
-                task_id: intent.task_id.clone(),
-                intent_id: prepared.intent_id.clone(),
-                dispatch_id: prepared.action.dispatch_id.clone(),
-                action_digest: prepared.action_digest.clone(),
-                usage,
-                output: ReceiptOutput::Published {
-                    artifact_id: plan.artifact_id.clone(),
-                    content_digest: plan.content_digest.clone(),
-                    content_length: plan.content_length,
-                },
-            })
-            .unwrap()
-        };
-        let unknown = make(ActualUsage::Unknown {
-            reason: BoundedText::new("unknown charge").unwrap(),
-            evidence: None,
-        });
-        let row = EvidenceSnapshot {
-            evidence_id: unknown.evidence_id().unwrap(),
-            receipt: unknown,
-            selected: false,
-            conflict: false,
-        };
-        assert!(supported_publication_evidence(&[row], &prepared).is_err());
-        let known = make(ActualUsage::Known {
-            usage: UsageVector {
-                model_requests: DecimalUsage::new("0").unwrap(),
-                tool_calls: DecimalUsage::new("1").unwrap(),
-                spend_micros_usd: DecimalUsage::new("0").unwrap(),
-            },
-        });
-        let id = known.evidence_id().unwrap();
-        let row = EvidenceSnapshot {
-            evidence_id: id.clone(),
-            receipt: known,
-            selected: false,
-            conflict: false,
-        };
-        assert_eq!(
-            supported_publication_evidence(std::slice::from_ref(&row), &prepared).unwrap(),
-            Some(id)
-        );
-        let mut other_data = row.receipt.data().clone();
-        other_data.producer_receipt_id = ProducerReceiptId::new("other-producer").unwrap();
-        let other = Receipt::new(other_data).unwrap();
-        let other = EvidenceSnapshot {
-            evidence_id: other.evidence_id().unwrap(),
-            receipt: other,
-            selected: false,
-            conflict: false,
-        };
-        assert_eq!(
-            supported_publication_evidence(&[row, other], &prepared),
-            Err(EvidenceIssue::Multiple)
-        );
-    }
 }

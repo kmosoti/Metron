@@ -39,7 +39,6 @@ fn known_invalid_proposal_records_feedback_without_an_effect_and_charges_usage()
                 &mut store,
                 &settings.task.data().task_id,
                 engine.as_ref(),
-                &root.join("run"),
                 &mut NoObserver,
                 &mut worker,
             )
@@ -113,7 +112,6 @@ fn uncertain_model_reservation_survives_restart_without_second_dispatch() {
             &mut store,
             &s.task.data().task_id,
             engine.as_ref(),
-            &root.join("run"),
             &mut NoObserver,
             &mut worker
         )
@@ -141,7 +139,6 @@ fn uncertain_model_reservation_survives_restart_without_second_dispatch() {
             &mut store,
             &s.task.data().task_id,
             engine.as_ref(),
-            &root.join("run"),
             &mut NoObserver,
             &mut worker
         )
@@ -177,7 +174,6 @@ fn uncertain_model_reservation_survives_restart_without_second_dispatch() {
             &mut store,
             &s.task.data().task_id,
             engine.as_ref(),
-            &root.join("run"),
             &mut NoObserver,
             &mut worker
         )
@@ -220,7 +216,6 @@ fn permitted_edit_waits_for_exact_approval_before_mutating() {
             &mut store,
             &s.task.data().task_id,
             engine.as_ref(),
-            &root.join("run"),
             &mut NoObserver,
             &mut worker
         )
@@ -266,7 +261,6 @@ fn permitted_edit_waits_for_exact_approval_before_mutating() {
             &mut store,
             &s.task.data().task_id,
             engine.as_ref(),
-            &root.join("run"),
             &mut NoObserver,
             &mut worker
         )
@@ -307,7 +301,6 @@ fn verification_selection_rejects_wrong_bindings_and_replays_rejection() {
             &mut store,
             &s.task.data().task_id,
             engine.as_ref(),
-            &root.join("run"),
             &mut NoObserver,
             &mut worker
         )
@@ -430,7 +423,6 @@ fn verification_selection_rejects_wrong_bindings_and_replays_rejection() {
             &mut store,
             &s.task.data().task_id,
             engine.as_ref(),
-            &root.join("run"),
             &mut NoObserver,
             &mut worker
         )
@@ -541,7 +533,6 @@ fn admitted_memory_survives_restart_and_is_retrieved_by_another_task() {
             &mut store,
             &first.task.data().task_id,
             engine.as_ref(),
-            &root.join("run"),
             &mut NoObserver,
             &mut writer,
         )
@@ -622,7 +613,6 @@ fn admitted_memory_survives_restart_and_is_retrieved_by_another_task() {
             &mut store,
             &second.task.data().task_id,
             engine.as_ref(),
-            &root.join("run"),
             &mut NoObserver,
             &mut reader,
         )
@@ -750,7 +740,6 @@ fn revoked_memory_grant_stops_model_before_script_consumption() {
             &mut store,
             &s.task.data().task_id,
             engine.as_ref(),
-            &root.join("run"),
             &mut NoObserver,
             &mut worker
         )
@@ -806,7 +795,6 @@ fn cross_task_memory_content_cannot_authorize_a_forbidden_edit() {
             &mut store,
             &s.task.data().task_id,
             engine.as_ref(),
-            &root.join("run"),
             &mut NoObserver,
             &mut worker
         )
@@ -867,7 +855,6 @@ fn revoked_runtime_grant_prevents_an_approved_mutation() {
             &mut store,
             &s.task.data().task_id,
             engine.as_ref(),
-            &root.join("run"),
             &mut NoObserver,
             &mut worker
         )
@@ -907,7 +894,6 @@ fn revoked_runtime_grant_prevents_an_approved_mutation() {
             &mut store,
             &s.task.data().task_id,
             engine.as_ref(),
-            &root.join("run"),
             &mut NoObserver,
             &mut worker
         )
@@ -1257,7 +1243,6 @@ fn sealed_evaluator_sentinel_cannot_reach_memory_or_model_context() {
         &mut store,
         &s.task.data().task_id,
         engine.as_ref(),
-        &root.join("run"),
         &mut NoObserver,
         &mut reader,
     )
@@ -1299,7 +1284,6 @@ fn memory_annotation_accepts_audited_selected_ordinary_tool_evidence() {
         &mut store,
         &settings.task.data().task_id,
         engine.as_ref(),
-        &root.join("run"),
         &mut NoObserver,
         &mut worker,
     )
@@ -1472,7 +1456,6 @@ fn paired_memory_search_selected_receipt_is_bound_and_replays_in_both_modes() {
                 &mut store,
                 &settings.task.data().task_id,
                 engine.as_ref(),
-                &root.join("run"),
                 &mut NoObserver,
                 &mut worker
             )

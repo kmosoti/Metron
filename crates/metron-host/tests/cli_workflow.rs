@@ -1,122 +1,111 @@
-//! Operator approval must not dispatch until a later resume.
-use metron_protocol::{
-    cli::{CliOutcome, CliReport},
-    store::{RuntimeSnapshot, StorePort},
-    types::{MAX_ENVELOPE, PrincipalId, TaskId, canonical_bytes},
-};
+//! Exact approval is a durable decision, never an effect dispatch.
+use metron_agent::CodingAgent;
+use metron_harness::orchestrator::{self, NoObserver};
+use metron_protocol::*;
 use metron_store_sqlite::SqliteStore;
-use std::{fs, process::Command};
-fn run(args: &[&str]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_metron-runtime"))
-        .args(args)
-        .output()
-        .unwrap()
-}
+use metron_testkit::coding::{ModelReplies, command, fixture};
 #[test]
 fn approval_is_bound_and_never_dispatches_by_itself() {
-    let root = std::env::temp_dir().join(format!("metron-approval-{}", std::process::id()));
-    let _ = fs::remove_dir_all(&root);
-    fs::create_dir(&root).unwrap();
-    let task = metron_testkit::sum_task(
-        TaskId::new("approval").unwrap(),
-        PrincipalId::new("principal").unwrap(),
-    )
-    .unwrap();
-    let file = root.join("task.json");
-    fs::write(&file, canonical_bytes(&task, MAX_ENVELOPE).unwrap()).unwrap();
-    let dir = root.join("run");
-    let output = run(&[
-        "run",
-        "--task-family",
-        "sum-v1",
-        "--task",
-        file.to_str().unwrap(),
-        "--run-dir",
-        dir.to_str().unwrap(),
-        "--require-publication-approval",
-    ]);
-    assert_eq!(output.status.code(), Some(4));
-    let report: CliReport = metron_protocol::parse_internal(&output.stdout).unwrap();
-    let approval = report.approval.unwrap();
-    let path = {
-        let mut store = SqliteStore::open_read_only(dir.join("runtime.sqlite")).unwrap();
-        let mut snapshot = store.audit().unwrap();
-        snapshot
-            .intents(&TaskId::new("approval").unwrap(), None)
-            .unwrap()
-            .records
-            .into_iter()
-            .find_map(|i| {
-                i.prepared.and_then(|p| match p.request {
-                    metron_protocol::ApprovedRequest::PublishArtifact { plan } => {
-                        Some(dir.join(plan.relative_path.as_str()))
-                    }
-                    _ => None,
-                })
-            })
-            .unwrap()
-    };
-    assert!(!path.exists());
-    let output = run(&[
-        "approval",
-        dir.to_str().unwrap(),
-        "--request-id",
-        approval.request_id.as_str(),
-        "--action-digest",
-        approval.action_digest.as_str(),
-        "--decision",
-        "approve",
-        "--command-id",
-        "approve",
-    ]);
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let report: CliReport = metron_protocol::parse_internal(&output.stdout).unwrap();
-    assert_eq!(report.outcome, CliOutcome::Succeeded);
-    assert!(!path.exists());
-    let output = run(&["resume", dir.to_str().unwrap()]);
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert!(path.exists());
-    let report: CliReport = metron_protocol::parse_internal(&output.stdout).unwrap();
-    assert!(report.health.unwrap().verified_success);
-    fs::remove_dir_all(root).unwrap();
+    approval(false);
 }
-
 #[test]
 fn denied_run_reports_json_on_stdout() {
-    let root = std::env::temp_dir().join(format!("metron-denial-{}", std::process::id()));
-    let _ = fs::remove_dir_all(&root);
-    fs::create_dir(&root).unwrap();
-    let task = metron_testkit::sum_task(
-        TaskId::new("denial").unwrap(),
-        PrincipalId::new("principal").unwrap(),
-    )
-    .unwrap();
-    let mut data = task.data().clone();
-    data.budget.max_tool_calls = metron_protocol::SqlU64::new(0).unwrap();
-    let task = metron_protocol::Task::new(data).unwrap();
-    let file = root.join("task.json");
-    fs::write(&file, canonical_bytes(&task, MAX_ENVELOPE).unwrap()).unwrap();
-    let dir = root.join("run");
-    let output = run(&[
-        "run",
-        "--task-family",
-        "sum-v1",
-        "--task",
-        file.to_str().unwrap(),
-        "--run-dir",
-        dir.to_str().unwrap(),
-    ]);
-    assert_eq!(output.status.code(), Some(3));
-    let report: CliReport = metron_protocol::parse_internal(&output.stdout).unwrap();
-    assert_eq!(report.outcome, CliOutcome::Denied);
-    assert!(output.stderr.is_empty(), "no diagnostic was reported");
-    fs::remove_dir_all(root).unwrap();
+    approval(true);
+}
+fn approval(deny: bool) {
+    for mode in [EngineMode::Agent, EngineMode::Harness] {
+        let root = std::env::temp_dir().join(format!(
+            "metron-coding-approval-{deny}-{mode:?}-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir(&root).unwrap();
+        let (task, mut policy, mut genesis) = fixture("approval", mode);
+        policy.require_mutation_approval = true;
+        genesis.policy_digest = policy.digest(&task).unwrap();
+        genesis.coding_policy = Some(Box::new(policy.clone()));
+        genesis.require_publication_approval = true;
+        let engine: Box<dyn Cognition> = match mode {
+            EngineMode::Agent => Box::new(CodingAgent::new(&task, &policy).unwrap()),
+            EngineMode::Harness => {
+                Box::new(metron_harness::planner::CodingPlanner::new(&task, &policy).unwrap())
+            }
+        };
+        let id = task.data().task_id.clone();
+        let mut store = SqliteStore::create(root.join("runtime.sqlite")).unwrap();
+        store
+            .apply(command(StoreOperation::CreateTask {
+                task: Task::new_coding(task).unwrap(),
+                genesis,
+            }))
+            .unwrap();
+        let mut driver = ModelReplies::new(&[
+            r#"{"tool":"plan","steps":["create note"]}"#,
+            r#"{"tool":"edit","path":"note.txt","expected_digest":null,"content":"controlled"}"#,
+        ]);
+        assert_eq!(
+            orchestrator::drive_with_driver(
+                &mut store,
+                &id,
+                engine.as_ref(),
+                &mut NoObserver,
+                &mut driver
+            )
+            .unwrap(),
+            orchestrator::DriveStatus::Blocked
+        );
+        assert_eq!(driver.calls, 2, "mutation must wait before driver entry");
+        let page = store.audit().unwrap().intents(&id, None).unwrap();
+        let pending = page
+            .records
+            .iter()
+            .find_map(|i| i.approval.as_ref())
+            .unwrap();
+        let wrong = store.apply(command(StoreOperation::RecordApproval {
+            request_id: pending.request_id.clone(),
+            action_digest: content_digest(b"wrong"),
+            decision: ApprovalDecision::Approve,
+        }));
+        assert!(!matches!(wrong, Ok(WriteOutcome::Committed(_))));
+        store
+            .apply(command(StoreOperation::RecordApproval {
+                request_id: pending.request_id.clone(),
+                action_digest: pending.action_digest.clone(),
+                decision: if deny {
+                    ApprovalDecision::Deny
+                } else {
+                    ApprovalDecision::Approve
+                },
+            }))
+            .unwrap();
+        assert_eq!(driver.calls, 2, "approval itself cannot dispatch");
+        if deny {
+            assert_eq!(
+                orchestrator::drive_with_driver(
+                    &mut store,
+                    &id,
+                    engine.as_ref(),
+                    &mut NoObserver,
+                    &mut driver
+                )
+                .unwrap(),
+                orchestrator::DriveStatus::Denied
+            );
+            assert_eq!(driver.calls, 2);
+        }
+        drop(store);
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_metron-runtime"))
+            .arg("replay")
+            .arg(&root)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let report: CliReport = parse_internal(&output.stdout).unwrap();
+        assert!(report.audit.unwrap().behavior_valid.unwrap());
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

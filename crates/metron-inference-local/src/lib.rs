@@ -10,3 +10,6 @@ pub mod driver;
 pub mod tokenizer;
 
 pub mod paired_history;
+
+pub mod comparison;
+pub mod qualification;

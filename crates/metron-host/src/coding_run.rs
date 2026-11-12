@@ -1007,6 +1007,25 @@ fn run(args: &[String]) -> Result<serde_json::Value, String> {
             "expected coding experiment, resume, audit, memory-grant or memory-revoke".into(),
         );
     }
+    if !fresh && action == "resume" {
+        // Inspect only immutable journal state before settings validation can
+        // initialize a worker, tool adapter or writable store.
+        let mut old = SqliteStore::open_read_only(run_dir.join("runtime.sqlite"))
+            .map_err(|e| format!("{e:?}"))?;
+        let ids = old.task_ids().map_err(|e| format!("{e:?}"))?;
+        if ids.len() != 1
+            || old
+                .audit()
+                .map_err(|e| format!("{e:?}"))?
+                .projection(&ids[0])
+                .map_err(|e| format!("{e:?}"))?
+                .task
+                .coding()
+                .is_none()
+        {
+            return Err("legacy execution removed; historical journals are read-only".into());
+        }
+    }
     let settings: Settings = if fresh {
         if !args.iter().any(|a| a == "--experimental") {
             return Err("unqualified coding attempts require --experimental".into());
@@ -1188,7 +1207,6 @@ fn run(args: &[String]) -> Result<serde_json::Value, String> {
             &mut store,
             task_id,
             engine.as_ref(),
-            &run_dir,
             &mut NoObserver,
             &mut driver,
             &mut verifier,
@@ -1551,7 +1569,6 @@ mod tests {
                     &mut store,
                     &settings.task.data().task_id,
                     engine.as_ref(),
-                    &root.join("run"),
                     &mut NoObserver,
                     &mut driver
                 )
@@ -1668,7 +1685,6 @@ mod tests {
                     &mut store,
                     &settings.task.data().task_id,
                     engine.as_ref(),
-                    &root.join("run"),
                     &mut NoObserver,
                     &mut worker
                 )
@@ -1829,7 +1845,6 @@ mod tests {
                     &mut store,
                     &settings.task.data().task_id,
                     engine.as_ref(),
-                    &root.join("run"),
                     &mut NoObserver,
                     &mut worker
                 )
@@ -1878,7 +1893,6 @@ mod tests {
                 &mut store,
                 &s.task.data().task_id,
                 engine.as_ref(),
-                &root.join("run"),
                 &mut NoObserver,
                 &mut driver,
             )
@@ -1925,7 +1939,6 @@ mod tests {
                 &mut store,
                 &s.task.data().task_id,
                 engine.as_ref(),
-                &root.join("run"),
                 &mut NoObserver,
                 &mut driver
             )
@@ -2006,7 +2019,6 @@ mod tests {
                 &mut store,
                 &s.task.data().task_id,
                 engine.as_ref(),
-                &root.join("run"),
                 &mut NoObserver,
                 &mut driver
             )
@@ -2111,7 +2123,6 @@ mod tests {
                     &mut store,
                     &s.task.data().task_id,
                     engine.as_ref(),
-                    &root.join("run"),
                     &mut NoObserver,
                     &mut driver
                 )
@@ -2141,3 +2152,6 @@ mod tool_security_tests;
 
 #[cfg(test)]
 mod native_file_tests;
+
+#[cfg(test)]
+mod crash_tests;

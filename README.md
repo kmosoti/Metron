@@ -32,7 +32,9 @@ The repository pins `beta-2026-11-07` (Rust 1.100.0-beta.12).
 Alpha.1 is in development. Local LFM3 Q4 CUDA generation is verified; useful
 model-written coding and all required resource gates have not yet passed.
 [Issue #7](https://github.com/kmosoti/Metron/issues/7) tracks release acceptance.
-The scripted `sum-v1` fixture is compatibility evidence, not general usage.
+Historical sum journals have private read-only replay support; sum execution is
+not a public product workflow. See the compatibility limits in the knowledge
+records before making claims about legacy profiles.
 
 ## Research and contribution
 

@@ -35,12 +35,12 @@ pub struct QualificationRequest {
 /// One consumed submission authority. It cannot be constructed, cloned or deserialized.
 ///
 /// ```compile_fail
-/// use metron_harness::qualification::QualificationPermit;
+/// use metron_inference_local::qualification::QualificationPermit;
 /// let _: QualificationPermit = metron_protocol::parse_envelope(b"{}").unwrap();
 /// ```
 ///
 /// ```compile_fail
-/// use metron_harness::qualification::QualificationPermit;
+/// use metron_inference_local::qualification::QualificationPermit;
 /// fn duplicate(permit: &QualificationPermit) -> QualificationPermit { permit.clone() }
 /// ```
 pub struct QualificationPermit {
@@ -76,7 +76,7 @@ impl ValidatedCalibration {
         cold: &metron_protocol::inference::QualificationReport,
         worker_digest: &Digest,
     ) -> io::Result<Self> {
-        let expected = crate::qualification_proof::freeze_calibration(
+        let expected = metron_harness::qualification_proof::freeze_calibration(
             recipe,
             calibration,
             warm,

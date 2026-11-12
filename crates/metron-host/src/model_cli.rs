@@ -551,20 +551,21 @@ pub fn execute(args: &[String]) -> ExitCode {
                             .map_err(|_| (CliOutcome::OperationalFailure, "cannot hash worker"))?,
                     )
                     .map_err(|_| (CliOutcome::IntegrityFailure, "invalid worker digest"))?;
-                    let proof = metron_harness::qualification::ValidatedCalibration::from_reports(
-                        Path::new(&opts["--freeze"]),
-                        RECIPE,
-                        CALIBRATION,
-                        &warm,
-                        &cold,
-                        &worker,
-                    )
-                    .map_err(|_| {
-                        (
-                            CliOutcome::Rejected,
-                            "calibration freeze verification failed",
+                    let proof =
+                        metron_inference_local::qualification::ValidatedCalibration::from_reports(
+                            Path::new(&opts["--freeze"]),
+                            RECIPE,
+                            CALIBRATION,
+                            &warm,
+                            &cold,
+                            &worker,
                         )
-                    })?;
+                        .map_err(|_| {
+                            (
+                                CliOutcome::Rejected,
+                                "calibration freeze verification failed",
+                            )
+                        })?;
                     crate::hardware::validate_cpu(
                         profile.cpu_identity.as_str(),
                         &profile.cpu_features_digest,
