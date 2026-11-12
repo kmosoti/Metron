@@ -54,6 +54,7 @@ knowledge to those sources.
 | [O-0007 Toolkit and task foundation](observations/O-0007-toolkit-and-task-foundation.md) | agent | false |
 | [O-0008 Coding loop and confinement](observations/O-0008-coding-loop-and-confinement.md) | agent | false |
 | [O-0009 Known proposal feedback](observations/O-0009-known-proposal-feedback.md) | agent | false |
+| [O-0010 Coding decoding contracts](observations/O-0010-coding-decoding-contracts.md) | agent | false |
 
 ## Runtime implementation
 
