@@ -23,7 +23,8 @@ mark them superseded. Template: context, decision, consequences.
 | 0016 | Routing does not pay on the pre-registered prefix; a confirmatory run is pre-registered | accepted |
 | 0017 | Routing pays on fresh seeds; whether the choice pays beyond its prefix is pre-registered | accepted |
 | 0018 | M3 is reached: the hand-authored Bayes router pays, learned routing does not | accepted |
-| 0019 | Runtime workspace compatibility | accepted; human ratification pending |
+| 0019 | Runtime workspace compatibility | accepted; layout supersession proposed in ADR 0023 |
 | 0020 | Durable bounded runtime execution | accepted; human ratification pending |
 | 0021 | Bounded native local inference | accepted; human ratification pending |
 | 0022 | Explicit coding contracts and scoped cross-task memory | proposed |
+| 0023 | First-class agent and harness crates | proposed; supersedes ADR 0019 workspace layout |

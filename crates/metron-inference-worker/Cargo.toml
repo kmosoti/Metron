@@ -15,5 +15,5 @@ mistralrs = { git = "https://github.com/EricLBuehler/mistral.rs", rev = "fb4cdc3
 either = "=1.19.0"
 tokio = { version = "=1.54.1", features = ["rt-multi-thread", "sync", "time", "macros"] }
 
-[lints]
-workspace = true
+[lints.rust]
+unsafe_code = "forbid"

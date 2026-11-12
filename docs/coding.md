@@ -6,9 +6,9 @@ model, scoped notes and independent artifact acceptance. Both `agent` and
 boundaries. The standalone planner does not instantiate `metron-agent`.
 
 Coding remains experimental until the native task and resource gates in
-[D-0005](../../knowledge/decisions/D-0005-alpha1-delivery.md) pass. A successful
+[D-0005](../knowledge/decisions/D-0005-alpha1-delivery.md) pass. A successful
 controlled script, a model response or a candidate-written test does not select
-a production profile. See [ADR 0022](../../docs/adr/0022-alpha1-coding-and-memory.md)
+a production profile. See [ADR 0022](adr/0022-alpha1-coding-and-memory.md)
 for the authority diagram.
 
 Native coding recipe v3 uses LFM3's XML function-call format through the Rust SDK.
@@ -18,7 +18,7 @@ the 14 user-defined token flags required by that format; model load verifies the
 source artifacts and the SDK checks every token ID. Its profile tokenizer
 identity describes that transform; the worker separately logs the generated file
 hash. Native calls are proposals and pass the same domain and admission checks
-as other coding actions. See [the compatibility evidence](../../knowledge/observations/O-0008-coding-loop-and-confinement.md#native-tool-call-tokenizer-incompatibility).
+as other coding actions. See [the compatibility evidence](../knowledge/observations/O-0008-coding-loop-and-confinement.md#native-tool-call-tokenizer-incompatibility).
 
 Native coding recipe v6 adds a phase-filtered Lark constraint to the SDK's
 native XML function-call path. Its experimental catalog is limited to `plan`,
@@ -27,19 +27,19 @@ sampling. The worker keeps the original parsed call as evidence and applies the
 same host action and policy checks. The SDK's XML parser removes a framing
 newline, treats a bare `null` as null, and has closing-tag limitations, so the
 format does not preserve every possible raw file string. See
-[the XML decoding evidence](../../knowledge/observations/O-0011-native-xml-constraints.md).
+[the XML decoding evidence](../knowledge/observations/O-0011-native-xml-constraints.md).
 
 The v3.5 controller can provide bounded validation feedback after a known invalid
 model proposal. The model must submit a new proposal; the third invalid proposal
 ends the task. Unknown executions and authorization failures still stop the
-loop. See [the correction contract](../../knowledge/observations/O-0009-known-proposal-feedback.md).
+loop. See [the correction contract](../knowledge/observations/O-0009-known-proposal-feedback.md).
 
 Recipes v4 and v5 use streaming JSON-schema actions filtered by the admitted
 phase/tool catalog. The v3.7 controller leaves output encoding and recovery
 feedback to the recipe. This mode
 constrains argument types and paths that the pinned SDK's XML grammar does not
 enforce. It retains the corrected tokenizer and all host authorization checks;
-see [the decoding evidence](../../knowledge/observations/O-0010-coding-decoding-contracts.md).
+see [the decoding evidence](../knowledge/observations/O-0010-coding-decoding-contracts.md).
 
 Recipe v5 admits canonical and tool-first property orders and disallows JSON
 whitespace outside string values. File contents retain their whitespace. The
@@ -62,7 +62,7 @@ The operator supplies these bounded JSON inputs:
 | --- | --- |
 | Task | `CodingTaskData`: schema 3, family `coding-v1`, unique task ID, principal/project, objective, acceptance/tool/model digests, optional memory collection, request/tool budgets and decision ceiling. |
 | Policy | `CodingPolicy`: matching principal/project/collection, workspace root, allowed tools/programs, mutation approval and file/output/process limits. |
-| Catalog | Pinned executable paths, byte digests and version prefixes; see [toolkit inventory](README.md). A catalog grants no authority. |
+| Catalog | Pinned executable paths, byte digests and version prefixes; see [toolkit inventory](agent-harness.md). A catalog grants no authority. |
 | Profile | Hardware-bound Q4 LFM3 profile with pinned artifact, tokenizer, template, worker and recipe identities. |
 | Acceptance | A frozen built-in spec, currently `{"version":1,"kind":"calculator-v1"}` or the frozen nonempty-line repair spec. Custom trusted callers can implement the public `CodingVerifier` port. |
 
