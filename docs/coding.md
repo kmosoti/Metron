@@ -109,7 +109,7 @@ its native coding acceptance remains unqualified.
 flowchart LR
     SDK[SDK: captured native arguments] --> Codec[Recipe-specific argument codec]
     Codec -->|V9 List or Run: exact dot becomes canonical root| Domain[Typed action validation]
-    Codec -->|V1–V8: original validation| Domain
+    Codec -->|Earlier native recipes: original validation| Domain
     Domain --> Authority[Host: workspace grants and durable admission]
     SDK --> Evidence[Original call evidence retained]
     Authority --> Receipt[Known receipt or unresolved reservation]

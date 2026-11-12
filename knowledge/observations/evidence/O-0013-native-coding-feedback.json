@@ -283,6 +283,54 @@
         "run/worker-events-revision-0.jsonl": "6f2a94f7c555c3805de1f229a58cf68da91e41942d24e0d4d009648f691fb6d5"
       },
       "final_source_sha256": "3855474da8f13007366defab5f1d44b85c2a00ac415bb216e8e3c6657342056a"
+    },
+    {
+      "case": "native-calculator-v8-agent-02",
+      "source_commit": "6ebfa346bb5845c01c41592f0ca641973bd1cb8d",
+      "worker_sha256": "7d29a4f183cf1143057e0b118053ad26b718741960b23b384d7da0084c6e6237",
+      "mode": "agent",
+      "recipe_digest": "22a07d679e478bf52e4c997f2ba4aff849c510fcaa8c5fea93976fb50386d27d",
+      "public_objective_clarified": true,
+      "initial_workspace_empty": true,
+      "elapsed_seconds": 283.5626885739621,
+      "result": {
+        "outcome": "rejected",
+        "phase": "rejected",
+        "accounting": {
+          "limit": {
+            "model_requests": 12,
+            "tool_calls": 24,
+            "spend_micros_usd": 0
+          },
+          "posted": {
+            "model_requests": 4,
+            "tool_calls": 0,
+            "spend_micros_usd": 0
+          },
+          "reserved": {
+            "model_requests": 0,
+            "tool_calls": 0,
+            "spend_micros_usd": 0
+          },
+          "breached": false,
+          "incomplete": false,
+          "integrity_hold": false
+        },
+        "audit": {
+          "chain_valid": true,
+          "accounting_valid": true,
+          "projection_valid": true
+        },
+        "behavior_replay": true,
+        "replay_head": "18d988f4cd6201d6f7de1deee200798c02f5b30fcf77ec73d80ee79977f4fb27",
+        "artifact_valid": null,
+        "acceptance_report_valid": null
+      },
+      "source_record_sha256": {
+        "preregistered.json": "135593be0d13b9b9c58021a206e2482b0b96eadbccfc261c579ae70605ea65de",
+        "stdout.jsonl": "258e166c532585235b9ab8721d2d4c3d15f218b94c995e3a3eccde21bb8a805b",
+        "result.json": "cfd123b84a9d735145fad40d3768749665fb16514398c6ed58a82d80299113a8"
+      }
     }
   ],
   "model_only_diagnostics": [
