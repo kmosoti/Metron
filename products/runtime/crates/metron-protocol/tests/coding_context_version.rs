@@ -974,3 +974,54 @@ fn constrained_controller_leaves_output_encoding_to_the_pinned_recipe() {
     );
     assert_ne!(prompt(&old).1, prompt(&new).1);
 }
+
+#[test]
+fn format_neutral_recovery_preserves_historical_feedback_and_source_binding() {
+    let (task, policy, state) = fixtures();
+    type Controller = fn(
+        &CodingTask,
+        &CodingPolicy,
+        &AgentState,
+        &AgentEvent,
+    ) -> Result<Transition, DecisionError>;
+    for (controller, diagnostic) in [
+        (
+            coding_transition_recovering as Controller,
+            MODEL_VALIDATION_DIAGNOSTIC,
+        ),
+        (
+            coding_transition_constrained as Controller,
+            MODEL_VALIDATION_DIAGNOSTIC,
+        ),
+        (
+            coding_transition_format_neutral as Controller,
+            FORMAT_NEUTRAL_MODEL_VALIDATION_DIAGNOSTIC,
+        ),
+    ] {
+        let initial = controller(&task, &policy, &state, &AgentEvent::TaskAccepted).unwrap();
+        let event = settled_model(
+            &initial,
+            r#"{"tool":"plan","steps":[{"title":"untyped"}]}"#,
+            b"bad-plan",
+        );
+        let recovered = controller(&task, &policy, step(&initial).0, &event).unwrap();
+        let (next, CodingStep::Model { native_tools, .. }) = step(&recovered) else {
+            panic!("fresh model intent required")
+        };
+        let context = next.coding_context.as_ref().unwrap();
+        assert_eq!(context.invalid_proposals, 1);
+        context.validate().unwrap();
+        assert_eq!(native_tools.as_deref(), Some([CodingTool::Plan].as_slice()));
+        let feedback = context.model_feedback.as_ref().unwrap();
+        assert_eq!(feedback.source_evidence, content_digest(b"bad-plan"));
+        assert_eq!(feedback.diagnostic.as_str(), diagnostic);
+        let p: serde_json::Value = serde_json::from_str(prompt(&recovered).0).unwrap();
+        assert_eq!(p["model_feedback"]["diagnostic"], diagnostic);
+        if diagnostic == FORMAT_NEUTRAL_MODEL_VALIDATION_DIAGNOSTIC {
+            assert!(!prompt(&recovered).0.contains("function"));
+            assert!(diagnostic.contains("system's required format"));
+        } else {
+            assert!(diagnostic.contains("function"));
+        }
+    }
+}
