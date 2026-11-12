@@ -1411,16 +1411,24 @@ fn memory_annotation_accepts_audited_selected_ordinary_tool_evidence() {
 
 #[test]
 fn paired_memory_search_selected_receipt_is_bound_and_replays_in_both_modes() {
-    for mode in [EngineMode::Agent, EngineMode::Harness] {
-        let name = if mode == EngineMode::Agent {
-            "paired-memory-agent"
-        } else {
-            "paired-memory-harness"
-        };
+    for (mode, version) in [
+        (EngineMode::Agent, 10),
+        (EngineMode::Harness, 10),
+        (EngineMode::Agent, 11),
+        (EngineMode::Harness, 11),
+    ] {
+        let name = format!(
+            "paired-memory-{}-{version}",
+            if mode == EngineMode::Agent {
+                "agent"
+            } else {
+                "harness"
+            }
+        );
         let (root, mut settings, previous, scoped) =
-            scoped_memory_setup(name, vec![CodingTool::MemorySearch, CodingTool::Finish]);
+            scoped_memory_setup(&name, vec![CodingTool::MemorySearch, CodingTool::Finish]);
         drop(previous);
-        settings.context_version = 10;
+        settings.context_version = version;
         settings.mode = mode;
         let mut memory = MemoryStore::open_existing(settings.memory_db.as_ref().unwrap()).unwrap();
         memory

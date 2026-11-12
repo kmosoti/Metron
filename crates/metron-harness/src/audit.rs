@@ -632,6 +632,9 @@ fn parse_journal(
                             "coding-agent/v3.7" | "coding-harness/v3.7" => {
                                 metron_protocol::coding_runtime::coding_transition_format_neutral
                             }
+                            "coding-agent/v3.10" | "coding-harness/v3.10" => {
+                                metron_protocol::coding_runtime::coding_transition_detailed_feedback
+                            }
                             "coding-agent/v3.9" | "coding-harness/v3.9" => {
                                 metron_protocol::coding_runtime::coding_transition_paired
                             }
