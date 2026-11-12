@@ -875,8 +875,9 @@ fn event_capture(path: &Path) -> Result<metron_inference_local::driver::EventSin
 }
 fn external_resource_budget_path(path: &Path, workspace: &Path) -> Result<PathBuf, String> {
     // A model may edit any workspace file, including a formerly operator-written policy.
-    // Resolve both boundaries before accepting policy contents; budgeted execution requires
-    // an existing workspace so this check never creates state merely to validate authority.
+    // Both the target and its lookup path must remain outside model control across resumes.
+    // Require a canonical spelling, rejecting symlinks in any component and `..` rather
+    // than allowing a mutable alias to select a different external policy next time.
     let workspace = fs::canonicalize(workspace)
         .map_err(|e| format!("resource budget requires an existing workspace: {e}"))?;
     if !workspace.is_dir() {
@@ -885,6 +886,13 @@ fn external_resource_budget_path(path: &Path, workspace: &Path) -> Result<PathBu
     let resolved = fs::canonicalize(path).map_err(|e| format!("resource budget path: {e}"))?;
     if resolved.starts_with(&workspace) {
         return Err("resource budget must resolve outside the mutable workspace".into());
+    }
+    let absolute = std::path::absolute(path).map_err(|e| format!("resource budget path: {e}"))?;
+    if absolute != resolved {
+        return Err(format!(
+            "resource budget requires a canonical path without symlinks or '..'; use {}",
+            resolved.display()
+        ));
     }
     Ok(resolved)
 }
@@ -2553,7 +2561,7 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
     #[test]
-    fn external_budget_resolution_reads_the_external_target_not_the_mutable_alias() {
+    fn external_budget_resolution_rejects_aliases_across_resumes() {
         use std::os::unix::fs::symlink;
         let root = std::env::temp_dir().join(format!(
             "metron-external-budget-resolution-{}",
@@ -2562,25 +2570,62 @@ mod tests {
         fs::create_dir(&root).unwrap();
         let workspace = root.join("workspace");
         fs::create_dir(&workspace).unwrap();
-        let external = root.join("operator-policy.json");
-        fs::write(&external, b"operator bounds").unwrap();
+        let external = fs::canonicalize(&root)
+            .unwrap()
+            .join("operator-policy.json");
+        fs::write(&external, b"operator bounds A").unwrap();
+        let replacement = root.join("replacement-policy.json");
+        fs::write(&replacement, b"operator bounds B").unwrap();
         let alias = workspace.join("alias.json");
         symlink(&external, &alias).unwrap();
-        let resolved = external_resource_budget_path(&alias, &workspace).unwrap();
-        assert_eq!(resolved, fs::canonicalize(&external).unwrap());
-        fs::remove_file(&alias).unwrap();
-        fs::write(&alias, b"replacement model content").unwrap();
-        assert_eq!(fs::read(&resolved).unwrap(), b"operator bounds");
+        let chained = root.join("outside-alias.json");
+        symlink(&alias, &chained).unwrap();
+        let parent_alias = root.join("outside-parent-alias");
+        symlink(&root, &parent_alias).unwrap();
+        for target in [&external, &replacement] {
+            fs::remove_file(&alias).unwrap();
+            symlink(target, &alias).unwrap();
+            for path in [&alias, &chained, &parent_alias.join("operator-policy.json")] {
+                assert!(
+                    external_resource_budget_path(path, &workspace)
+                        .unwrap_err()
+                        .contains("requires a canonical path")
+                );
+            }
+        }
+        // Operator updates at the same canonical external path remain visible on resume.
+        assert_eq!(
+            fs::read(external_resource_budget_path(&external, &workspace).unwrap()).unwrap(),
+            b"operator bounds A"
+        );
         fs::write(&external, b"updated operator bounds").unwrap();
         assert_eq!(
             fs::read(external_resource_budget_path(&external, &workspace).unwrap()).unwrap(),
             b"updated operator bounds"
+        );
+        // Ordinary relative paths work without changing process-global current directory.
+        assert_eq!(
+            external_resource_budget_path(Path::new("Cargo.toml"), &workspace).unwrap(),
+            fs::canonicalize("Cargo.toml").unwrap()
+        );
+        assert!(
+            external_resource_budget_path(&workspace.join("../operator-policy.json"), &workspace)
+                .unwrap_err()
+                .contains("requires a canonical path")
+        );
+        let internal = workspace.join("internal-policy.json");
+        fs::write(&internal, b"model bounds").unwrap();
+        assert!(
+            external_resource_budget_path(&internal, &workspace)
+                .unwrap_err()
+                .contains("outside the mutable workspace")
         );
         assert!(external_resource_budget_path(&external, &root.join("missing-workspace")).is_err());
         fs::remove_dir_all(root).unwrap();
     }
     #[test]
     fn invalid_budget_opt_in_does_not_rewrite_existing_run_settings() {
+        use std::os::unix::fs::symlink;
         let (root, settings, store) = setup(
             "invalid-budget-opt-in",
             EngineMode::Harness,
@@ -2592,19 +2637,37 @@ mod tests {
         drop(store);
         let before_settings = fs::read(&path).unwrap();
         let before_journal = fs::read(root.join("run/runtime.sqlite")).unwrap();
-        let result = run(&[
-            "resume".into(),
-            "--run-dir".into(),
-            root.join("run").to_str().unwrap().into(),
-            "--resource-budget".into(),
-            root.join("missing.json").to_str().unwrap().into(),
-        ]);
-        assert!(result.is_err());
-        assert_eq!(fs::read(&path).unwrap(), before_settings);
-        assert_eq!(
-            fs::read(root.join("run/runtime.sqlite")).unwrap(),
-            before_journal
-        );
+        let alias = root.join("workspace/budget.json");
+        let chained = root.join("outside-alias.json");
+        symlink(&alias, &chained).unwrap();
+        for name in ["operator-policy-a.json", "operator-policy-b.json"] {
+            let external = root.join(name);
+            fs::write(&external, b"external operator policy").unwrap();
+            if alias.symlink_metadata().is_ok() {
+                fs::remove_file(&alias).unwrap();
+            }
+            symlink(&external, &alias).unwrap();
+            for budget in [&root.join("missing.json"), &alias, &chained] {
+                let error = run(&[
+                    "resume".into(),
+                    "--run-dir".into(),
+                    root.join("run").to_str().unwrap().into(),
+                    "--resource-budget".into(),
+                    budget.to_str().unwrap().into(),
+                ])
+                .unwrap_err();
+                assert!(error.starts_with("resource budget"), "{error}");
+                if budget != &root.join("missing.json") {
+                    assert!(error.contains("requires a canonical path"), "{error}");
+                }
+                assert_eq!(fs::read(&path).unwrap(), before_settings);
+                assert_eq!(
+                    fs::read(root.join("run/runtime.sqlite")).unwrap(),
+                    before_journal
+                );
+                assert!(!root.join("run/worker-events-revision-0.jsonl").exists());
+            }
+        }
         fs::remove_dir_all(root).unwrap();
     }
     #[test]
