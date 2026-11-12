@@ -20,7 +20,10 @@ const MAX_PENDING_TIMINGS: usize = 160;
 
 #[derive(Clone, Debug)]
 pub struct PerRequestTiming {
-    pub latency_ms: u64,
+    // Legacy boundary: Sent callback to completed-frame receipt. It can be
+    // unavailable when callbacks arrive in the opposite order.
+    pub latency_ms: Option<u64>,
+    pub first_visible_ms: Option<u64>,
     pub token_count: Option<u32>,
     pub token_ids_digest: Option<Digest>,
     pub rendered_digest: Option<Digest>,
@@ -28,7 +31,11 @@ pub struct PerRequestTiming {
     pub completion_time_us: Option<u64>,
 }
 struct Pending {
-    sent: Instant,
+    began: Instant,
+    sent: Option<Instant>,
+    first_visible: Option<Instant>,
+    last_delta: Option<Instant>,
+    next_sequence: u32,
     tokenized: Option<(u32, Digest, Digest)>,
     started: bool,
     completed: Option<PerRequestTiming>,
@@ -93,22 +100,43 @@ impl State {
                 }
                 self.pid = Some(pid);
             }
-            WorkerEvent::Sent { dispatch_id } => {
+            WorkerEvent::Dispatching {
+                dispatch_id,
+                began_at,
+            } => {
                 if self.pid.is_none()
                     || self.pending.len() >= MAX_PENDING_TIMINGS
                     || self.pending.contains_key(&dispatch_id)
                 {
-                    return Err(io::Error::other("invalid or excessive sent event"));
+                    return Err(io::Error::other("invalid or excessive dispatch event"));
                 }
                 self.pending.insert(
                     dispatch_id,
                     Pending {
-                        sent: Instant::now(),
+                        began: began_at,
+                        sent: None,
+                        first_visible: None,
+                        last_delta: None,
+                        next_sequence: 0,
                         tokenized: None,
                         started: false,
                         completed: None,
                     },
                 );
+            }
+            WorkerEvent::Sent { dispatch_id } => {
+                let p = self
+                    .pending
+                    .get_mut(&dispatch_id)
+                    .ok_or_else(|| io::Error::other("send without dispatch"))?;
+                if p.sent.is_some() {
+                    return Err(io::Error::other("invalid sent event"));
+                }
+                let sent = Instant::now();
+                if sent < p.began {
+                    return Err(io::Error::other("send before dispatch"));
+                }
+                p.sent = Some(sent);
             }
             WorkerEvent::Tokenized {
                 dispatch_id,
@@ -120,7 +148,7 @@ impl State {
                     .pending
                     .get_mut(&dispatch_id)
                     .ok_or_else(|| io::Error::other("tokenized without send"))?;
-                if p.started || p.tokenized.is_some() {
+                if p.started || p.tokenized.is_some() || p.completed.is_some() {
                     return Err(io::Error::other("duplicate or late tokenization"));
                 }
                 p.tokenized = Some((token_count, token_ids_digest, rendered_digest));
@@ -135,6 +163,34 @@ impl State {
                 }
                 p.started = true;
             }
+            WorkerEvent::Delta {
+                dispatch_id,
+                text,
+                reasoning,
+                received_at,
+                sequence,
+            } => {
+                let p = self
+                    .pending
+                    .get_mut(&dispatch_id)
+                    .ok_or_else(|| io::Error::other("delta without dispatch"))?;
+                if !p.started
+                    || p.completed.is_some()
+                    || sequence != p.next_sequence
+                    || received_at < p.began
+                    || p.last_delta.is_some_and(|last| received_at < last)
+                {
+                    return Err(io::Error::other("invalid delta event"));
+                }
+                p.next_sequence = p
+                    .next_sequence
+                    .checked_add(1)
+                    .ok_or_else(|| io::Error::other("delta sequence overflow"))?;
+                p.last_delta = Some(received_at);
+                if !reasoning && !text.as_str().is_empty() && p.first_visible.is_none() {
+                    p.first_visible = Some(received_at);
+                }
+            }
             WorkerEvent::Completed {
                 dispatch_id,
                 prompt_time_us,
@@ -145,18 +201,33 @@ impl State {
                     .pending
                     .get_mut(&dispatch_id)
                     .ok_or_else(|| io::Error::other("completion without send"))?;
-                if !p.started || p.completed.is_some() {
+                if !p.started
+                    || p.completed.is_some()
+                    || received_at < p.began
+                    || p.last_delta.is_some_and(|last| received_at < last)
+                {
                     return Err(io::Error::other("invalid completion event"));
                 }
                 let (count, ids, rendered) = p
                     .tokenized
                     .clone()
                     .ok_or_else(|| io::Error::other("completion without tokenization"))?;
-                let elapsed =
-                    u64::try_from(received_at.saturating_duration_since(p.sent).as_millis())
-                        .map_err(io::Error::other)?;
+                // Sent is dispatched by another thread and may arrive after any
+                // reply, including completion. Preserve the legacy callback-side
+                // boundary only when it precedes the frame receipt.
+                let elapsed = p
+                    .sent
+                    .and_then(|sent| received_at.checked_duration_since(sent))
+                    .map(|duration| u64::try_from(duration.as_millis()))
+                    .transpose()
+                    .map_err(io::Error::other)?;
                 p.completed = Some(PerRequestTiming {
                     latency_ms: elapsed,
+                    first_visible_ms: p
+                        .first_visible
+                        .map(|t| u64::try_from(t.duration_since(p.began).as_millis()))
+                        .transpose()
+                        .map_err(io::Error::other)?,
                     token_count: Some(count),
                     token_ids_digest: Some(ids),
                     rendered_digest: Some(rendered),
@@ -166,9 +237,7 @@ impl State {
             }
             WorkerEvent::Loading { .. }
             | WorkerEvent::Loaded { .. }
-            | WorkerEvent::Dispatching { .. }
-            | WorkerEvent::Arrived { .. }
-            | WorkerEvent::Delta { .. } => {}
+            | WorkerEvent::Arrived { .. } => {}
             WorkerEvent::Exited { pid } => {
                 if self.pid != Some(pid) || self.exited {
                     return Err(io::Error::other("unexpected worker exit"));
@@ -423,6 +492,15 @@ mod tests {
         );
         state
             .event(
+                WorkerEvent::Dispatching {
+                    dispatch_id: id.clone(),
+                    began_at: Instant::now(),
+                },
+                &LocalDevice::Cpu,
+            )
+            .unwrap();
+        state
+            .event(
                 WorkerEvent::Sent {
                     dispatch_id: id.clone(),
                 },
@@ -486,6 +564,317 @@ mod tests {
                     &LocalDevice::Cpu
                 )
                 .is_err()
+        );
+    }
+    #[test]
+    fn visible_timing_is_per_dispatch_and_never_invented() {
+        use metron_protocol::BoundedText;
+        use std::time::Duration;
+        let mut state = State {
+            pid: Some(1),
+            ..State::default()
+        };
+        let a = content_digest(b"a");
+        let b = content_digest(b"b");
+        let base = Instant::now() - Duration::from_secs(10);
+        for id in [&a, &b] {
+            state
+                .event(
+                    WorkerEvent::Dispatching {
+                        dispatch_id: id.clone(),
+                        began_at: base,
+                    },
+                    &LocalDevice::Cpu,
+                )
+                .unwrap();
+            state
+                .event(
+                    WorkerEvent::Sent {
+                        dispatch_id: id.clone(),
+                    },
+                    &LocalDevice::Cpu,
+                )
+                .unwrap();
+            state.pending.get_mut(id).unwrap().sent = Some(base);
+            state
+                .event(
+                    WorkerEvent::Tokenized {
+                        dispatch_id: id.clone(),
+                        token_count: 1,
+                        token_ids_digest: content_digest(b"ids"),
+                        rendered_digest: content_digest(b"rendered"),
+                    },
+                    &LocalDevice::Cpu,
+                )
+                .unwrap();
+            state
+                .event(
+                    WorkerEvent::Started {
+                        dispatch_id: id.clone(),
+                    },
+                    &LocalDevice::Cpu,
+                )
+                .unwrap();
+        }
+        let delta = |id: &Digest, ms, sequence, text: &str, reasoning| WorkerEvent::Delta {
+            dispatch_id: id.clone(),
+            sequence,
+            text: BoundedText::new(text).unwrap(),
+            reasoning,
+            received_at: base + Duration::from_millis(ms),
+        };
+        state
+            .event(delta(&a, 1000, 0, "", false), &LocalDevice::Cpu)
+            .unwrap();
+        state
+            .event(delta(&b, 1500, 0, "thinking", true), &LocalDevice::Cpu)
+            .unwrap();
+        assert!(
+            state
+                .event(
+                    delta(&a, 2000, 2, "out of sequence", false),
+                    &LocalDevice::Cpu
+                )
+                .is_err()
+        );
+        state
+            .event(delta(&a, 2000, 1, "visible", false), &LocalDevice::Cpu)
+            .unwrap();
+        state
+            .event(delta(&a, 3000, 2, "later", false), &LocalDevice::Cpu)
+            .unwrap();
+        assert!(
+            state
+                .event(delta(&a, 2500, 3, "backwards", false), &LocalDevice::Cpu)
+                .is_err()
+        );
+        assert!(
+            state
+                .event(
+                    delta(&content_digest(b"missing"), 3000, 0, "x", false),
+                    &LocalDevice::Cpu
+                )
+                .is_err()
+        );
+        // Completion must follow both the send and all received frames.
+        assert!(
+            state
+                .event(
+                    WorkerEvent::Completed {
+                        dispatch_id: a.clone(),
+                        prompt_time_us: None,
+                        completion_time_us: None,
+                        received_at: base + Duration::from_millis(2500)
+                    },
+                    &LocalDevice::Cpu
+                )
+                .is_err()
+        );
+        let end = Instant::now();
+        for id in [&b, &a] {
+            state
+                .event(
+                    WorkerEvent::Completed {
+                        dispatch_id: id.clone(),
+                        prompt_time_us: None,
+                        completion_time_us: None,
+                        received_at: end,
+                    },
+                    &LocalDevice::Cpu,
+                )
+                .unwrap();
+        }
+        assert_eq!(
+            state.pending[&a].completed.as_ref().unwrap().latency_ms,
+            Some(u64::try_from(end.duration_since(base).as_millis()).unwrap())
+        );
+        assert_eq!(
+            state.pending[&a]
+                .completed
+                .as_ref()
+                .unwrap()
+                .first_visible_ms,
+            Some(2000)
+        );
+        assert_eq!(
+            state.pending[&b]
+                .completed
+                .as_ref()
+                .unwrap()
+                .first_visible_ms,
+            None
+        );
+        assert!(
+            state
+                .event(delta(&a, 4000, 3, "late", false), &LocalDevice::Cpu)
+                .is_err()
+        );
+    }
+    #[test]
+    fn reversed_sent_callback_preserves_interleaved_terminal_results() {
+        use metron_protocol::BoundedText;
+        use std::time::Duration;
+        let mut state = State {
+            pid: Some(1),
+            ..State::default()
+        };
+        let a = content_digest(b"reverse-a");
+        let b = content_digest(b"reverse-b");
+        let base = Instant::now() - Duration::from_secs(5);
+        for id in [&a, &b] {
+            state
+                .event(
+                    WorkerEvent::Dispatching {
+                        dispatch_id: id.clone(),
+                        began_at: base,
+                    },
+                    &LocalDevice::Cpu,
+                )
+                .unwrap();
+            state
+                .event(
+                    WorkerEvent::Tokenized {
+                        dispatch_id: id.clone(),
+                        token_count: 1,
+                        token_ids_digest: content_digest(b"ids"),
+                        rendered_digest: content_digest(b"rendered"),
+                    },
+                    &LocalDevice::Cpu,
+                )
+                .unwrap();
+            state
+                .event(
+                    WorkerEvent::Started {
+                        dispatch_id: id.clone(),
+                    },
+                    &LocalDevice::Cpu,
+                )
+                .unwrap();
+        }
+        for (id, ms) in [(&b, 1200), (&a, 2200)] {
+            state
+                .event(
+                    WorkerEvent::Delta {
+                        dispatch_id: id.clone(),
+                        sequence: 0,
+                        text: BoundedText::new("visible").unwrap(),
+                        reasoning: false,
+                        received_at: base + Duration::from_millis(ms),
+                    },
+                    &LocalDevice::Cpu,
+                )
+                .unwrap();
+        }
+        for (id, ms) in [(&a, 3000), (&b, 3500)] {
+            state
+                .event(
+                    WorkerEvent::Completed {
+                        dispatch_id: id.clone(),
+                        prompt_time_us: None,
+                        completion_time_us: None,
+                        received_at: base + Duration::from_millis(ms),
+                    },
+                    &LocalDevice::Cpu,
+                )
+                .unwrap();
+        }
+        for (id, expected) in [(&a, 2200), (&b, 1200)] {
+            let timing = state.pending[id].completed.as_ref().unwrap();
+            assert_eq!(timing.first_visible_ms, Some(expected));
+            assert_eq!(timing.latency_ms, None);
+            state
+                .event(
+                    WorkerEvent::Sent {
+                        dispatch_id: id.clone(),
+                    },
+                    &LocalDevice::Cpu,
+                )
+                .unwrap();
+            assert_eq!(
+                state.pending[id].completed.as_ref().unwrap().latency_ms,
+                None
+            );
+            assert!(
+                state
+                    .event(
+                        WorkerEvent::Sent {
+                            dispatch_id: id.clone()
+                        },
+                        &LocalDevice::Cpu
+                    )
+                    .is_err()
+            );
+            assert!(
+                state
+                    .event(
+                        WorkerEvent::Started {
+                            dispatch_id: id.clone()
+                        },
+                        &LocalDevice::Cpu
+                    )
+                    .is_err()
+            );
+        }
+    }
+    #[test]
+    fn callback_arrival_does_not_reorder_frame_timestamps() {
+        use std::time::Duration;
+        let mut state = State {
+            pid: Some(1),
+            ..State::default()
+        };
+        let id = content_digest(b"precallback-frame");
+        let base = Instant::now() - Duration::from_secs(5);
+        state
+            .event(
+                WorkerEvent::Dispatching {
+                    dispatch_id: id.clone(),
+                    began_at: base,
+                },
+                &LocalDevice::Cpu,
+            )
+            .unwrap();
+        state
+            .event(
+                WorkerEvent::Sent {
+                    dispatch_id: id.clone(),
+                },
+                &LocalDevice::Cpu,
+            )
+            .unwrap();
+        state
+            .event(
+                WorkerEvent::Tokenized {
+                    dispatch_id: id.clone(),
+                    token_count: 1,
+                    token_ids_digest: content_digest(b"ids"),
+                    rendered_digest: content_digest(b"rendered"),
+                },
+                &LocalDevice::Cpu,
+            )
+            .unwrap();
+        state
+            .event(
+                WorkerEvent::Started {
+                    dispatch_id: id.clone(),
+                },
+                &LocalDevice::Cpu,
+            )
+            .unwrap();
+        state
+            .event(
+                WorkerEvent::Completed {
+                    dispatch_id: id.clone(),
+                    prompt_time_us: None,
+                    completion_time_us: None,
+                    received_at: base + Duration::from_secs(4),
+                },
+                &LocalDevice::Cpu,
+            )
+            .unwrap();
+        assert_eq!(
+            state.pending[&id].completed.as_ref().unwrap().latency_ms,
+            None
         );
     }
 }
