@@ -4,6 +4,7 @@
 pub mod artifact;
 pub mod chunk_prefill;
 pub mod framing;
+pub mod resources;
 
 pub mod driver;
 
