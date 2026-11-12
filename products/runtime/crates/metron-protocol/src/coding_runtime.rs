@@ -15,6 +15,8 @@ pub enum CodingStep {
         /// Host-owned function catalog, present only in the native-tool controller.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         native_tools: Option<Vec<CodingTool>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        memory_manifest: Option<MemoryContextManifest>,
     },
     Tool {
         action: CodingAction,
@@ -107,10 +109,47 @@ pub fn validate_coding_receipt(
             }
         }
         (CodingStep::Tool { action, .. }, ReceiptOutput::Coding { observation }) => {
-            let CodingObservation::Tool { output } = observation.as_ref() else {
+            let CodingObservation::Tool {
+                output,
+                memory_selection,
+            } = observation.as_ref()
+            else {
                 return Err(ValidationError::Binding);
             };
             output.validate()?;
+            if let Some(selection) = memory_selection {
+                if !matches!(action, CodingAction::MemorySearch { limit, .. } if selection.requested_limit == *limit)
+                    || output.status != ToolStatus::Succeeded
+                    || !matches!(
+                        genesis.engine_version.as_str(),
+                        "coding-agent/v3.8" | "coding-harness/v3.8"
+                    )
+                {
+                    return Err(ValidationError::Binding);
+                }
+                selection.validate()?;
+                if genesis
+                    .coding_policy
+                    .as_ref()
+                    .is_none_or(|p| selection.output_budget_bytes != p.max_output_bytes.min(700))
+                    || output.body.as_str().len() > selection.output_budget_bytes as usize
+                    || output.truncated
+                    || serde_json::from_str::<serde_json::Value>(output.body.as_str())
+                        .ok()
+                        .as_ref()
+                        != Some(&selection.model_body())
+                {
+                    return Err(ValidationError::Binding);
+                }
+            } else if matches!(action, CodingAction::MemorySearch { .. })
+                && output.status == ToolStatus::Succeeded
+                && matches!(
+                    genesis.engine_version.as_str(),
+                    "coding-agent/v3.8" | "coding-harness/v3.8"
+                )
+            {
+                return Err(ValidationError::Binding);
+            }
             if output.tool != action.tool()
                 || output.files.iter().any(|file| {
                     genesis
@@ -225,6 +264,112 @@ pub fn model_content(output: &ReceiptOutput) -> Option<&str> {
     }
 }
 
+/// Source metadata is provenance only; model-authored memory is never authority.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MemoryAnnotationRef {
+    pub dispatch: Digest,
+    pub source_evidence: Digest,
+    pub reason_digest: Digest,
+    pub target_dispatch: Digest,
+    pub related_dispatch: Option<Digest>,
+    pub stale: bool,
+}
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MemorySource {
+    pub slot: u8,
+    pub dispatch: Digest,
+    pub content_hash: Digest,
+    pub source_task: TaskId,
+    pub source_evidence: Option<Digest>,
+    pub trust: BoundedText<32>,
+    pub annotations: Vec<MemoryAnnotationRef>,
+    pub body_bytes: u32,
+    pub excerpt: Option<BoundedText<256>>,
+}
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MemorySelection {
+    pub sources: Vec<MemorySource>,
+    pub requested_limit: u8,
+    pub candidate_limit: u8,
+    pub output_budget_bytes: u32,
+    pub excerpt_limit_bytes: u16,
+    pub has_more: bool,
+    pub omitted_known: u8,
+}
+impl MemorySelection {
+    pub fn model_body(&self) -> serde_json::Value {
+        let notes: Vec<_> = self.sources.iter().filter_map(|source| source.excerpt.as_ref().map(|excerpt| serde_json::json!({
+            "slot":source.slot,"excerpt":excerpt.as_str(),"unverified":true,
+            "stale":source.annotations.iter().any(|a| a.stale),"conflict":source.annotations.iter().any(|a| a.related_dispatch.is_some()),
+            "truncated":excerpt.as_str().len() < source.body_bytes as usize,
+        }))).collect();
+        serde_json::json!({"notes":notes,"omitted_known":self.omitted_known,"has_more":self.has_more})
+    }
+    pub fn validate(&self) -> Result<(), ValidationError> {
+        if self.requested_limit == 0
+            || self.requested_limit > 20
+            || self.candidate_limit != self.requested_limit.min(8)
+            || self.output_budget_bytes == 0
+            || self.output_budget_bytes > 700
+            || self.excerpt_limit_bytes != 256
+            || self.sources.len() > usize::from(self.candidate_limit)
+            || self.omitted_known as usize
+                != self.sources.iter().filter(|s| s.excerpt.is_none()).count()
+        {
+            return Err(ValidationError::Limit);
+        }
+        for (i, source) in self.sources.iter().enumerate() {
+            if self.sources[..i]
+                .iter()
+                .any(|prior| prior.dispatch == source.dispatch)
+                || source.annotations.iter().enumerate().any(|(j, a)| {
+                    a.target_dispatch != source.dispatch
+                        || a.stale == a.related_dispatch.is_some()
+                        || source.annotations[..j]
+                            .iter()
+                            .any(|prior| prior.dispatch == a.dispatch)
+                })
+                || usize::from(source.slot) != i
+                || source.annotations.len() > 8
+                || source.body_bytes > 4096
+                || source.trust.as_str() != "model_authored_unverified"
+                || source
+                    .excerpt
+                    .as_ref()
+                    .is_some_and(|e| e.as_str().len() > source.body_bytes as usize)
+            {
+                return Err(ValidationError::Binding);
+            }
+        }
+        canonical_bytes(self, 48 * 1024)?;
+        Ok(())
+    }
+}
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MemoryVisibleNote {
+    pub slot: u8,
+    pub excerpt: BoundedText<256>,
+    pub unverified: bool,
+    pub start_byte: u32,
+    pub end_byte: u32,
+    pub truncated: bool,
+    pub stale: bool,
+    pub conflict: bool,
+}
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MemoryContextManifest {
+    pub source_receipt: Digest,
+    pub selection_digest: Digest,
+    pub profile_digest: Digest,
+    pub visible: Vec<MemoryVisibleNote>,
+    pub omitted_known: u8,
+    pub has_more: bool,
+}
 /// Common turn mechanics for the independent agent and standalone harness.
 /// Inputs are explicit immutable data; this routine never executes a tool.
 pub fn coding_transition(
@@ -304,6 +449,16 @@ pub fn coding_transition_format_neutral(
     event: &AgentEvent,
 ) -> Result<Transition, DecisionError> {
     coding_transition_impl(task, policy, state, event, 7)
+}
+
+/// Version 3.8 records exact receipt-backed memory selection manifests.
+pub fn coding_transition_memory(
+    task: &CodingTask,
+    policy: &CodingPolicy,
+    state: &AgentState,
+    event: &AgentEvent,
+) -> Result<Transition, DecisionError> {
+    coding_transition_impl(task, policy, state, event, 8)
 }
 
 fn coding_transition_impl(
@@ -429,6 +584,12 @@ fn coding_transition_impl(
             }
         }
         #[derive(Serialize)]
+        struct MemoryPrompt<'a> {
+            notes: &'a [MemoryVisibleNote],
+            omitted_known: u8,
+            has_more: bool,
+        }
+        #[derive(Serialize)]
         struct FocusedPrompt<'a> {
             instruction: &'static str,
             objective: &'a str,
@@ -441,6 +602,8 @@ fn coding_transition_impl(
             recent_observations_untrusted: &'a [FocusedToolView],
             #[serde(skip_serializing_if = "Option::is_none")]
             model_feedback: Option<&'a ModelFeedback>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            memory_notes_unverified: Option<MemoryPrompt<'a>>,
         }
         // v3 was persisted with insertion-ordered serde_json maps. Serialize a
         // fixed struct to retain those exact bytes regardless of Cargo feature unification.
@@ -482,6 +645,7 @@ fn coding_transition_impl(
                 last_action: &context.last_action,
                 recent_observations_untrusted: &context.tool_views,
                 model_feedback: if version >= 5 { context.model_feedback.as_ref() } else { None },
+                memory_notes_unverified: if version >= 8 { context.memory_manifest.as_ref().map(|m| MemoryPrompt { notes: m.visible.as_slice(), omitted_known: m.omitted_known, has_more: m.has_more }) } else { None },
             }, MAX_LOCAL_CONTEXT)
         } else if version == 0 {
             canonical_bytes(&LegacyPrompt {
@@ -501,6 +665,11 @@ fn coding_transition_impl(
             input_digest: content_digest(prompt.as_bytes()),
             context: BoundedText::new(prompt).map_err(|_| DecisionError::InvariantViolation)?,
             profile_digest: task.data().model_profile_digest.clone(),
+            memory_manifest: if version >= 8 {
+                context.memory_manifest.clone()
+            } else {
+                None
+            },
             native_tools: (version >= 4).then(|| {
                 if context.plan_evidence.is_some() {
                     policy.allowed_tools.clone()
@@ -642,9 +811,57 @@ fn coding_transition_impl(
                     let ReceiptOutput::Coding { observation } = output else {
                         return Err(DecisionError::InvalidEvent);
                     };
-                    let CodingObservation::Tool { output } = observation.as_ref() else {
+                    let CodingObservation::Tool {
+                        output,
+                        memory_selection,
+                    } = observation.as_ref()
+                    else {
                         return Err(DecisionError::InvalidEvent);
                     };
+                    if let Some(selection) = memory_selection {
+                        if version < 8
+                            || output.tool != CodingTool::MemorySearch
+                            || output.status != ToolStatus::Succeeded
+                        {
+                            return Err(DecisionError::InvalidEvent);
+                        }
+                        selection
+                            .validate()
+                            .map_err(|_| DecisionError::InvariantViolation)?;
+                        let visible = selection
+                            .sources
+                            .iter()
+                            .filter_map(|source| {
+                                source.excerpt.as_ref().map(|excerpt| MemoryVisibleNote {
+                                    slot: source.slot,
+                                    excerpt: excerpt.clone(),
+                                    unverified: true,
+                                    start_byte: 0,
+                                    end_byte: excerpt.as_str().len() as u32,
+                                    truncated: excerpt.as_str().len() < source.body_bytes as usize,
+                                    stale: source
+                                        .annotations
+                                        .iter()
+                                        .any(|annotation| annotation.stale),
+                                    conflict: source
+                                        .annotations
+                                        .iter()
+                                        .any(|annotation| annotation.related_dispatch.is_some()),
+                                })
+                            })
+                            .collect();
+                        context.memory_manifest = Some(MemoryContextManifest {
+                            source_receipt: evidence_id.clone(),
+                            selection_digest: content_digest(
+                                &canonical_bytes(selection, 48 * 1024)
+                                    .map_err(|_| DecisionError::InvariantViolation)?,
+                            ),
+                            profile_digest: task.data().model_profile_digest.clone(),
+                            visible,
+                            omitted_known: selection.omitted_known,
+                            has_more: selection.has_more,
+                        });
+                    }
                     output
                         .validate()
                         .map_err(|_| DecisionError::MissingEvidence)?;
@@ -677,7 +894,7 @@ fn coding_transition_impl(
                                 .map_err(|_| DecisionError::InvariantViolation)?;
                         }
                     }
-                    if version >= 3 {
+                    if version >= 3 && !(version >= 8 && memory_selection.is_some()) {
                         context
                             .add_tool_view(output)
                             .map_err(|_| DecisionError::InvariantViolation)?;
@@ -780,6 +997,8 @@ pub enum CodingObservation {
     },
     Tool {
         output: CodingToolOutput,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        memory_selection: Option<MemorySelection>,
     },
     Artifact {
         artifact: CodingArtifact,
@@ -908,6 +1127,8 @@ pub struct CodingContext {
     pub invalid_proposals: u8,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_feedback: Option<ModelFeedback>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_manifest: Option<MemoryContextManifest>,
 }
 impl Default for CodingContext {
     fn default() -> Self {
@@ -922,6 +1143,7 @@ impl Default for CodingContext {
             tool_views: Vec::new(),
             invalid_proposals: 0,
             model_feedback: None,
+            memory_manifest: None,
         }
     }
 }
@@ -935,6 +1157,14 @@ impl CodingContext {
                             != FORMAT_NEUTRAL_MODEL_VALIDATION_DIAGNOSTIC)
                     || !self.items.last().is_some_and(|item| {
                         item.kind.as_str() == "model" && item.evidence == feedback.source_evidence
+                    })
+            })
+            || self.memory_manifest.as_ref().is_some_and(|m| {
+                m.visible.len() > 8
+                    || m.visible.iter().any(|v| {
+                        !v.unverified
+                            || v.start_byte != 0
+                            || v.end_byte as usize != v.excerpt.as_str().len()
                     })
             })
             || self.recorded_plan.len() > 12
@@ -968,6 +1198,7 @@ impl CodingContext {
             || !self.tool_views.is_empty()
             || self.invalid_proposals > 0
             || self.model_feedback.is_some()
+            || self.memory_manifest.is_some()
         {
             canonical_bytes(self, 16 * 1024)?;
         }
