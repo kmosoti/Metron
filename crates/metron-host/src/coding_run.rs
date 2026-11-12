@@ -950,7 +950,8 @@ fn context_version_for_recipe(recipe: Option<&str>) -> u8 {
     match recipe {
         Some(
             metron_protocol::LOCAL_CODING_V8_RECIPE_SHA
-            | metron_protocol::LOCAL_CODING_V9_RECIPE_SHA,
+            | metron_protocol::LOCAL_CODING_V9_RECIPE_SHA
+            | metron_protocol::LOCAL_CODING_V10_RECIPE_SHA,
         ) => 11,
         Some(metron_protocol::LOCAL_CODING_V7_RECIPE_SHA) => 10,
         Some(
@@ -1365,6 +1366,10 @@ mod tests {
     }
     #[test]
     fn recipe_routes_preserve_legacy_context_versions() {
+        assert_eq!(
+            context_version_for_recipe(Some(LOCAL_CODING_V10_RECIPE_SHA)),
+            11
+        );
         assert_eq!(
             context_version_for_recipe(Some(LOCAL_CODING_V9_RECIPE_SHA)),
             11
@@ -2133,3 +2138,6 @@ mod recovery_tests;
 #[cfg(test)]
 #[path = "coding_run/tool_security_tests.rs"]
 mod tool_security_tests;
+
+#[cfg(test)]
+mod native_file_tests;
