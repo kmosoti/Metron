@@ -550,6 +550,40 @@ fn admitted_memory_survives_restart_and_is_retrieved_by_another_task() {
     );
     assert_audits(&mut store, &first);
     drop(writer);
+    let mut memory = MemoryStore::open_existing(first.memory_db.as_ref().unwrap()).unwrap();
+    let a = memory
+        .search_candidates(&scoped, "violet", 8)
+        .unwrap()
+        .entries[0]
+        .dispatch
+        .clone();
+    let b = content_digest(b"conflicting violet note");
+    memory
+        .put(
+            &scoped,
+            &MemoryInput {
+                dispatch: b.clone(),
+                source_task: first.task.data().task_id.clone(),
+                source_evidence: None,
+                body: "Another violet widget was not observed".into(),
+            },
+        )
+        .unwrap();
+    memory
+        .annotate_source(
+            &scoped,
+            &SourceAnnotationInput {
+                dispatch: content_digest(b"violet conflict"),
+                target_dispatch: a.clone(),
+                kind: SourceAnnotationKind::ConflictsWith {
+                    related_dispatch: b.clone(),
+                },
+                source_evidence: content_digest(b"fixture evidence"),
+                reason: "Contradictory observations".into(),
+            },
+        )
+        .unwrap();
+    drop(memory);
     drop(store);
 
     // Reopen both durable stores before admitting an independent task.
@@ -609,12 +643,22 @@ fn admitted_memory_survives_restart_and_is_retrieved_by_another_task() {
                 ..
             } = step.as_ref()
         {
-            assert_eq!(
-                manifest.visible[0].excerpt.as_str(),
-                "A violet widget was observed"
+            assert_eq!(manifest.visible.len(), 2);
+            assert!(
+                manifest
+                    .visible
+                    .iter()
+                    .all(|note| note.conflict && note.start_byte == 0)
             );
-            assert_eq!(manifest.visible[0].start_byte, 0);
-            assert_eq!(manifest.visible[0].end_byte, 28);
+            assert!(manifest.visible.iter().any(|note| note.excerpt.as_str()
+                == "A violet widget was observed"
+                && note.end_byte == 28));
+            assert!(
+                manifest
+                    .visible
+                    .iter()
+                    .any(|note| note.excerpt.as_str() == "Another violet widget was not observed")
+            );
             assert!(context.as_str().contains("memory_notes_unverified"));
             assert!(
                 !context
@@ -640,13 +684,29 @@ fn admitted_memory_survives_restart_and_is_retrieved_by_another_task() {
                     content_digest(&canonical_bytes(selection, 48 * 1024).unwrap()),
                 ));
                 let body: serde_json::Value = serde_json::from_str(output.body.as_str()).unwrap();
-                assert_eq!(body["notes"][0]["excerpt"], "A violet widget was observed");
-                assert_eq!(selection.sources[0].source_task.as_str(), "memory-task-a");
-                assert_eq!(
-                    selection.sources[0].trust.as_str(),
-                    "model_authored_unverified"
-                );
-                assert_eq!(selection.sources[0].source_evidence, None);
+                assert_eq!(body["notes"].as_array().unwrap().len(), 2);
+                assert_eq!(selection.sources.len(), 2);
+                for source in &selection.sources {
+                    assert_eq!(source.source_task.as_str(), "memory-task-a");
+                    assert_eq!(source.trust.as_str(), "model_authored_unverified");
+                    assert_eq!(source.source_evidence, None);
+                    assert!(source.dispatch == a || source.dispatch == b);
+                    assert_eq!(source.annotations.len(), 1);
+                    assert_eq!(source.annotations[0].target_dispatch, a);
+                    assert_eq!(source.annotations[0].related_dispatch.as_ref(), Some(&b));
+                }
+                let mut forged = selection.clone();
+                forged.sources[0].annotations[0].target_dispatch =
+                    content_digest(b"unrelated target");
+                forged.sources[0].annotations[0].related_dispatch =
+                    Some(content_digest(b"unrelated endpoint"));
+                assert!(forged.validate().is_err());
+                forged.sources[0].annotations[0].related_dispatch =
+                    Some(forged.sources[0].annotations[0].target_dispatch.clone());
+                assert!(forged.validate().is_err());
+                forged.sources[0].annotations[0].stale = true;
+                forged.sources[0].annotations[0].related_dispatch = None;
+                assert!(forged.validate().is_err());
                 retrievals += 1;
             }
         }
