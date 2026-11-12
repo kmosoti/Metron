@@ -995,3 +995,168 @@ fn v8_list_catalog_grammar_schema_and_native_arguments_are_bound() {
     }
     assert!(request.validate().is_err());
 }
+
+#[test]
+fn v9_native_dot_alias_is_recipe_bound_and_preserves_raw_calls() {
+    use metron_protocol::coding::{
+        CodingAction, CodingPolicy, CodingTool, RustProgram, parse_coding_action,
+    };
+    let recipe = Digest::new(LOCAL_CODING_V9_RECIPE_SHA).unwrap();
+    let legacy = Digest::new(LOCAL_CODING_V8_RECIPE_SHA).unwrap();
+    let identity = format!(
+        "{LOCAL_CODING_V9_SYSTEM}\n{LOCAL_CODING_V9_RENDER_MODE}\n{LOCAL_CODING_V2_SCHEMA}"
+    );
+    assert_eq!(content_digest(identity.as_bytes()), recipe);
+    let capture = |name: &str, arguments: &str| {
+        NativeCallEvidence::capture(1, vec![(name.into(), arguments.into())], None).unwrap()
+    };
+    let list = capture("list", r#"{"directory":"."}"#);
+    assert_eq!(list.calls[0].arguments.as_str(), r#"{"directory":"."}"#);
+    assert!(parse_coding_action(list.action_content().unwrap().as_bytes()).is_err());
+    assert!(
+        parse_coding_action(list.action_content_for_recipe(&legacy).unwrap().as_bytes()).is_err()
+    );
+    let canonical = list.action_content_for_recipe(&recipe).unwrap();
+    let parsed = parse_coding_action(canonical.as_bytes()).unwrap();
+    assert_eq!(parsed, CodingAction::List { directory: None });
+    assert_eq!(
+        canonical,
+        capture("list", r#"{"directory":null}"#)
+            .action_content_for_recipe(&recipe)
+            .unwrap()
+    );
+    assert_eq!(list.calls[0].arguments.as_str(), r#"{"directory":"."}"#);
+    let run = capture(
+        "run",
+        r#"{"directory":".","program":"cargo","args":["check","--offline"]}"#,
+    );
+    assert!(
+        parse_coding_action(run.action_content_for_recipe(&legacy).unwrap().as_bytes()).is_err()
+    );
+    let run_action =
+        parse_coding_action(run.action_content_for_recipe(&recipe).unwrap().as_bytes()).unwrap();
+    assert_eq!(
+        run_action,
+        CodingAction::Run {
+            program: RustProgram::Cargo,
+            args: vec![
+                BoundedText::new("check").unwrap(),
+                BoundedText::new("--offline").unwrap()
+            ],
+            directory: None
+        }
+    );
+    assert_eq!(
+        run.action_content_for_recipe(&recipe).unwrap(),
+        capture(
+            "run",
+            r#"{"directory":null,"program":"cargo","args":["check","--offline"]}"#
+        )
+        .action_content_for_recipe(&recipe)
+        .unwrap()
+    );
+    for bad in ["", "..", "./src", "/src", ".git", ".jj", "src/../other"] {
+        let args = serde_json::json!({"directory":bad}).to_string();
+        let action = capture("list", &args)
+            .action_content_for_recipe(&recipe)
+            .unwrap();
+        assert!(
+            parse_coding_action(action.as_bytes()).is_err(),
+            "accepted {bad:?}"
+        );
+    }
+    let spaces = capture("list", r#"{"directory":" . "}"#)
+        .action_content_for_recipe(&recipe)
+        .unwrap();
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&spaces).unwrap()["directory"],
+        " . "
+    );
+    let path = capture("list", r#"{"directory":"src"}"#)
+        .action_content_for_recipe(&recipe)
+        .unwrap();
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&path).unwrap()["directory"],
+        "src"
+    );
+    for (name, args) in [
+        ("read", r#"{"path":".","first_line":1,"line_count":1}"#),
+        (
+            "edit",
+            r#"{"path":".","expected_digest":null,"content":"x"}"#,
+        ),
+    ] {
+        assert!(
+            parse_coding_action(
+                capture(name, args)
+                    .action_content_for_recipe(&recipe)
+                    .unwrap()
+                    .as_bytes()
+            )
+            .is_err()
+        );
+    }
+    let search = capture("search", r#"{"query":"x","directory":"."}"#)
+        .action_content_for_recipe(&recipe)
+        .unwrap();
+    assert!(parse_coding_action(search.as_bytes()).is_err());
+    let policy = CodingPolicy {
+        schema_version: 1,
+        principal_id: PrincipalId::new("principal").unwrap(),
+        project_id: BoundedText::new("project").unwrap(),
+        workspace_root: BoundedText::new("/workspace").unwrap(),
+        memory_collection: None,
+        allowed_tools: vec![CodingTool::Read],
+        allowed_programs: vec![],
+        require_mutation_approval: false,
+        max_file_bytes: 4096,
+        max_output_bytes: 4096,
+        command_timeout_ms: 1000,
+        command_memory_bytes: SqlU64::new(128 * 1024 * 1024).unwrap(),
+        max_processes: 1,
+    };
+    assert!(!policy.permits(&parsed));
+    assert!(!policy.permits(&run_action));
+    let mut profile = local_profile();
+    profile.prompt_recipe_digest = recipe;
+    profile.embedded_tokenizer_digest =
+        gguf_lfm3_corrected_tokenizer_digest(&profile.artifact_digest).unwrap();
+    let req = content_digest(b"request");
+    let cohort = SubmissionCohort {
+        id: BoundedText::new("cohort").unwrap(),
+        size: 1,
+        position: 0,
+    };
+    let mut observation = LocalObservation {
+        schema_version: SchemaVersion::V2,
+        profile_digest: profile.digest().unwrap(),
+        request_digest: req.clone(),
+        input_digest: content_digest(b"input"),
+        content: BoundedText::new(canonical).unwrap(),
+        reasoning: None,
+        native_calls: Some(list),
+        prompt_tokens: 20,
+        completion_tokens: 10,
+        submission_cohort: cohort,
+        backend_batch: BatchProvenance::Unknown,
+        response: Some(LocalResponse::Text),
+    };
+    assert!(
+        observation
+            .validate(&profile, &req, LocalOutputSchema::Text)
+            .is_ok()
+    );
+    observation.content = BoundedText::new(r#"{"directory":".","tool":"list"}"#).unwrap();
+    assert!(
+        observation
+            .validate(&profile, &req, LocalOutputSchema::Text)
+            .is_err()
+    );
+    profile.prompt_recipe_digest = legacy;
+    observation.profile_digest = profile.digest().unwrap();
+    assert!(
+        observation
+            .validate(&profile, &req, LocalOutputSchema::Text)
+            .is_ok()
+    );
+}
