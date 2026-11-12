@@ -47,6 +47,26 @@ worker verifies property-order preservation before sampling; the host validates
 every resulting action independently. Historical controller and recipe identities
 remain available for replay, including v3.6's original recovery wording.
 
+Recipe v7 uses the v6 native XML grammar with bounded paired tool history. A
+completed supported action and its matching observation appear as an assistant
+function call followed by a tool result; a host-owned intent digest correlates
+the pair. Task, plan, memory, tool content and file digests remain untrusted
+inputs. An omitted action is explicitly marked as omitted and produces no
+function call. Initial requests likewise have no pair. Validation feedback is
+placed after the pair. The worker checks that the structured history agrees with
+the admitted context and tokenizes the same structured messages used for
+generation. This recipe remains experimental and does not establish coding
+acceptance or batching/cache qualification.
+
+```mermaid
+flowchart LR
+    Controller[Controller: admitted context and tool evidence] --> Worker[Worker: verify and project history]
+    Worker --> Tokenizer[SDK: tokenize structured messages]
+    Worker --> Model[SDK: native function generation]
+    Model --> Host[Host: validate action and authorize effects]
+    Host --> Controller
+```
+
 ## Inputs and invocation
 
 Provide separate absolute paths for an owner-private workspace and the private

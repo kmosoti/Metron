@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "observation": "O-0012",
+  "scope": "one diagnostic proposal; no tool execution or acceptance",
+  "sdk_revision": "fb4cdc3730dc64b366724e7637a205a8b7747499",
+  "model": "LiquidAI/LFM3-1.7B-GGUF",
+  "model_revision": "cd0c74c575b5c416f3011b5b4c298077f26ca8c2",
+  "model_file": "LFM3-1.7B-Q4_K_M.gguf",
+  "model_sha256": "3793e1e6e2266919d6e015287221b41100175a98eddaba92e111aed3b05c93c4",
+  "device": "CUDA RTX 3060 Laptop GPU",
+  "result": {
+    "returncode": 0,
+    "timed_out": false,
+    "elapsed_seconds": 171.68614206300117,
+    "actual_cuda": true,
+    "raw_preparser_xml_available": false,
+    "alias_render_and_tokens_identical": true,
+    "tool_call_count": 1,
+    "assistant_content": null,
+    "usage": {
+      "completion_tokens": 308,
+      "prompt_tokens": 1419,
+      "total_tokens": 1727,
+      "completion_tokens_details": {
+        "reasoning_tokens": 0
+      },
+      "avg_tok_per_sec": 10.234377,
+      "avg_prompt_tok_per_sec": 28.811014,
+      "avg_compl_tok_per_sec": 2.5775568,
+      "total_time_sec": 168.745,
+      "total_prompt_time_sec": 49.252,
+      "total_completion_time_sec": 119.493
+    },
+    "name": "edit",
+    "arguments": {
+      "content": "use std::env;\n\nfn main() {\n    let Some(text) = env::args().nth(1).expect(\"Please provide a text argument\") else {\n        std::process::exit(2);\n    };\n    // Count non-empty lines. An empty line has no characters.\n    // Spaces and tabs inside a line count as non-empty data.\n    let lines = text.split('\\n');\n    let count = lines.iter()\n        .filter(|line| !line.trim().is_empty())\n        .count();\n    println!(\"{}\", count);\n}\n\n#[cfg(test)]\nmod tests {\n    use super::*;\n\n    #[test]\n    fn test_count_lines() {\n        // Test with a multi-line string including blank lines and leading/trailing whitespace.\n        let text = \"hello\\n\\nworld\\n   \\ntabs\\there\\n\";\n        assert_eq!(count_lines(text), 3); // \"hello\", \"world\", \"tabs\\there\"\n    }\n}\n\nfn count_lines(text: &str) -> usize {\n    let lines = text.split('\\n');\n    lines.iter().filter(|line| !line.trim().is_empty()).count()\n}\n",
+      "path": "src/main.rs",
+      "expected_digest": "3855474da8f13007366defab5f1d44b85c2a00ac415bb216e8e3c6657342056a"
+    },
+    "coding_action_valid": true,
+    "validation_stderr": "",
+    "repeated_read": false,
+    "expected_path": true,
+    "expected_digest_matches": true,
+    "content_is_nonempty": true,
+    "content_sha256": "9cd31ffcf3a0dd9aa42262684736893da4ba99186e28476b8afe89573a14a5bb"
+  },
+  "assessment": {
+    "result": "one native edit proposal; not executed or accepted",
+    "alias_equivalence": "SDK Request::Tokenize produced identical 1419 token IDs; SDK detokenize produced identical bytes",
+    "assistant_content_transform": "recorded null represented as empty content; pinned template treats both as absent",
+    "tool_result_transform": "exact recorded output object serialized as compact JSON in one Tool message",
+    "original_sdk_call_id": "not recorded; paired aliases are diagnostic only",
+    "tokenization_matches_usage": true,
+    "grammar_sha256": "3d843f032774fde2426660e273c592de54b3a3c4671ce1e030748e243e030474",
+    "probe_sha256": "aa793a254738afff2532fa1311b953c08f2cbbd20036ba550036d68be3684b15",
+    "rendered_sha256": "e558254e47bb5669693cf9e1b63e6af9771aa57998de438bc970051904fd06f3",
+    "token_ids_sha256": "9f8b7fcd11d1ed54ac6863ca8dba8b93b09cada15c533c6d8aa7c55ea3786371",
+    "known_source_issues": [
+      "Option pattern applied to String after expect",
+      "Split iterator has no iter method",
+      "trim excludes whitespace-only lines",
+      "expect panics on missing input"
+    ]
+  },
+  "source_record_sha256": {
+    "result.json": "2dc4afe545cd09370d2d92833063c43d739cd72d62bc0a54cfcfebd18c2d3865",
+    "assessment.json": "2f29d141aaa403aab26a43a44f57617ac09e4ed41a52fb1517f5b2babd3c8f46",
+    "original-context.json": "e088426362ffd0f5ce967a21aca5faacd51865c0e8e36af2e768ea5b01c8b531",
+    "pairing.json": "38597207c885992001526118997d22afd761917a60796de55d9278421ee8993e"
+  }
+}

@@ -197,3 +197,29 @@ remain smaller. The target is a KV planning input, not a hard VRAM or process
 memory cap. A missing paged scheduler is rejected. This plumbing is
 unqualified: actual chunk execution, model equivalence, resource use and
 cancellation with concurrent requests still require fixed-model tests.
+
+
+## Numerical diagnostic limits at the pinned revision
+
+Source inspection at `fb4cdc3730dc64b366724e7637a205a8b7747499` rules out using
+`send_raw_chat_request` to qualify batching, chunked prefill or prefix reuse.
+Raw-logit requests bypass prefix lookup, disable chunking and are scheduled as
+singletons; their returned tensors cover prompt positions rather than a normal
+chat decode. Equality on that route would not test the production mechanisms.
+See [raw prefix bypass](https://github.com/EricLBuehler/mistral.rs/blob/fb4cdc3730dc64b366724e7637a205a8b7747499/mistralrs-core/src/engine/add_request.rs#L978)
+and [raw-request scheduling](https://github.com/EricLBuehler/mistral.rs/blob/fb4cdc3730dc64b366724e7637a205a8b7747499/mistralrs-core/src/scheduler.rs#L298).
+
+Normal chat can retain selected-token and top-alternative log probabilities.
+That offers a partial numerical discriminator when token histories align and at
+least two finite alternatives remain. Grammar rejection can change which masked
+or unmasked distribution is reported, and that branch is not exposed. Set the
+top-alternative count after selecting the deterministic sampler. Single forced
+tokens, missing values and divergent histories are inconclusive. See the
+[pinned request path](https://github.com/EricLBuehler/mistral.rs/blob/fb4cdc3730dc64b366724e7637a205a8b7747499/mistralrs/src/model.rs)
+and [sampler](https://github.com/EricLBuehler/mistral.rs/blob/fb4cdc3730dc64b366724e7637a205a8b7747499/mistralrs-core/src/sampler.rs).
+
+This is a source-derived diagnostic option, not executed numerical evidence or
+full state equivalence. Log probabilities disable some device sampling fast
+paths, so their timings cannot qualify production performance. Any comparison
+still needs proof that batching, chunking or a cache hit actually occurred, plus
+separate semantic acceptance with production settings.
