@@ -63,6 +63,7 @@ to those sources.
 | [O-0015 Native V10 coding cases and context capacity](observations/O-0015-native-coding-v10-and-context.md) | agent | false |
 | [O-0016 V6 comparison proposal evidence and disposition](observations/O-0016-v6-comparison-proposal.md) | agent | false |
 | [O-0017 Paged and unpaged resource diagnostic](observations/O-0017-paged-unpaged-resource-diagnostic.md) | agent | false |
+| [R-0012 Context quality and resident-worker resource admission](research/R-0012-context-and-resource-budget-admission.md) | agent | false |
 
 ## Runtime implementation
 

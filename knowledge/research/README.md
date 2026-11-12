@@ -30,6 +30,7 @@ with linked alpha.1 feature issues #21–28. Later releases are separate issues 
 | 13 | [R-0011 Shared toolkit](R-0011-shared-reasoning-toolkit.md) | Tool identities, primary sources and qualification obligations |
 | 14 | [D-0005 Alpha.1 delivery](../decisions/D-0005-alpha1-delivery.md) | Current ordered features, expanded memory scope and release proof |
 | 15 | [D-0003 Implementation sequence](../decisions/D-0003-runtime-implementation-sequence.md) | Ordered PR slices, entry conditions and alpha.0–alpha.5 exit contracts |
+| 16 | [R-0012 Context quality and resident-worker resource admission](R-0012-context-and-resource-budget-admission.md) | Context evidence, checked role planning and local adapter admission boundary |
 
 Start implementation on `feat/metron-runtime` from the reviewed `develop`
 revision containing this collection. P0 establishes a valid isolated Cargo
