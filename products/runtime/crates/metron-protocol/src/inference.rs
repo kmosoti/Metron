@@ -44,6 +44,110 @@ pub const LOCAL_CODING_V5_SYSTEM: &str = LOCAL_CODING_V4_SYSTEM;
 pub const LOCAL_CODING_V5_SCHEMA_MODE: &str = "metron-phase-two-orders-compact-json/v1";
 pub const LOCAL_CODING_V5_RECIPE_SHA: &str =
     "97b1861b8dcb60cc430773e4fe84cba781dd2c665228d8cc102483848d85d7c2";
+/// Native XML function calls constrained by a phase-specific Lark grammar.
+pub const LOCAL_CODING_V6_SYSTEM: &str = LOCAL_CODING_V3_SYSTEM;
+pub const LOCAL_CODING_V6_SCHEMA_MODE: &str = "metron-native-xml-lark-actions/v1";
+pub const LOCAL_CODING_V6_RECIPE_SHA: &str =
+    "0403f2699dd6b12cd64de8b45044f5ff65d79438420806a0b1d2ca73ca9ba31b";
+
+/// Build the complete XML grammar from trusted tool names only. The small V6
+/// catalog is experimental; any other tool fails closed before sampling.
+pub fn native_xml_coding_grammar(
+    tools: &[crate::coding::CodingTool],
+) -> Result<String, ValidationError> {
+    use crate::coding::CodingTool;
+    use std::fmt::Write as _;
+    const SUPPORTED: [CodingTool; 5] = [
+        CodingTool::Plan,
+        CodingTool::Edit,
+        CodingTool::Read,
+        CodingTool::Run,
+        CodingTool::Finish,
+    ];
+    if tools.is_empty()
+        || tools.len() > SUPPORTED.len()
+        || tools
+            .iter()
+            .enumerate()
+            .any(|(i, t)| !SUPPORTED.contains(t) || tools[..i].contains(t))
+    {
+        return Err(ValidationError::Binding);
+    }
+    let mut out = String::from("start: <tool_call> \"\\n\"? call \"\\n\"? </tool_call>\ncall: ");
+    let chosen: Vec<_> = SUPPORTED.iter().filter(|t| tools.contains(t)).collect();
+    for (i, tool) in chosen.iter().enumerate() {
+        if i != 0 {
+            out.push_str(" | ");
+        }
+        let name = match tool {
+            CodingTool::Plan => "plan",
+            CodingTool::Edit => "edit",
+            CodingTool::Read => "read",
+            CodingTool::Run => "run",
+            CodingTool::Finish => "finish",
+            _ => unreachable!(),
+        };
+        write!(out, "call_{name}").expect("string write");
+    }
+    out.push('\n');
+    for tool in chosen {
+        let (name, fields): (&str, &[(&str, &str)]) = match tool {
+            CodingTool::Plan => ("plan", &[("steps", "steps")]),
+            CodingTool::Edit => (
+                "edit",
+                &[
+                    ("path", "path"),
+                    ("expected_digest", "digest"),
+                    ("content", "content"),
+                ],
+            ),
+            CodingTool::Read => (
+                "read",
+                &[
+                    ("path", "path"),
+                    ("first_line", "firstline"),
+                    ("line_count", "linecount"),
+                ],
+            ),
+            CodingTool::Run => (
+                "run",
+                &[
+                    ("program", "program"),
+                    ("args", "args"),
+                    ("directory", "directory"),
+                ],
+            ),
+            CodingTool::Finish => ("finish", &[("summary", "content")]),
+            _ => unreachable!(),
+        };
+        writeln!(
+            out,
+            "call_{name}: \"<function={name}>\" \"\\n\"? state_{name}_0 </function>"
+        )
+        .expect("string write");
+        for mask in 0..(1usize << fields.len()) {
+            write!(out, "state_{name}_{mask}: ").expect("string write");
+            let mut first = true;
+            for i in 0..fields.len() {
+                if mask & (1 << i) == 0 {
+                    if !first {
+                        out.push_str(" | ");
+                    }
+                    first = false;
+                    write!(out, "arg_{name}_{i} state_{name}_{}", mask | (1 << i))
+                        .expect("string write");
+                }
+            }
+            out.push('\n');
+        }
+        for (i, (field, kind)) in fields.iter().enumerate() {
+            writeln!(out,"arg_{name}_{i}: \"<parameter={field}>\" \"\\n\"? {kind} \"\\n\"? </parameter> \"\\n\"?").expect("string write");
+        }
+    }
+    out.push_str(include_str!("native_xml_lark_tail.txt"));
+    Ok(out)
+}
+
 pub const LFM3_TOKENIZER_TRANSFORM_VERSION: &str = "lfm3-gguf-user-defined-tokens/v1";
 pub const LFM3_AUX_TOKENIZER_SHA: &str =
     "7e226e34bface23ccf6e495d157bf77186c1c30a7659880e1a8994db528c3701";
@@ -67,6 +171,7 @@ pub fn is_local_coding_recipe(digest: &str) -> bool {
             | LOCAL_CODING_V3_RECIPE_SHA
             | LOCAL_CODING_V4_RECIPE_SHA
             | LOCAL_CODING_V5_RECIPE_SHA
+            | LOCAL_CODING_V6_RECIPE_SHA
     )
 }
 /// Return the exact system text and JSON Schema for the selected coding recipe.
@@ -77,6 +182,7 @@ pub fn local_coding_recipe(digest: &str) -> Option<(&'static str, serde_json::Va
         LOCAL_CODING_V3_RECIPE_SHA => (LOCAL_CODING_V3_SYSTEM, LOCAL_CODING_V2_SCHEMA),
         LOCAL_CODING_V4_RECIPE_SHA => (LOCAL_CODING_V4_SYSTEM, LOCAL_CODING_V2_SCHEMA),
         LOCAL_CODING_V5_RECIPE_SHA => (LOCAL_CODING_V5_SYSTEM, LOCAL_CODING_V2_SCHEMA),
+        LOCAL_CODING_V6_RECIPE_SHA => (LOCAL_CODING_V6_SYSTEM, LOCAL_CODING_V2_SCHEMA),
         _ => return None,
     };
     Some((
@@ -578,7 +684,10 @@ impl LocalProfile {
         }
         let tokenizer_digest = if matches!(
             self.prompt_recipe_digest.as_str(),
-            LOCAL_CODING_V3_RECIPE_SHA | LOCAL_CODING_V4_RECIPE_SHA | LOCAL_CODING_V5_RECIPE_SHA
+            LOCAL_CODING_V3_RECIPE_SHA
+                | LOCAL_CODING_V4_RECIPE_SHA
+                | LOCAL_CODING_V5_RECIPE_SHA
+                | LOCAL_CODING_V6_RECIPE_SHA
         ) {
             gguf_lfm3_corrected_tokenizer_digest(&self.artifact_digest)?
         } else {
@@ -767,12 +876,17 @@ impl LocalObservation {
             return Err(ValidationError::Binding);
         }
         if let Some(native) = &self.native_calls {
-            if profile.prompt_recipe_digest.as_str() != LOCAL_CODING_V3_RECIPE_SHA
-                || native.action_content()? != self.content.as_str()
+            if !matches!(
+                profile.prompt_recipe_digest.as_str(),
+                LOCAL_CODING_V3_RECIPE_SHA | LOCAL_CODING_V6_RECIPE_SHA
+            ) || native.action_content()? != self.content.as_str()
             {
                 return Err(ValidationError::Binding);
             }
-        } else if profile.prompt_recipe_digest.as_str() == LOCAL_CODING_V3_RECIPE_SHA {
+        } else if matches!(
+            profile.prompt_recipe_digest.as_str(),
+            LOCAL_CODING_V3_RECIPE_SHA | LOCAL_CODING_V6_RECIPE_SHA
+        ) {
             return Err(ValidationError::Binding);
         }
         if self.response != parse_local_response(self.content.as_str().as_bytes(), schema).ok() {
@@ -1238,6 +1352,7 @@ impl WorkerRequest {
                 LOCAL_CODING_V3_RECIPE_SHA
                     | LOCAL_CODING_V4_RECIPE_SHA
                     | LOCAL_CODING_V5_RECIPE_SHA
+                    | LOCAL_CODING_V6_RECIPE_SHA
             );
             if native != native_tools.is_some()
                 || native_tools.as_ref().is_some_and(|tools| {
@@ -1251,6 +1366,14 @@ impl WorkerRequest {
                 })
             {
                 return Err(ValidationError::Binding);
+            }
+            if profile.prompt_recipe_digest.as_str() == LOCAL_CODING_V6_RECIPE_SHA {
+                native_xml_coding_grammar(
+                    native_tools
+                        .as_deref()
+                        .map(Vec::as_slice)
+                        .ok_or(ValidationError::Binding)?,
+                )?;
             }
             if crate::content_digest(context.as_str().as_bytes()) != *input_digest
                 || !artifact_path.as_str().starts_with('/')
