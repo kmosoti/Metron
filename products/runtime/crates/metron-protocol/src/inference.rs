@@ -564,19 +564,8 @@ pub struct LocalProfile {
     /// Strict allocation caps cannot be promised by the current backend.
     pub strict_memory_cap_bytes: Option<SqlU64>,
 }
-/// Experimental paged KV planning target; not a total device-memory cap.
-pub const CHUNKED_PREFILL_MAX_KV_BYTES: u64 = 256 * 1024 * 1024;
 impl LocalProfile {
     pub fn validate(&self) -> Result<(), ValidationError> {
-        if self.chunked_prefill
-            && (!matches!(self.device, LocalDevice::Cuda { .. })
-                || self.scoped_prefix_cache
-                || self
-                    .cache_target_bytes
-                    .is_none_or(|n| n.get() == 0 || n.get() > CHUNKED_PREFILL_MAX_KV_BYTES))
-        {
-            return Err(ValidationError::Limit);
-        }
         if self.schema_version != SchemaVersion::V2
             || self.artifact_bytes.get() == 0
             || self.context_tokens == 0
