@@ -1,11 +1,15 @@
-# Metron runtime alpha.0
+# Agent and harness usage
 
-The runtime is a separate Rust workspace for one bounded, scripted task. It reads
-`fixture://sum-v1/input`, asks the scripted `sum-v1` model for a candidate, writes
-one result artifact and independently verifies the result. Its default scripted run
-does not use a live model, shell, network, or workspace tools. An optional local
-inference worker is available for model effects and operational comparisons. The run directory is a trusted local
-directory on a filesystem that supports durable file sync and hard links.
+`metron-agent` provides pure task coordination. `metron-harness` provides
+independently usable admission, effect orchestration and replay. Both are
+first-class crates in Metron's root Cargo workspace. `metron-host` composes
+them with SQLite storage and sandboxed tools; `metron-inference-worker` owns
+the pinned local inference SDK.
+
+[Bounded coding](coding.md) is the alpha.1 development path. GPU generation is
+verified, while independently accepted model-written coding and the required
+resource gates remain incomplete. The explicit `sum-v1` fixture commands below
+remain compatibility examples; they do not establish general coding capability.
 
 ```mermaid
 flowchart LR
@@ -17,10 +21,6 @@ flowchart LR
     Driver -->|bounded framed requests| Worker[Isolated local inference worker]
     Worker --> Model[One loaded LFM3 model per task, principal and profile]
     Worker -->|bounded observations| Driver
-    Compare[Operational comparison session] -->|one-shot permits| Driver
-    Compare -->|durable result and receipt| Compare
-    Qualify[Frozen-corpus qualification] -->|one-shot permits| Driver
-    Qualify -->|validated selection| Host
     Harness -->|consumed admission| Publisher[Fixed-path artifact publisher]
     Driver -->|receipt| Harness
     Publisher -->|receipt| Harness
@@ -35,7 +35,7 @@ admitted dispatch whose result is unknown is not repeated automatically.
 
 ## Build and run
 
-The workspace pins its Rust toolchain in `rust-toolchain.toml`. From this directory,
+The repository pins its Rust toolchain in `rust-toolchain.toml`. From the repository root,
 use `cargo build -p metron-host` to build `metron-runtime`.
 
 Local inference uses an explicitly installed, pinned model and its tokenizer,
@@ -94,7 +94,7 @@ Optional `--quant q4|q6|q8` and `--concurrency 1|2|4|8` restrict a run. Without 
 
 Local requests permit up to 64 KiB of decoded context and a 512 KiB framed request. Replies remain bounded to 64 KiB and existing output and receipt limits still apply. Legacy task context remains limited to 4 KiB. Each comparison request has a durably admitted one-shot permit and its own identity and receipt. An uncertain outcome blocks its session and is not retried automatically. Session identifiers bind the canonical UTF-8 directory, profile, phase and frozen inputs; directory aliases share the same identity. Use a fresh session directory for an independent trial.
 
-The fixed comparisons test short and near-8K inputs across three repetitions. An operational candidate must meet correctness, both roles' p95 usable-output latency below one second, a process GPU memory peak at most 4 GiB and at least 1 GiB free GPU memory; concurrency 1 is a baseline rather than a selectable candidate. There may be no acceptable candidate. The staggered case records whether the reasoner SDK stream is still awaiting its terminal response when the selector reaches the worker; actual backend batch membership remains unknown. These results do not automatically promote a profile: production selection retains the separate frozen-corpus qualification gate. See [ADR 0021](../../docs/adr/0021-local-inference.md) and [R-0010](../../knowledge/research/R-0010-lfm3-native-inference.md).
+The fixed comparisons test short and near-8K inputs across three repetitions. An operational candidate must meet correctness, both roles' p95 usable-output latency below one second, a process GPU memory peak at most 4 GiB and at least 1 GiB free GPU memory; concurrency 1 is a baseline rather than a selectable candidate. There may be no acceptable candidate. The staggered case records whether the reasoner SDK stream is still awaiting its terminal response when the selector reaches the worker; actual backend batch membership remains unknown. These results do not automatically promote a profile: production selection retains the separate frozen-corpus qualification gate. See [ADR 0021](adr/0021-local-inference.md) and [R-0010](../knowledge/research/R-0010-lfm3-native-inference.md).
 
 A minimal task file is:
 
@@ -137,9 +137,9 @@ A catalog has `schema_version: 1` and a `tools` array. Each entry contains `tool
 paths rather than auto-installing shims. The catalog digest can be bound into a
 coding-task contract; it is not a permission set.
 
-The public [admission models](contracts/README.md) provide positive/negative SMT
+The public [admission models](../crates/metron-harness/contracts/README.md) provide positive/negative SMT
 and Lean checks for development. The [experimental coding entry](coding.md) routes these tools through
-confined, admitted effects. [D-0005](../../knowledge/decisions/D-0005-alpha1-delivery.md)
+confined, admitted effects. [D-0005](../knowledge/decisions/D-0005-alpha1-delivery.md)
 tracks alpha.1's implementation and release evidence.
 
 If a run is blocked, `resume RUN` processes durable work without polling or

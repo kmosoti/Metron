@@ -6,8 +6,8 @@
    [invariants](docs/architecture/invariants.md) and [knowledge index](knowledge/README.md).
    Inspect the working tree, issues and PR stack against the actual revision.
 2. Choose a focused, independently verifiable change. Preserve the four laboratory
-   invariants and existing accepted ADRs. Product work follows the runtime
-   proposal's P0 compatibility decision.
+   invariants and existing accepted ADRs. Agent and harness crates share the root workspace; preserve their dependency
+   boundaries and the retained laboratory's evaluation contracts.
 3. Implement and verify each affected layer. Run the commands below and record
    their actual results, including failures and checks that could not run.
 4. Update reader-facing contracts in `docs/`, architectural decisions through
@@ -53,7 +53,7 @@ architecture changes. For changes within existing boundaries, link the applicabl
 diagram and explain how the change fits it in the PR description. Reviewers check
 that the diagram matches the source and proposed diff before human approval.
 
-The [laboratory crate diagram](docs/architecture/overview.md#crates-and-the-direction-of-dependency)
+The [crate diagram](docs/architecture/overview.md#crates-and-the-direction-of-dependency)
 shows implemented crate boundaries. The following diagram shows review and release
 ownership for this workflow.
 
@@ -123,9 +123,10 @@ for journal in target/results/*/episode.jsonl; do
 done
 ```
 
-Run the same format, clippy and test commands from `products/runtime` for the
-separate runtime workspace. CI checks both workspaces and laboratory smokes. Reproducible outcomes
-control the [milestones](docs/architecture/milestones.md).
+One workspace, lockfile and toolchain cover agent, harness, adapters and the
+retained laboratory. CI runs the commands above once for the full workspace.
+Build the CUDA worker explicitly when needed; ordinary host builds do not select
+CUDA. Reproducible outcomes control the [milestones](docs/architecture/milestones.md).
 
 ## Commits and knowledge
 

@@ -7,6 +7,14 @@ members = [
     "crates/metron-operators",
     "crates/metron-adapters",
     "crates/metron-cli",
+    "crates/metron-protocol",
+    "crates/metron-agent",
+    "crates/metron-harness",
+    "crates/metron-store-sqlite",
+    "crates/metron-testkit",
+    "crates/metron-host",
+    "crates/metron-inference-local",
+    "crates/metron-inference-worker",
     "tests/architecture",
 ]
 

@@ -50,6 +50,10 @@ Record failures and unknowns, not only passing commands. Update linked research,
 observations and priors when measurements contradict assumptions. Never revise
 a frozen evaluator after seeing holdout results without a new evaluation identity.
 
+The [current workspace layout](../../docs/adr/0023-first-class-agent-and-harness.md)
+places agent/harness and supporting crates directly under `crates/`. The single
+workspace retains explicit laboratory and runtime trust boundaries.
+
 ## Defaults and implementation constraints
 
 - First-party product code remains Rust 1.100; Z3/Lean are external toolchains.
@@ -75,7 +79,7 @@ source, tests and instructions; the independent evaluator checks immutable
 artifacts and edge cases outside the candidate's workspace.
 
 Also complete one separately frozen Rust repair task. Exercise agent and
-standalone harness modes. Run all D-0003 alpha.1 requirements, both workspaces'
+standalone harness modes. Run all D-0003 alpha.1 requirements, the unified workspace
 checks, unchanged laboratory smoke/journal verification and old runtime replay.
 Full release is REACHED only when required gates pass; partial, negative or
 deferred results never imply issue #7 is complete.

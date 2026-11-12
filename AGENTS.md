@@ -5,11 +5,16 @@ the shape of anything.
 
 ## What this repository is
 
-Metron is a laboratory for a resource-bounded system that learns hidden
-structure through multiple representations. The repository encodes the
-experimental rules in its architecture. Progress is tracked as outcome
-milestones with exit criteria in `docs/architecture/milestones.md`, never as
-dates (ADR 0008). See `docs/architecture/overview.md` for the crate map.
+Metron develops `metron-agent` and `metron-harness` as first-class crates in the
+root Cargo workspace. Supporting storage, host and inference crates sit beside
+them under `crates/`. Fixtures and temporary probes do not define product
+components. See `docs/architecture/overview.md` for the implemented boundaries.
+
+The retained Boolean-function laboratory has its own sealed evaluator and
+experimental rules. The four invariants and laboratory-specific rules below
+continue to govern its six crates. Keep the inference SDK in
+`metron-inference-worker`; pure agent/protocol code has no ambient I/O.
+Progress follows outcome milestones and exit criteria, never dates (ADR 0008).
 
 ## The four invariants (do not break; extend the tests when you extend the code)
 
@@ -34,6 +39,14 @@ these is violated. Details and the mechanism for each are in
 ## Layout
 
 ```
+crates/metron-agent       pure agent coordination
+crates/metron-harness     admission, effect orchestration and standalone planning
+crates/metron-protocol    typed tasks, transitions, intents, receipts and contracts
+crates/metron-host        CLI composition, sandboxed tools and independent verification
+crates/metron-store-sqlite durable journal, accounting and scoped notes
+crates/metron-inference-local bounded local worker supervision and artifact checks
+crates/metron-inference-worker pinned local inference SDK and model execution
+crates/metron-testkit     test fixtures and controlled adapters
 crates/metron-core        pure domain + ports
 crates/metron-app         use cases: registry, schedules, episode runner
 crates/metron-lab         immutable evaluator: hidden targets, oracle, judge, promotion gate, manifests

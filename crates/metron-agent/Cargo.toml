@@ -1,5 +1,5 @@
 [package]
-name = "metron-inference-local"
+name = "metron-agent"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -7,9 +7,6 @@ license.workspace = true
 
 [dependencies]
 metron-protocol = { path = "../metron-protocol" }
-metron-harness = { path = "../metron-harness" }
-sha2 = "=0.10.9"
-serde_json = "1"
 
-[lints]
-workspace = true
+[lints.rust]
+unsafe_code = "forbid"
