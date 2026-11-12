@@ -666,6 +666,7 @@ fn qualification_checks_each_observation_and_caps_input_before_decoding() {
         operational_elapsed_ms: None,
         elapsed_ms: None,
         accepted_tasks: 0,
+        first_visible_samples: None,
         p50_latency_ms: None,
         p95_latency_ms: None,
         warmups: vec![],
@@ -707,6 +708,7 @@ fn qualification_checks_each_observation_and_caps_input_before_decoding() {
                 output_schema: LocalOutputSchema::Sum,
                 response: Some(BoundedText::new(response).unwrap()),
                 reasoning: None,
+                first_visible_ms: None,
                 latency_ms: None,
                 prompt_time_us: None,
                 completion_time_us: None,
@@ -743,7 +745,22 @@ fn qualification_checks_each_observation_and_caps_input_before_decoding() {
     report.measurements[0].cpu_source = Some(MeasurementSource::Procfs);
     assert!(report.validate().is_ok());
     let encoded = canonical_bytes(&report, MAX_QUALIFICATION_REPORT).unwrap();
-    assert_eq!(parse_qualification_report(&encoded).unwrap(), report);
+    assert!(!String::from_utf8_lossy(&encoded).contains("first_visible"));
+    let restored = parse_qualification_report(&encoded).unwrap();
+    assert_eq!(restored, report);
+    assert_eq!(
+        qualification_report_digest(&restored).unwrap(),
+        qualification_report_digest(&report).unwrap()
+    );
+    report.first_visible_samples = Some(1);
+    assert!(report.validate().is_err());
+    report.cases[0].first_visible_ms = Some(SqlU64::new(42).unwrap());
+    assert!(report.validate().is_ok());
+    let timed = canonical_bytes(&report, MAX_QUALIFICATION_REPORT).unwrap();
+    assert_eq!(parse_qualification_report(&timed).unwrap(), report);
+    report.first_visible_samples = None;
+    assert!(report.validate().is_err());
+    report.cases[0].first_visible_ms = None;
     report.cases[1].repetition = 0;
     assert!(report.validate().is_err());
     report.cases[1].repetition = 1;
@@ -843,6 +860,7 @@ fn selected_profile_freezes_calibration_and_rejects_worker_change() {
             output_schema: LocalOutputSchema::Sum,
             response: Some(BoundedText::new("{} ").unwrap()),
             reasoning: None,
+            first_visible_ms: None,
             latency_ms: None,
             prompt_time_us: None,
             completion_time_us: None,
@@ -866,6 +884,7 @@ fn selected_profile_freezes_calibration_and_rejects_worker_change() {
         operational_elapsed_ms: None,
         elapsed_ms: None,
         accepted_tasks: 0,
+        first_visible_samples: None,
         p50_latency_ms: None,
         p95_latency_ms: None,
         warmups: if cold {
@@ -966,6 +985,7 @@ fn qualification_report_requires_complete_ordered_cohort() {
             output_schema: LocalOutputSchema::Sum,
             response: None,
             reasoning: None,
+            first_visible_ms: None,
             latency_ms: None,
             prompt_time_us: None,
             completion_time_us: None,
@@ -994,6 +1014,7 @@ fn qualification_report_requires_complete_ordered_cohort() {
         operational_elapsed_ms: None,
         elapsed_ms: None,
         accepted_tasks: 0,
+        first_visible_samples: None,
         p50_latency_ms: None,
         p95_latency_ms: None,
         warmups: vec![],
