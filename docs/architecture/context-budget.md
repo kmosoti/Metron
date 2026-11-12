@@ -71,6 +71,14 @@ invocation. A previously unbudgeted run can opt into the requirement on resume.
 not use the native profile. Runs without this option preserve legacy behavior
 without a physical-fit guarantee.
 
+Opting in on resume updates the host run settings durably before any model or
+tool effects are dispatched. If an attempt is interrupted before that update
+commits, retry by supplying the budget file again. If settings replacement
+commits but reporting its directory sync fails, the command fails before
+dispatch, but the persisted run may already require the budget file on the next
+resume. Existing incomplete remnants from an interrupted update do not override
+the current validated settings or block a retry.
+
 The budget file must resolve to a canonical path outside the model-writable
 workspace. The workspace must already exist and resolve to a directory.
 Symlink aliases are resolved before policy contents are read; a file that

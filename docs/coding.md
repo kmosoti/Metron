@@ -293,7 +293,10 @@ If a run was created with `--resource-budget`, every later execution or resume
 must supply a valid budget file; omission is rejected. Host settings retain this
 requirement, while the file contents remain invocation-local and are revalidated
 against the selected profile and device. A previously unbudgeted run can opt in
-on resume. See [context planning and resource-budgeted coding](architecture/context-budget.md).
+on resume; this requirement is durably written before effects are dispatched.
+If a command fails after the settings replacement but before confirming its
+directory sync, retry with the budget file because the requirement may already
+be persisted. See [context planning and resource-budgeted coding](architecture/context-budget.md).
 
 ## Local verification
 
