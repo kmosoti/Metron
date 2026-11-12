@@ -602,6 +602,7 @@ pub fn journal_genesis(task: &Task, genesis: &Genesis) -> Result<Digest, Validat
                 "coding-agent/v3.5",
                 "coding-agent/v3.6",
                 "coding-agent/v3.7",
+                "coding-agent/v3.8",
             ],
             EngineMode::Harness => [
                 "coding-harness/v3",
@@ -612,6 +613,7 @@ pub fn journal_genesis(task: &Task, genesis: &Genesis) -> Result<Digest, Validat
                 "coding-harness/v3.5",
                 "coding-harness/v3.6",
                 "coding-harness/v3.7",
+                "coding-harness/v3.8",
             ],
         };
         if !expected.contains(&genesis.engine_version.as_str()) {

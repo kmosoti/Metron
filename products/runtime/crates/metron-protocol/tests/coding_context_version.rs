@@ -240,6 +240,7 @@ fn phased_large_read_keeps_full_hash_and_file_reference_beyond_excerpt() {
             output: ReceiptOutput::Coding {
                 observation: Box::new(CodingObservation::Tool {
                     output: output.clone(),
+                    memory_selection: None,
                 }),
             },
         };
@@ -276,7 +277,10 @@ fn phased_large_read_keeps_full_hash_and_file_reference_beyond_excerpt() {
         intent_id: tool_state.pending_intent.clone().unwrap(),
         evidence_id: content_digest(b"multiple files"),
         output: ReceiptOutput::Coding {
-            observation: Box::new(CodingObservation::Tool { output: multiple }),
+            observation: Box::new(CodingObservation::Tool {
+                output: multiple,
+                memory_selection: None,
+            }),
         },
     };
     let bounded = coding_transition_phased(&task, &policy, tool_state, &event).unwrap();
@@ -482,6 +486,7 @@ fn focused_prompt_retains_truthful_bounded_views_without_adding_authority() {
         output: ReceiptOutput::Coding {
             observation: Box::new(CodingObservation::Tool {
                 output: tool_output.clone(),
+                memory_selection: None,
             }),
         },
     };

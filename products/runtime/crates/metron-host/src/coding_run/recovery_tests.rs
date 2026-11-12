@@ -482,6 +482,7 @@ fn scoped_memory_setup(
 ) -> (PathBuf, Settings, SqliteStore, Scope) {
     let (root, mut settings, original) = setup(name, EngineMode::Agent, allowed, false);
     drop(original);
+    settings.context_version = 9;
     let mut data = settings.task.data().clone();
     data.memory_collection = Some(BoundedText::new("notes").unwrap());
     settings.task = CodingTask::new(data).unwrap();
@@ -597,22 +598,62 @@ fn admitted_memory_survives_restart_and_is_retrieved_by_another_task() {
     let mut snapshot = store.audit().unwrap();
     let intents = snapshot.intents(&second.task.data().task_id, None).unwrap();
     let mut retrievals = 0;
+    let mut manifest_seen = false;
+    let mut manifest_link = None;
+    let mut receipt_link = None;
     for intent in intents.records {
+        if let IntentKind::Coding { step } = &intent.intent.kind
+            && let CodingStep::Model {
+                memory_manifest: Some(manifest),
+                context,
+                ..
+            } = step.as_ref()
+        {
+            assert_eq!(
+                manifest.visible[0].excerpt.as_str(),
+                "A violet widget was observed"
+            );
+            assert_eq!(manifest.visible[0].start_byte, 0);
+            assert_eq!(manifest.visible[0].end_byte, 28);
+            assert!(context.as_str().contains("memory_notes_unverified"));
+            assert!(
+                !context
+                    .as_str()
+                    .contains(manifest.selection_digest.as_str())
+            );
+            manifest_link = Some((
+                manifest.source_receipt.clone(),
+                manifest.selection_digest.clone(),
+            ));
+            manifest_seen = true;
+        }
         for evidence in snapshot.evidence(&intent.intent_id, None).unwrap().records {
             if let ReceiptOutput::Coding { observation } = &evidence.receipt.data().output
-                && let CodingObservation::Tool { output } = observation.as_ref()
+                && let CodingObservation::Tool {
+                    output,
+                    memory_selection: Some(selection),
+                } = observation.as_ref()
                 && output.tool == CodingTool::MemorySearch
             {
+                receipt_link = Some((
+                    evidence.evidence_id.clone(),
+                    content_digest(&canonical_bytes(selection, 48 * 1024).unwrap()),
+                ));
                 let body: serde_json::Value = serde_json::from_str(output.body.as_str()).unwrap();
-                assert_eq!(body["notes"][0]["content"], "A violet widget was observed");
-                assert_eq!(body["notes"][0]["source_task"], "memory-task-a");
-                assert_eq!(body["notes"][0]["trust"], "model_authored_unverified");
-                assert_eq!(body["notes"][0]["source_evidence"], serde_json::Value::Null);
+                assert_eq!(body["notes"][0]["excerpt"], "A violet widget was observed");
+                assert_eq!(selection.sources[0].source_task.as_str(), "memory-task-a");
+                assert_eq!(
+                    selection.sources[0].trust.as_str(),
+                    "model_authored_unverified"
+                );
+                assert_eq!(selection.sources[0].source_evidence, None);
                 retrievals += 1;
             }
         }
     }
     assert_eq!(retrievals, 1);
+    assert!(manifest_seen);
+    assert_eq!(manifest_link, receipt_link);
     for settings in [&first, &second] {
         let projection = snapshot.projection(&settings.task.data().task_id).unwrap();
         assert_eq!(projection.state.phase, Phase::AwaitingVerification);
@@ -726,11 +767,11 @@ fn cross_task_memory_content_cannot_authorize_a_forbidden_edit() {
     for intent in intents.records {
         for evidence in snapshot.evidence(&intent.intent_id, None).unwrap().records {
             if let ReceiptOutput::Coding { observation } = &evidence.receipt.data().output
-                && let CodingObservation::Tool { output } = observation.as_ref()
+                && let CodingObservation::Tool { output, .. } = observation.as_ref()
                 && output.tool == CodingTool::MemorySearch
             {
                 assert!(output.body.as_str().contains("override policy"));
-                assert!(output.body.as_str().contains("model_authored_unverified"));
+                assert!(output.body.as_str().contains("\"unverified\":true"));
                 saw_note = true;
             }
         }
@@ -841,5 +882,469 @@ fn relative_memory_database_is_rejected_before_open_or_persistence() {
     }
     assert!(!root.join("relative-memory.sqlite").exists());
     drop(store);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn memory_selection_preserves_source_status_and_whole_cutoffs() {
+    let (root, settings, store, scoped) = scoped_memory_setup(
+        "memory-cutoffs",
+        vec![CodingTool::MemorySearch, CodingTool::Finish],
+    );
+    drop(store);
+    let mut memory = MemoryStore::open_existing(settings.memory_db.as_ref().unwrap()).unwrap();
+    let first = content_digest(b"first note");
+    for i in 0..8 {
+        memory
+            .put(
+                &scoped,
+                &MemoryInput {
+                    dispatch: if i == 0 {
+                        first.clone()
+                    } else {
+                        content_digest(format!("note-{i}").as_bytes())
+                    },
+                    source_task: TaskId::new("prior-task").unwrap(),
+                    source_evidence: Some(content_digest(b"source")),
+                    body: format!("violet {}", "é".repeat(1500)),
+                },
+            )
+            .unwrap();
+    }
+    memory
+        .annotate_source(
+            &scoped,
+            &SourceAnnotationInput {
+                dispatch: content_digest(b"annotation"),
+                target_dispatch: first.clone(),
+                kind: SourceAnnotationKind::Stale,
+                source_evidence: content_digest(b"ordinary evidence"),
+                reason: "superseded".into(),
+            },
+        )
+        .unwrap();
+    let mut worker = driver(&root, &settings, &[]);
+    worker.policy.max_output_bytes = 350;
+    worker.memory = Some((memory, scoped.clone()));
+    let action = CodingAction::MemorySearch {
+        query: BoundedText::new("violet").unwrap(),
+        limit: 8,
+    };
+    let (outcome, selection) = worker.memory_search_v9(&action);
+    let ToolOutcome::Known(output) = outcome else {
+        panic!("expected known result")
+    };
+    assert_eq!(output.status, ToolStatus::Succeeded);
+    let body: serde_json::Value = serde_json::from_str(output.body.as_str()).unwrap();
+    let selection = selection.unwrap();
+    assert_eq!(selection.sources.len(), 8);
+    assert!(selection.omitted_known > 0);
+    assert_eq!(body["omitted_known"], selection.omitted_known);
+    let annotated = selection
+        .sources
+        .iter()
+        .find(|s| s.dispatch == first)
+        .unwrap();
+    assert!(annotated.annotations[0].stale);
+    assert_eq!(
+        annotated.annotations[0].reason_digest,
+        content_digest(b"superseded")
+    );
+    assert!(
+        selection
+            .sources
+            .iter()
+            .filter_map(|s| s.excerpt.as_ref())
+            .all(|s| s.as_str().is_char_boundary(s.as_str().len()))
+    );
+    worker
+        .memory
+        .as_mut()
+        .unwrap()
+        .0
+        .put(
+            &scoped,
+            &MemoryInput {
+                dispatch: content_digest(b"ninth note"),
+                source_task: TaskId::new("prior-task").unwrap(),
+                source_evidence: None,
+                body: "violet ninth".into(),
+            },
+        )
+        .unwrap();
+    let wide_action = CodingAction::MemorySearch {
+        query: BoundedText::new("violet").unwrap(),
+        limit: 20,
+    };
+    let (outcome, selection) = worker.memory_search_v9(&wide_action);
+    let ToolOutcome::Known(output) = outcome else {
+        panic!("expected known result")
+    };
+    let selection = selection.unwrap();
+    assert!(selection.has_more);
+    assert_eq!(
+        (selection.requested_limit, selection.candidate_limit),
+        (20, 8)
+    );
+    assert_eq!(selection.output_budget_bytes, 350);
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(output.body.as_str()).unwrap()["has_more"],
+        true
+    );
+    worker.memory.as_mut().unwrap().0.revoke(&scoped).unwrap();
+    let (outcome, selection) = worker.memory_search_v9(&action);
+    assert!(selection.is_none());
+    assert!(matches!(outcome, ToolOutcome::Known(output) if output.status == ToolStatus::Denied));
+    drop(worker);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn memory_annotation_rejects_forged_source_evidence() {
+    let (root, settings, store, scoped) = scoped_memory_setup(
+        "memory-forged-evidence",
+        vec![CodingTool::MemorySearch, CodingTool::Finish],
+    );
+    drop(store);
+    let run = root.join("annotation-run");
+    fs::create_dir(&run).unwrap();
+    fs::copy(
+        root.join("run/scoped-runtime.sqlite"),
+        run.join("runtime.sqlite"),
+    )
+    .unwrap();
+    fs::write(
+        run.join("coding-settings.json"),
+        canonical_bytes(&settings, MAX_INTERNAL).unwrap(),
+    )
+    .unwrap();
+    let note = content_digest(b"target note");
+    let mut memory = MemoryStore::open_existing(settings.memory_db.as_ref().unwrap()).unwrap();
+    memory
+        .put(
+            &scoped,
+            &MemoryInput {
+                dispatch: note.clone(),
+                source_task: settings.task.data().task_id.clone(),
+                source_evidence: None,
+                body: "violet note".into(),
+            },
+        )
+        .unwrap();
+    drop(memory);
+    let args: Vec<String> = [
+        "memory-annotate",
+        "--run-dir",
+        run.to_str().unwrap(),
+        "--source-evidence",
+        content_digest(b"forged").as_str(),
+        "--target-dispatch",
+        note.as_str(),
+        "--dispatch",
+        content_digest(b"annotation").as_str(),
+        "--kind",
+        "stale",
+        "--reason",
+        "unsupported",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect();
+    assert!(annotate_memory(&args).is_err());
+    let mut memory = MemoryStore::open_existing(settings.memory_db.as_ref().unwrap()).unwrap();
+    let page = memory.search_candidates(&scoped, "violet", 8).unwrap();
+    assert!(page.entries[0].annotations.is_empty());
+    drop(memory);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+#[ignore = "requires pinned local tools, user systemd and bubblewrap"]
+fn sealed_evaluator_sentinel_cannot_reach_memory_or_model_context() {
+    let catalog_path = std::env::var("METRON_CODING_PROBE_CATALOG").expect("pinned probe catalog");
+    let parent = Path::new(&catalog_path).parent().unwrap();
+    let (root, mut s, original) = super::tests::setup_at(
+        parent,
+        "sealed-sentinel",
+        EngineMode::Agent,
+        vec![
+            CodingTool::Read,
+            CodingTool::Search,
+            CodingTool::Run,
+            CodingTool::MemorySearch,
+            CodingTool::Finish,
+        ],
+        false,
+    );
+    drop(original);
+    s.catalog = read(Path::new(&catalog_path)).unwrap();
+    s.context_version = 9;
+    let mut data = s.task.data().clone();
+    data.tool_catalog_digest = s.catalog.digest().unwrap();
+    data.memory_collection = Some(BoundedText::new("notes").unwrap());
+    s.task = CodingTask::new(data).unwrap();
+    s.policy.memory_collection = Some(BoundedText::new("notes").unwrap());
+    s.policy.allowed_programs = vec![RustProgram::Cargo];
+    s.policy.command_timeout_ms = 30000;
+    s.policy.command_memory_bytes = SqlU64::new(1024 * 1024 * 1024).unwrap();
+    s.policy.max_processes = 64;
+    s.memory_db = Some(root.join("memory.sqlite"));
+    let scoped = scope(&s).unwrap().unwrap();
+    let mut memory = MemoryStore::create(s.memory_db.as_ref().unwrap()).unwrap();
+    memory.grant(&scoped).unwrap();
+    let secret = format!(
+        "SEALED-{}",
+        content_digest(b"isolated evaluator data").as_str()
+    );
+    let private = root.join("run/evaluator-secret.txt");
+    fs::write(&private, &secret).unwrap();
+    assert!(WorkspacePath::new("../run/evaluator-secret.txt").is_err());
+    assert!(WorkspacePath::new(private.to_str().unwrap()).is_err());
+    fs::create_dir(root.join("workspace/src")).unwrap();
+    fs::write(
+        root.join("workspace/Cargo.toml"),
+        "[package]\nname = \"sandbox-fixture\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("workspace/Cargo.lock"),
+        "version = 4\n\n[[package]]\nname = \"sandbox-fixture\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    let path_literal = serde_json::to_string(private.to_str().unwrap()).unwrap();
+    fs::write(root.join("workspace/src/main.rs"), format!("fn main() {{ match std::fs::read_to_string({path_literal}) {{ Ok(s) => print!(\"{{s}}\"), Err(_) => println!(\"access blocked\") }} }}")).unwrap();
+    let mut worker = driver(&root, &s, &[]);
+    let actions = [
+        CodingAction::Read {
+            path: WorkspacePath::new("evaluator-secret.txt").unwrap(),
+            first_line: 1,
+            line_count: 10,
+        },
+        CodingAction::Search {
+            query: BoundedText::new("SEALED-").unwrap(),
+            directory: None,
+        },
+        CodingAction::Run {
+            directory: None,
+            program: RustProgram::Cargo,
+            args: vec![
+                BoundedText::new("run").unwrap(),
+                BoundedText::new("--locked").unwrap(),
+            ],
+        },
+    ];
+    let mut observed = String::from("sandboxfixture ");
+    for (i, action) in actions.iter().enumerate() {
+        let outcome = worker
+            .tools
+            .execute(action, &content_digest(format!("sentinel-{i}").as_bytes()));
+        let ToolOutcome::Known(output) = outcome else {
+            panic!("sandbox cleanup uncertain")
+        };
+        assert!(output.process_tree_closed);
+        if i == 2 {
+            assert_eq!(
+                output.status,
+                ToolStatus::Succeeded,
+                "{}",
+                output.body.as_str()
+            );
+        }
+        assert!(!output.body.as_str().contains(&secret));
+        observed.push_str(output.body.as_str());
+    }
+    drop(worker);
+    let end = observed.floor_char_boundary(observed.len().min(4096));
+    memory
+        .put(
+            &scoped,
+            &MemoryInput {
+                dispatch: content_digest(b"sandbox note"),
+                source_task: s.task.data().task_id.clone(),
+                source_evidence: None,
+                body: observed[..end].to_owned(),
+            },
+        )
+        .unwrap();
+    drop(memory);
+    let mut store = SqliteStore::create(root.join("run/sentinel-runtime.sqlite")).unwrap();
+    store
+        .apply(
+            command(StoreOperation::CreateTask {
+                task: Task::new_coding(s.task.clone()).unwrap(),
+                genesis: s.genesis().unwrap(),
+            })
+            .unwrap(),
+        )
+        .unwrap();
+    let mut reader = driver(
+        &root,
+        &s,
+        &[
+            r#"{"tool":"plan","steps":["Inspect the stored observation"]}"#,
+            r#"{"tool":"memory_search","query":"sandboxfixture","limit":8}"#,
+            r#"{"tool":"finish","summary":"Request verification"}"#,
+        ],
+    );
+    reader.memory = Some((
+        MemoryStore::open_existing(s.memory_db.as_ref().unwrap()).unwrap(),
+        scoped,
+    ));
+    reader.store_path = root.join("run/sentinel-runtime.sqlite");
+    let task = Task::new_coding(s.task.clone()).unwrap();
+    let engine = crate::cognition(&s.genesis().unwrap(), &task).unwrap();
+    orchestrator::drive_with_driver(
+        &mut store,
+        &s.task.data().task_id,
+        engine.as_ref(),
+        &root.join("run"),
+        &mut NoObserver,
+        &mut reader,
+    )
+    .unwrap();
+    let mut snapshot = store.audit().unwrap();
+    let projection = snapshot.projection(&s.task.data().task_id).unwrap();
+    let context = projection.state.coding_context.unwrap();
+    assert!(context.memory_manifest.is_some());
+    assert!(!serde_json::to_string(&context).unwrap().contains(&secret));
+    drop(snapshot);
+    drop(reader);
+    drop(store);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn memory_annotation_accepts_audited_selected_ordinary_tool_evidence() {
+    let (root, settings, mut store, scoped) = scoped_memory_setup(
+        "memory-valid-evidence",
+        vec![CodingTool::Edit, CodingTool::Finish],
+    );
+    let mut worker = driver(
+        &root,
+        &settings,
+        &[
+            r#"{"tool":"plan","steps":["Create an observation"]}"#,
+            r#"{"tool":"edit","path":"note.txt","expected_digest":null,"content":"independent observation"}"#,
+            r#"{"tool":"finish","summary":"Request verification"}"#,
+        ],
+    );
+    worker.store_path = root.join("run/scoped-runtime.sqlite");
+    worker.memory = Some((
+        MemoryStore::open_existing(settings.memory_db.as_ref().unwrap()).unwrap(),
+        scoped.clone(),
+    ));
+    let task = Task::new_coding(settings.task.clone()).unwrap();
+    let engine = crate::cognition(&settings.genesis().unwrap(), &task).unwrap();
+    orchestrator::drive_with_driver(
+        &mut store,
+        &settings.task.data().task_id,
+        engine.as_ref(),
+        &root.join("run"),
+        &mut NoObserver,
+        &mut worker,
+    )
+    .unwrap();
+    let mut snapshot = store.audit().unwrap();
+    let page = snapshot
+        .intents(&settings.task.data().task_id, None)
+        .unwrap();
+    let source = page
+        .records
+        .into_iter()
+        .find_map(|item| match item.intent.kind {
+            IntentKind::Coding { step }
+                if matches!(
+                    step.as_ref(),
+                    CodingStep::Tool {
+                        action: CodingAction::Edit { .. },
+                        ..
+                    }
+                ) =>
+            {
+                item.selected_evidence
+            }
+            _ => None,
+        })
+        .expect("selected edit receipt");
+    drop(snapshot);
+    drop(worker);
+    drop(store);
+    let run = root.join("annotation-run");
+    fs::create_dir(&run).unwrap();
+    fs::copy(
+        root.join("run/scoped-runtime.sqlite"),
+        run.join("runtime.sqlite"),
+    )
+    .unwrap();
+    fs::write(
+        run.join("coding-settings.json"),
+        canonical_bytes(&settings, MAX_INTERNAL).unwrap(),
+    )
+    .unwrap();
+    let note = content_digest(b"target note");
+    let mut memory = MemoryStore::open_existing(settings.memory_db.as_ref().unwrap()).unwrap();
+    memory
+        .put(
+            &scoped,
+            &MemoryInput {
+                dispatch: note.clone(),
+                source_task: settings.task.data().task_id.clone(),
+                source_evidence: None,
+                body: "violet note".into(),
+            },
+        )
+        .unwrap();
+    drop(memory);
+    let annotation = content_digest(b"stale annotation");
+    let args: Vec<String> = [
+        "memory-annotate",
+        "--run-dir",
+        run.to_str().unwrap(),
+        "--source-evidence",
+        source.as_str(),
+        "--target-dispatch",
+        note.as_str(),
+        "--dispatch",
+        annotation.as_str(),
+        "--kind",
+        "stale",
+        "--reason",
+        "superseded by observation",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect();
+    annotate_memory(&args).unwrap();
+    let mut memory = MemoryStore::open_existing(settings.memory_db.as_ref().unwrap()).unwrap();
+    let page = memory.search_candidates(&scoped, "violet", 8).unwrap();
+    assert_eq!(page.entries[0].annotations[0].source_evidence, source);
+    assert_eq!(page.entries[0].annotations[0].dispatch, annotation);
+    let foreign = Scope::new("other-principal", "tests", "notes").unwrap();
+    memory.grant(&foreign).unwrap();
+    let foreign_note = content_digest(b"foreign note");
+    memory
+        .put(
+            &foreign,
+            &MemoryInput {
+                dispatch: foreign_note.clone(),
+                source_task: settings.task.data().task_id.clone(),
+                source_evidence: None,
+                body: "violet foreign".into(),
+            },
+        )
+        .unwrap();
+    drop(memory);
+    let mut foreign_args = args.clone();
+    let target = foreign_args
+        .iter()
+        .position(|value| value == "--target-dispatch")
+        .unwrap()
+        + 1;
+    foreign_args[target] = foreign_note.as_str().to_owned();
+    assert!(annotate_memory(&foreign_args).is_err());
+    let mut memory = MemoryStore::open_existing(settings.memory_db.as_ref().unwrap()).unwrap();
+    memory.revoke(&scoped).unwrap();
+    drop(memory);
+    assert!(annotate_memory(&args).is_err());
     fs::remove_dir_all(root).unwrap();
 }

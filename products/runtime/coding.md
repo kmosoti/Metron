@@ -126,6 +126,26 @@ before model requests that could expose retrieved context. Revocation blocks
 further use of that context. SQLite stores canonical notes; FTS5 is rebuildable.
 Database files and sidecars must be private regular files.
 
+A v3.8 retrieval records the selected note identities and annotation references in its
+receipt. The next model request records which bounded excerpts were visible,
+whether known candidates were omitted, whether more candidates existed, and the
+profile that defines the input budget. The model sees notes as unverified data;
+the worker's actual token count remains authoritative.
+
+An operator may annotate a note as stale, or as conflicting with another note in
+the same scope, using evidence from a completed ordinary tool action in an
+audited coding journal:
+
+```sh
+metron-runtime coding memory-annotate --run-dir /absolute/private/run --dispatch ANNOTATION_DIGEST --target-dispatch NOTE_DISPATCH --source-evidence TOOL_EVIDENCE_DIGEST --kind stale --reason 'Superseded by the observed file'
+```
+
+For a conflict use `--kind conflicts-with --related-dispatch OTHER_NOTE_DISPATCH`.
+The source journal must match the task's scope and pass audit and behavior replay;
+the referenced receipt must be selected, successful and have closed its process
+tree. The collection still needs an active grant. Annotations are manual host
+assertions; they do not change the note's unverified trust label or grant authority.
+
 ## Completion and recovery
 
 `finish` requests verification of a frozen file set and its implied directories.

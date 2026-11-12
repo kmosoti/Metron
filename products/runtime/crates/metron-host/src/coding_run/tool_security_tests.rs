@@ -132,7 +132,7 @@ fn admitted_list_read_and_argv_cannot_escape_build_script() {
         for intent in page.records {
             for e in snapshot.evidence(&intent.intent_id, None).unwrap().records {
                 if let ReceiptOutput::Coding { observation } = &e.receipt.data().output
-                    && let CodingObservation::Tool { output } = observation.as_ref()
+                    && let CodingObservation::Tool { output, .. } = observation.as_ref()
                 {
                     assert_eq!(
                         output.status,
