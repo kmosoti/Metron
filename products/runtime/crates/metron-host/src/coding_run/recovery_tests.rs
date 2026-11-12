@@ -426,6 +426,130 @@ fn scoped_memory_setup(
 }
 
 #[test]
+fn admitted_memory_survives_restart_and_is_retrieved_by_another_task() {
+    let (root, first, mut store, scoped) = scoped_memory_setup(
+        "memory-task-a",
+        vec![
+            CodingTool::MemoryPut,
+            CodingTool::MemorySearch,
+            CodingTool::Finish,
+        ],
+    );
+    fs::write(
+        root.join("workspace/README.md"),
+        "Memory integration fixture\n",
+    )
+    .unwrap();
+    let mut writer = driver(
+        &root,
+        &first,
+        &[
+            r#"{"tool":"plan","steps":["Store an unverified observation"]}"#,
+            r#"{"tool":"memory_put","content":"A violet widget was observed","source_evidence":null}"#,
+            r#"{"tool":"finish","summary":"Request independent verification"}"#,
+        ],
+    );
+    writer.store_path = root.join("run/scoped-runtime.sqlite");
+    writer.memory = Some((
+        MemoryStore::open_existing(first.memory_db.as_ref().unwrap()).unwrap(),
+        scoped.clone(),
+    ));
+    let task = Task::new_coding(first.task.clone()).unwrap();
+    let engine = crate::cognition(&first.genesis().unwrap(), &task).unwrap();
+    assert_eq!(
+        orchestrator::drive_with_driver(
+            &mut store,
+            &first.task.data().task_id,
+            engine.as_ref(),
+            &root.join("run"),
+            &mut NoObserver,
+            &mut writer,
+        )
+        .unwrap(),
+        orchestrator::DriveStatus::Blocked
+    );
+    assert_audits(&mut store, &first);
+    drop(writer);
+    drop(store);
+
+    // Reopen both durable stores before admitting an independent task.
+    let mut store = SqliteStore::open_existing(root.join("run/scoped-runtime.sqlite")).unwrap();
+    let mut second = first.clone();
+    let mut data = first.task.data().clone();
+    data.task_id = TaskId::new("memory-task-b").unwrap();
+    second.task = CodingTask::new(data).unwrap();
+    store
+        .apply(
+            command(StoreOperation::CreateTask {
+                task: Task::new_coding(second.task.clone()).unwrap(),
+                genesis: second.genesis().unwrap(),
+            })
+            .unwrap(),
+        )
+        .unwrap();
+    let mut reader = driver(
+        &root,
+        &second,
+        &[
+            r#"{"tool":"plan","steps":["Retrieve a prior unverified observation"]}"#,
+            r#"{"tool":"memory_search","query":"violet","limit":8}"#,
+            r#"{"tool":"finish","summary":"Request independent verification"}"#,
+        ],
+    );
+    reader.store_path = root.join("run/scoped-runtime.sqlite");
+    reader.memory = Some((
+        MemoryStore::open_existing(second.memory_db.as_ref().unwrap()).unwrap(),
+        scoped,
+    ));
+    let task = Task::new_coding(second.task.clone()).unwrap();
+    let engine = crate::cognition(&second.genesis().unwrap(), &task).unwrap();
+    assert_eq!(
+        orchestrator::drive_with_driver(
+            &mut store,
+            &second.task.data().task_id,
+            engine.as_ref(),
+            &root.join("run"),
+            &mut NoObserver,
+            &mut reader,
+        )
+        .unwrap(),
+        orchestrator::DriveStatus::Blocked
+    );
+    let mut snapshot = store.audit().unwrap();
+    let intents = snapshot.intents(&second.task.data().task_id, None).unwrap();
+    let mut retrievals = 0;
+    for intent in intents.records {
+        for evidence in snapshot.evidence(&intent.intent_id, None).unwrap().records {
+            if let ReceiptOutput::Coding { observation } = &evidence.receipt.data().output
+                && let CodingObservation::Tool { output } = observation.as_ref()
+                && output.tool == CodingTool::MemorySearch
+            {
+                let body: serde_json::Value = serde_json::from_str(output.body.as_str()).unwrap();
+                assert_eq!(body["notes"][0]["content"], "A violet widget was observed");
+                assert_eq!(body["notes"][0]["source_task"], "memory-task-a");
+                assert_eq!(body["notes"][0]["trust"], "model_authored_unverified");
+                assert_eq!(body["notes"][0]["source_evidence"], serde_json::Value::Null);
+                retrievals += 1;
+            }
+        }
+    }
+    assert_eq!(retrievals, 1);
+    for settings in [&first, &second] {
+        let projection = snapshot.projection(&settings.task.data().task_id).unwrap();
+        assert_eq!(projection.state.phase, Phase::AwaitingVerification);
+        assert_eq!(projection.task_account.posted.model_requests.get(), 3);
+        assert_eq!(projection.task_account.posted.tool_calls.get(), 2);
+        assert_eq!(projection.task_account.reserved.model_requests.get(), 0);
+    }
+    drop(snapshot);
+    assert_audits(&mut store, &first);
+    assert_audits(&mut store, &second);
+    drop(reader);
+    drop(store);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn revoked_memory_grant_stops_model_before_script_consumption() {
     let (root, s, mut store, scoped) =
         scoped_memory_setup("memory-revoke-model", vec![CodingTool::Finish]);

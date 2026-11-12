@@ -156,6 +156,7 @@ struct TransportRequest {
     output_schema: LocalOutputSchema,
     context: BoundedText<MAX_LOCAL_CONTEXT>,
     profile_digest: Digest,
+    native_tools: Option<Vec<metron_protocol::coding::CodingTool>>,
     cohort: Option<SubmissionCohort>,
     require_stream: bool,
 }
@@ -329,44 +330,48 @@ impl LocalInferenceDriver {
             .iter()
             .map(|effect| {
                 let prepared = effect.request();
-                let (input_digest, context, profile_digest, role, output_schema) = match &prepared
-                    .request
-                {
-                    ApprovedRequest::RequestLocalModel {
-                        input_digest,
-                        context,
-                        profile_digest,
-                        role,
-                        output_schema,
-                        ..
-                    } => (
-                        input_digest,
-                        BoundedText::new(context.as_str()).ok()?,
-                        profile_digest,
-                        *role,
-                        *output_schema,
-                    ),
-                    ApprovedRequest::Coding { step, .. }
-                        if is_local_coding_recipe(self.profile.prompt_recipe_digest.as_str()) =>
-                    {
-                        let CodingStep::Model {
+                let (input_digest, context, profile_digest, role, output_schema, native_tools) =
+                    match &prepared.request {
+                        ApprovedRequest::RequestLocalModel {
                             input_digest,
                             context,
                             profile_digest,
-                        } = step.as_ref()
-                        else {
-                            return None;
-                        };
-                        (
+                            role,
+                            output_schema,
+                            ..
+                        } => (
                             input_digest,
-                            context.clone(),
+                            BoundedText::new(context.as_str()).ok()?,
                             profile_digest,
-                            LocalRole::Reasoner,
-                            LocalOutputSchema::Text,
-                        )
-                    }
-                    _ => return None,
-                };
+                            *role,
+                            *output_schema,
+                            None,
+                        ),
+                        ApprovedRequest::Coding { step, .. }
+                            if is_local_coding_recipe(
+                                self.profile.prompt_recipe_digest.as_str(),
+                            ) =>
+                        {
+                            let CodingStep::Model {
+                                input_digest,
+                                context,
+                                profile_digest,
+                                native_tools,
+                            } = step.as_ref()
+                            else {
+                                return None;
+                            };
+                            (
+                                input_digest,
+                                context.clone(),
+                                profile_digest,
+                                LocalRole::Reasoner,
+                                LocalOutputSchema::Text,
+                                native_tools.clone(),
+                            )
+                        }
+                        _ => return None,
+                    };
                 Some(TransportRequest {
                     dispatch_id: prepared.action.dispatch_id.clone(),
                     request_digest: prepared.request_digest.clone(),
@@ -378,6 +383,7 @@ impl LocalInferenceDriver {
                     output_schema,
                     context,
                     profile_digest: profile_digest.clone(),
+                    native_tools,
                     cohort: None,
                     require_stream: false,
                 })
@@ -424,6 +430,7 @@ impl LocalInferenceDriver {
                     context: BoundedText::new(request.context.as_str())
                         .expect("legacy context bound is stricter than the local bound"),
                     profile_digest: request.profile_digest.clone(),
+                    native_tools: None,
                     cohort: Some(request.cohort.clone()),
                     require_stream: false,
                 }
@@ -456,6 +463,7 @@ impl LocalInferenceDriver {
                     output_schema: request.output_schema,
                     context: request.context.clone(),
                     profile_digest: request.profile_digest.clone(),
+                    native_tools: None,
                     cohort: Some(request.cohort.clone()),
                     require_stream: true,
                 }
@@ -535,6 +543,7 @@ impl LocalInferenceDriver {
                 role: request.role,
                 output_schema: request.output_schema,
                 context: request.context.clone(),
+                native_tools: request.native_tools.clone().map(Box::new),
                 profile: Box::new(self.profile.clone()),
                 artifact_path: path,
                 cohort: Box::new(request.cohort.clone().unwrap_or(SubmissionCohort {

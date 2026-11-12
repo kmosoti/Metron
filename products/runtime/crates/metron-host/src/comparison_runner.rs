@@ -934,6 +934,7 @@ mod tests {
             input_digest: digest,
             content: BoundedText::new("17 - 4 = 13, then 13 + 9 = 22").unwrap(),
             reasoning: None,
+            native_calls: None,
             prompt_tokens: 1,
             completion_tokens: 1,
             submission_cohort: SubmissionCohort {

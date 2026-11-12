@@ -617,6 +617,7 @@ fn local_profiles_and_outputs_are_bound_and_closed() {
         request_digest: request.clone(),
         input_digest: content_digest(b"input"),
         content: BoundedText::new("{\"count\":1,\"sum\":2}").unwrap(),
+        native_calls: None,
         reasoning: None,
         prompt_tokens: 10,
         completion_tokens: 5,
@@ -1031,6 +1032,7 @@ fn local_request_bounds_and_reasoner_binding() {
         role: LocalRole::Reasoner,
         output_schema: LocalOutputSchema::Text,
         context: BoundedText::new(context).unwrap(),
+        native_tools: None,
         profile: Box::new(profile),
         artifact_path: BoundedText::new("/model.gguf").unwrap(),
         cohort: Box::new(SubmissionCohort {

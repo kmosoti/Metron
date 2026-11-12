@@ -138,8 +138,8 @@ paths rather than auto-installing shims. The catalog digest can be bound into a
 coding-task contract; it is not a permission set.
 
 The public [admission models](contracts/README.md) provide positive/negative SMT
-and Lean checks for development. Runtime adapters for these tools remain gated
-on confinement and admission. [D-0005](../../knowledge/decisions/D-0005-alpha1-delivery.md)
+and Lean checks for development. The [experimental coding entry](coding.md) routes these tools through
+confined, admitted effects. [D-0005](../../knowledge/decisions/D-0005-alpha1-delivery.md)
 tracks alpha.1's implementation and release evidence.
 
 If a run is blocked, `resume RUN` processes durable work without polling or
