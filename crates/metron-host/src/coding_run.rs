@@ -101,7 +101,7 @@ fn scope(settings: &Settings) -> Result<Option<Scope>, String> {
 }
 impl Settings {
     fn validate(&self, execution: bool) -> Result<(), String> {
-        if !matches!(self.context_version, 1..=10) {
+        if !matches!(self.context_version, 1..=11) {
             return Err("unsupported coding context version".into());
         }
         if self
@@ -188,6 +188,8 @@ impl Settings {
                 (EngineMode::Agent, 7) => "coding-agent/v3.6",
                 (EngineMode::Harness, 7) => "coding-harness/v3.6",
                 (EngineMode::Agent, 8) => "coding-agent/v3.7",
+                (EngineMode::Agent, 11) => "coding-agent/v3.10",
+                (EngineMode::Harness, 11) => "coding-harness/v3.10",
                 (EngineMode::Agent, 10) => "coding-agent/v3.9",
                 (EngineMode::Harness, 10) => "coding-harness/v3.9",
                 (EngineMode::Agent, 9) => "coding-agent/v3.8",
@@ -994,6 +996,7 @@ fn run(args: &[String]) -> Result<serde_json::Value, String> {
             .map(|p| read(Path::new(&p)))
             .transpose()?;
         let context_version = match profile.as_ref().map(|p| p.prompt_recipe_digest.as_str()) {
+            Some(metron_protocol::LOCAL_CODING_V8_RECIPE_SHA) => 11,
             Some(metron_protocol::LOCAL_CODING_V7_RECIPE_SHA) => 10,
             Some(
                 metron_protocol::LOCAL_CODING_V4_RECIPE_SHA
@@ -1351,6 +1354,107 @@ mod tests {
             )
             .unwrap()
         );
+    }
+    #[test]
+    fn detailed_feedback_invalid_then_valid_read_audits_in_both_modes() {
+        for mode in [EngineMode::Agent, EngineMode::Harness] {
+            let name = if mode == EngineMode::Agent {
+                "detail-agent"
+            } else {
+                "detail-harness"
+            };
+            let (root, mut settings, old_store) = setup(
+                name,
+                mode,
+                vec![CodingTool::Read, CodingTool::Finish],
+                false,
+            );
+            drop(old_store);
+            settings.context_version = 11;
+            fs::write(root.join("workspace/note.txt"), "controlled read fixture\n").unwrap();
+            let mut store = SqliteStore::create(root.join("run/detail.sqlite")).unwrap();
+            store
+                .apply(
+                    command(StoreOperation::CreateTask {
+                        task: Task::new_coding(settings.task.clone()).unwrap(),
+                        genesis: settings.genesis().unwrap(),
+                    })
+                    .unwrap(),
+                )
+                .unwrap();
+            let bad = r#"{"tool":"read","path":null,"first_line":1,"line_count":2}"#;
+            let mut worker = driver(
+                &root,
+                &settings,
+                &[
+                    r#"{"tool":"plan","steps":["read the note"]}"#,
+                    bad,
+                    r#"{"tool":"read","path":"note.txt","first_line":1,"line_count":2}"#,
+                    r#"{"tool":"finish","summary":"request independent verification"}"#,
+                ],
+            );
+            worker.store_path = root.join("run/detail.sqlite");
+            let task = Task::new_coding(settings.task.clone()).unwrap();
+            let genesis = settings.genesis().unwrap();
+            let engine = crate::cognition(&genesis, &task).unwrap();
+            assert_eq!(
+                orchestrator::drive_with_driver(
+                    &mut store,
+                    &settings.task.data().task_id,
+                    engine.as_ref(),
+                    &root.join("run"),
+                    &mut NoObserver,
+                    &mut worker
+                )
+                .unwrap(),
+                orchestrator::DriveStatus::Blocked
+            );
+            let mut snapshot = store.audit().unwrap();
+            let projection = snapshot.projection(&settings.task.data().task_id).unwrap();
+            assert_eq!(projection.state.phase, Phase::AwaitingVerification);
+            assert_eq!(projection.task_account.posted.model_requests.get(), 4);
+            assert_eq!(projection.task_account.posted.tool_calls.get(), 2);
+            let mut reads = 0;
+            let mut feedback = false;
+            for intent in snapshot
+                .intents(&settings.task.data().task_id, None)
+                .unwrap()
+                .records
+            {
+                if let IntentKind::Coding { step } = &intent.intent.kind {
+                    match step.as_ref() {
+                        CodingStep::Model { context, .. } => {
+                            let value: serde_json::Value =
+                                serde_json::from_str(context.as_str()).unwrap();
+                            if let Some(detail) =
+                                value.get("model_feedback").and_then(|f| f.get("detail"))
+                            {
+                                assert_eq!(detail["rejected_preview"], bad);
+                                assert_eq!(detail["truncated"], false);
+                                let reason = detail["reason"].as_str().unwrap();
+                                assert!(reason.contains("null") && reason.contains("string"));
+                                feedback = true;
+                            }
+                        }
+                        CodingStep::Tool {
+                            action: CodingAction::Read { path, .. },
+                            ..
+                        } => {
+                            assert_eq!(path.as_str(), "note.txt");
+                            reads += 1;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            assert!(feedback);
+            assert_eq!(reads, 1);
+            drop(snapshot);
+            assert_audits(&mut store, &settings);
+            drop(worker);
+            drop(store);
+            fs::remove_dir_all(root).unwrap();
+        }
     }
     #[test]
     fn paired_both_modes_replay_controlled_compiler_feedback_and_correction() {

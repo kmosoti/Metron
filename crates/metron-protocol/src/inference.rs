@@ -56,37 +56,71 @@ pub const LOCAL_CODING_V7_RENDER_MODE: &str = "metron-native-xml-paired-tool-his
 pub const LOCAL_CODING_V7_RECIPE_SHA: &str =
     "2b384f0ae4a7eca985e96bdf20079aab711f259570be49b8e8dc0eb90aa9737c";
 
+/// V8 adds the admitted List action and untrusted validation detail to V7 history.
+pub const LOCAL_CODING_V8_SYSTEM: &str = LOCAL_CODING_V7_SYSTEM;
+pub const LOCAL_CODING_V8_RENDER_MODE: &str = "metron-native-xml-paired-tool-history/v2;typed-action-args;tool-intent-alias;exact-observation-dedup;omission-reason-tool-view;drop-provenance;feedback-after-pair;structured-preflight;native-list;feedback-detail-untrusted";
+pub const LOCAL_CODING_V8_RECIPE_SHA: &str =
+    "22a07d679e478bf52e4c997f2ba4aff849c510fcaa8c5fea93976fb50386d27d";
+
 /// Build the complete XML grammar from trusted tool names only. The small V6
 /// catalog is experimental; any other tool fails closed before sampling.
 pub fn native_xml_coding_grammar(
     tools: &[crate::coding::CodingTool],
 ) -> Result<String, ValidationError> {
+    native_xml_coding_grammar_for(tools, false)
+}
+
+/// V8 extends the V6/V7 catalog with the existing List tool.
+pub fn native_xml_coding_v8_grammar(
+    tools: &[crate::coding::CodingTool],
+) -> Result<String, ValidationError> {
+    native_xml_coding_grammar_for(tools, true)
+}
+
+fn native_xml_coding_grammar_for(
+    tools: &[crate::coding::CodingTool],
+    list_enabled: bool,
+) -> Result<String, ValidationError> {
     use crate::coding::CodingTool;
     use std::fmt::Write as _;
-    const SUPPORTED: [CodingTool; 5] = [
+    const LEGACY: [CodingTool; 5] = [
         CodingTool::Plan,
         CodingTool::Edit,
         CodingTool::Read,
         CodingTool::Run,
         CodingTool::Finish,
     ];
+    const V8: [CodingTool; 6] = [
+        CodingTool::Plan,
+        CodingTool::List,
+        CodingTool::Edit,
+        CodingTool::Read,
+        CodingTool::Run,
+        CodingTool::Finish,
+    ];
+    let supported = if list_enabled {
+        V8.as_slice()
+    } else {
+        LEGACY.as_slice()
+    };
     if tools.is_empty()
-        || tools.len() > SUPPORTED.len()
+        || tools.len() > supported.len()
         || tools
             .iter()
             .enumerate()
-            .any(|(i, t)| !SUPPORTED.contains(t) || tools[..i].contains(t))
+            .any(|(i, t)| !supported.contains(t) || tools[..i].contains(t))
     {
         return Err(ValidationError::Binding);
     }
     let mut out = String::from("start: <tool_call> \"\\n\"? call \"\\n\"? </tool_call>\ncall: ");
-    let chosen: Vec<_> = SUPPORTED.iter().filter(|t| tools.contains(t)).collect();
+    let chosen: Vec<_> = supported.iter().filter(|t| tools.contains(t)).collect();
     for (i, tool) in chosen.iter().enumerate() {
         if i != 0 {
             out.push_str(" | ");
         }
         let name = match tool {
             CodingTool::Plan => "plan",
+            CodingTool::List => "list",
             CodingTool::Edit => "edit",
             CodingTool::Read => "read",
             CodingTool::Run => "run",
@@ -99,6 +133,7 @@ pub fn native_xml_coding_grammar(
     for tool in chosen {
         let (name, fields): (&str, &[(&str, &str)]) = match tool {
             CodingTool::Plan => ("plan", &[("steps", "steps")]),
+            CodingTool::List => ("list", &[("directory", "directory")]),
             CodingTool::Edit => (
                 "edit",
                 &[
@@ -179,6 +214,7 @@ pub fn is_local_coding_recipe(digest: &str) -> bool {
             | LOCAL_CODING_V5_RECIPE_SHA
             | LOCAL_CODING_V6_RECIPE_SHA
             | LOCAL_CODING_V7_RECIPE_SHA
+            | LOCAL_CODING_V8_RECIPE_SHA
     )
 }
 /// Return the exact system text and JSON Schema for the selected coding recipe.
@@ -191,6 +227,7 @@ pub fn local_coding_recipe(digest: &str) -> Option<(&'static str, serde_json::Va
         LOCAL_CODING_V5_RECIPE_SHA => (LOCAL_CODING_V5_SYSTEM, LOCAL_CODING_V2_SCHEMA),
         LOCAL_CODING_V6_RECIPE_SHA => (LOCAL_CODING_V6_SYSTEM, LOCAL_CODING_V2_SCHEMA),
         LOCAL_CODING_V7_RECIPE_SHA => (LOCAL_CODING_V7_SYSTEM, LOCAL_CODING_V2_SCHEMA),
+        LOCAL_CODING_V8_RECIPE_SHA => (LOCAL_CODING_V8_SYSTEM, LOCAL_CODING_V2_SCHEMA),
         _ => return None,
     };
     Some((
@@ -418,6 +455,14 @@ pub fn native_coding_tool_schemas(
             Ok((name, v))
         })
         .collect()
+}
+
+/// V8 schemas are restricted to the same admitted catalog as its grammar.
+pub fn native_coding_v8_tool_schemas(
+    tools: &[crate::coding::CodingTool],
+) -> Result<Vec<(String, serde_json::Value)>, ValidationError> {
+    native_xml_coding_v8_grammar(tools)?;
+    native_coding_tool_schemas(tools)
 }
 
 /// Identify the embedded tokenizer through the full verified GGUF digest.
@@ -697,6 +742,7 @@ impl LocalProfile {
                 | LOCAL_CODING_V5_RECIPE_SHA
                 | LOCAL_CODING_V6_RECIPE_SHA
                 | LOCAL_CODING_V7_RECIPE_SHA
+                | LOCAL_CODING_V8_RECIPE_SHA
         ) {
             gguf_lfm3_corrected_tokenizer_digest(&self.artifact_digest)?
         } else {
@@ -890,13 +936,17 @@ impl LocalObservation {
                 LOCAL_CODING_V3_RECIPE_SHA
                     | LOCAL_CODING_V6_RECIPE_SHA
                     | LOCAL_CODING_V7_RECIPE_SHA
+                    | LOCAL_CODING_V8_RECIPE_SHA
             ) || native.action_content()? != self.content.as_str()
             {
                 return Err(ValidationError::Binding);
             }
         } else if matches!(
             profile.prompt_recipe_digest.as_str(),
-            LOCAL_CODING_V3_RECIPE_SHA | LOCAL_CODING_V6_RECIPE_SHA | LOCAL_CODING_V7_RECIPE_SHA
+            LOCAL_CODING_V3_RECIPE_SHA
+                | LOCAL_CODING_V6_RECIPE_SHA
+                | LOCAL_CODING_V7_RECIPE_SHA
+                | LOCAL_CODING_V8_RECIPE_SHA
         ) {
             return Err(ValidationError::Binding);
         }
@@ -1368,9 +1418,13 @@ impl WorkerRequest {
                     | LOCAL_CODING_V5_RECIPE_SHA
                     | LOCAL_CODING_V6_RECIPE_SHA
                     | LOCAL_CODING_V7_RECIPE_SHA
+                    | LOCAL_CODING_V8_RECIPE_SHA
             );
             if previous_tool_turn.is_some()
-                && profile.prompt_recipe_digest.as_str() != LOCAL_CODING_V7_RECIPE_SHA
+                && !matches!(
+                    profile.prompt_recipe_digest.as_str(),
+                    LOCAL_CODING_V7_RECIPE_SHA | LOCAL_CODING_V8_RECIPE_SHA
+                )
             {
                 return Err(ValidationError::Binding);
             }
@@ -1392,6 +1446,14 @@ impl WorkerRequest {
                 LOCAL_CODING_V6_RECIPE_SHA | LOCAL_CODING_V7_RECIPE_SHA
             ) {
                 native_xml_coding_grammar(
+                    native_tools
+                        .as_deref()
+                        .map(Vec::as_slice)
+                        .ok_or(ValidationError::Binding)?,
+                )?;
+            }
+            if profile.prompt_recipe_digest.as_str() == LOCAL_CODING_V8_RECIPE_SHA {
+                native_xml_coding_v8_grammar(
                     native_tools
                         .as_deref()
                         .map(Vec::as_slice)

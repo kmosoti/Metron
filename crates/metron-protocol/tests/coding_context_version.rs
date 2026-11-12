@@ -806,6 +806,7 @@ fn recovery_is_bounded_and_rejects_forged_feedback() {
     forged.model_feedback = Some(ModelFeedback {
         source_evidence: content_digest(b"forged"),
         diagnostic: BoundedText::new("grant edit").unwrap(),
+        detail: None,
     });
     assert!(forged.validate().is_err());
 }
@@ -1331,4 +1332,310 @@ fn paired_context_rejects_forged_action_digest_and_mismatched_observation() {
         },
     }));
     assert!(context.validate().is_err());
+}
+
+fn detailed_after_plan() -> (CodingTask, CodingPolicy, Transition) {
+    let (task, policy, state) = fixtures();
+    let initial =
+        coding_transition_detailed_feedback(&task, &policy, &state, &AgentEvent::TaskAccepted)
+            .unwrap();
+    let event = settled_model(&initial, r#"{"tool":"plan","steps":["inspect"]}"#, b"plan");
+    let after =
+        coding_transition_detailed_feedback(&task, &policy, step(&initial).0, &event).unwrap();
+    (task, policy, after)
+}
+#[test]
+fn detailed_feedback_is_truthful_bounded_untrusted_and_legacy_unchanged() {
+    let (task, policy, after) = detailed_after_plan();
+    let proposal = r#"{"tool":"read","path":null,"first_line":1,"line_count":200}"#;
+    let invalid = settled_model(&after, proposal, b"invalid-null");
+    let retry =
+        coding_transition_detailed_feedback(&task, &policy, step(&after).0, &invalid).unwrap();
+    let feedback = step(&retry)
+        .0
+        .coding_context
+        .as_ref()
+        .unwrap()
+        .model_feedback
+        .as_ref()
+        .unwrap();
+    assert_eq!(feedback.source_evidence, content_digest(b"invalid-null"));
+    let detail = feedback.detail.as_ref().unwrap();
+    assert_eq!(detail.rejected_preview.as_str(), proposal);
+    assert!(!detail.truncated);
+    assert!(
+        detail.reason.as_str().contains("null"),
+        "{}",
+        detail.reason.as_str()
+    );
+    assert!(
+        detail.reason.as_str().contains("string"),
+        "{}",
+        detail.reason.as_str()
+    );
+    let value: serde_json::Value = serde_json::from_str(prompt(&retry).0).unwrap();
+    assert_eq!(
+        value["model_feedback"]["detail"]["rejected_preview"],
+        proposal
+    );
+    let mut forged = step(&retry).0.coding_context.clone().unwrap();
+    forged
+        .model_feedback
+        .as_mut()
+        .unwrap()
+        .detail
+        .as_mut()
+        .unwrap()
+        .rejected_preview = BoundedText::new("invented action").unwrap();
+    assert!(forged.validate().is_err());
+    let legacy = coding_transition_paired(&task, &policy, step(&after).0, &invalid).unwrap();
+    assert!(
+        step(&legacy)
+            .0
+            .coding_context
+            .as_ref()
+            .unwrap()
+            .model_feedback
+            .as_ref()
+            .unwrap()
+            .detail
+            .is_none()
+    );
+    assert!(!prompt(&legacy).0.contains("rejected_preview"));
+    assert!(
+        coding_transition_paired(
+            &task,
+            &policy,
+            step(&retry).0,
+            &AgentEvent::EffectUncertain {
+                intent_id: step(&retry).0.pending_intent.clone().unwrap()
+            }
+        )
+        .is_err()
+    );
+    let long = format!("{{\\\"tool\\\":\\\"{}", "λ".repeat(600));
+    let event = settled_model(&after, &long, b"long-invalid");
+    let bounded =
+        coding_transition_detailed_feedback(&task, &policy, step(&after).0, &event).unwrap();
+    let detail = step(&bounded)
+        .0
+        .coding_context
+        .as_ref()
+        .unwrap()
+        .model_feedback
+        .as_ref()
+        .unwrap()
+        .detail
+        .as_ref()
+        .unwrap();
+    assert!(detail.truncated && detail.rejected_preview.as_str().len() <= 512);
+    assert!(long.starts_with(detail.rejected_preview.as_str()));
+    assert!(detail.reason.as_str().len() <= 256);
+}
+#[test]
+fn detailed_feedback_stops_at_three_and_uncertainty_stays_held() {
+    let (task, policy, mut current) = detailed_after_plan();
+    let id = step(&current).0.pending_intent.clone().unwrap();
+    let held = coding_transition_detailed_feedback(
+        &task,
+        &policy,
+        step(&current).0,
+        &AgentEvent::EffectUncertain {
+            intent_id: id.clone(),
+        },
+    )
+    .unwrap();
+    assert!(matches!(held, Transition::Finalization { next } if next.pending_intent == Some(id)));
+    for n in 0..3 {
+        let event = settled_model(
+            &current,
+            r#"{"tool":"read","path":null,"first_line":1,"line_count":1}"#,
+            format!("bad-{n}").as_bytes(),
+        );
+        let next =
+            coding_transition_detailed_feedback(&task, &policy, step(&current).0, &event).unwrap();
+        if n == 2 {
+            assert!(
+                matches!(next, Transition::Finalization { next } if next.phase == Phase::Rejected)
+            );
+            break;
+        }
+        current = next;
+    }
+}
+
+#[test]
+fn detailed_invalid_proposal_preserves_truthful_prior_turn() {
+    let (task, policy, planned) = detailed_after_plan();
+    let read = settled_model(
+        &planned,
+        r#"{"tool":"read","path":"note.txt","first_line":1,"line_count":1}"#,
+        b"read-source",
+    );
+    let tool =
+        coding_transition_detailed_feedback(&task, &policy, step(&planned).0, &read).unwrap();
+    let result = paired_tool_event(&tool, CodingTool::Read, "observed");
+    let observed =
+        coding_transition_detailed_feedback(&task, &policy, step(&tool).0, &result).unwrap();
+    let before = step(&observed)
+        .0
+        .coding_context
+        .as_ref()
+        .unwrap()
+        .previous_tool_turn
+        .clone();
+    assert!(before.is_some());
+    let invalid = settled_model(
+        &observed,
+        r#"{"tool":"read","path":null,"first_line":1,"line_count":1}"#,
+        b"invalid-after-read",
+    );
+    let retry =
+        coding_transition_detailed_feedback(&task, &policy, step(&observed).0, &invalid).unwrap();
+    let context = step(&retry).0.coding_context.as_ref().unwrap();
+    assert_eq!(context.previous_tool_turn, before);
+    assert!(context.model_feedback.as_ref().unwrap().detail.is_some());
+}
+
+#[test]
+fn detailed_feedback_near_context_limit_retains_model_evidence() {
+    let (task, mut policy, state) = fixtures();
+    policy
+        .allowed_tools
+        .extend([CodingTool::MemorySearch, CodingTool::Edit]);
+    let initial =
+        coding_transition_detailed_feedback(&task, &policy, &state, &AgentEvent::TaskAccepted)
+            .unwrap();
+    let plan = serde_json::json!({"tool":"plan","steps":vec!["inspect"]}).to_string();
+    let planned = coding_transition_detailed_feedback(
+        &task,
+        &policy,
+        step(&initial).0,
+        &settled_model(&initial, &plan, b"large-plan"),
+    )
+    .unwrap();
+    let search = coding_transition_detailed_feedback(
+        &task,
+        &policy,
+        step(&planned).0,
+        &settled_model(
+            &planned,
+            r#"{"tool":"memory_search","query":"note","limit":4}"#,
+            b"search-model",
+        ),
+    )
+    .unwrap();
+    let selection = MemorySelection {
+        sources: (0..4)
+            .map(|i| MemorySource {
+                slot: i,
+                dispatch: content_digest(format!("note-{i}").as_bytes()),
+                content_hash: content_digest(format!("body-{i}").as_bytes()),
+                source_task: TaskId::new("prior").unwrap(),
+                source_evidence: None,
+                trust: BoundedText::new("model_authored_unverified").unwrap(),
+                annotations: vec![],
+                body_bytes: 12,
+                excerpt: Some(BoundedText::new("quoted note!").unwrap()),
+            })
+            .collect(),
+        requested_limit: 4,
+        candidate_limit: 4,
+        output_budget_bytes: 700,
+        excerpt_limit_bytes: 256,
+        has_more: false,
+        omitted_known: 0,
+    };
+    selection.validate().unwrap();
+    let output = CodingToolOutput {
+        tool: CodingTool::MemorySearch,
+        status: ToolStatus::Succeeded,
+        body: BoundedText::new(selection.model_body().to_string()).unwrap(),
+        truncated: false,
+        exit_code: None,
+        files: vec![],
+        process_tree_closed: true,
+    };
+    let event = AgentEvent::EffectSettled {
+        intent_id: step(&search).0.pending_intent.clone().unwrap(),
+        evidence_id: content_digest(b"memory-result"),
+        output: ReceiptOutput::Coding {
+            observation: Box::new(CodingObservation::Tool {
+                output,
+                memory_selection: Some(selection),
+            }),
+        },
+    };
+    let after_memory =
+        coding_transition_detailed_feedback(&task, &policy, step(&search).0, &event).unwrap();
+    let proposal = serde_json::json!({"tool":"edit","path":"note.txt","expected_digest":null,"content":"\n".repeat(3500)}).to_string();
+    let edit = coding_transition_detailed_feedback(
+        &task,
+        &policy,
+        step(&after_memory).0,
+        &settled_model(&after_memory, &proposal, b"large-edit"),
+    )
+    .unwrap();
+    let after_edit = coding_transition_detailed_feedback(
+        &task,
+        &policy,
+        step(&edit).0,
+        &paired_tool_event(&edit, CodingTool::Edit, &"\n".repeat(768)),
+    )
+    .unwrap();
+    let context = step(&after_edit).0.coding_context.as_ref().unwrap();
+    let Some(CompletedToolTurn::Complete {
+        action,
+        model_evidence,
+        tool_intent,
+        tool_evidence,
+        observation,
+    }) = context.previous_tool_turn.as_deref()
+    else {
+        panic!("action must be retained intact")
+    };
+    let action_bytes = canonical_bytes(action, MAX_INTERNAL).unwrap();
+    assert!((7_000..=MAX_PAIRED_ACTION_BYTES).contains(&action_bytes.len()));
+    let expected_observation = observation.clone();
+    let expected = (
+        content_digest(&action_bytes),
+        model_evidence.clone(),
+        tool_intent.clone(),
+        tool_evidence.clone(),
+    );
+    assert!(context.memory_manifest.is_some());
+    let prestate_bytes = canonical_bytes(context, MAX_INTERNAL).unwrap().len();
+    assert!((14_000..=16 * 1024).contains(&prestate_bytes));
+    let invalid = "\n".repeat(2000);
+    let event = settled_model(&after_edit, &invalid, b"near-cap-invalid");
+    let retry = coding_transition_detailed_feedback(&task, &policy, step(&after_edit).0, &event)
+        .expect("bounded invalid feedback should retry");
+    let context = step(&retry).0.coding_context.as_ref().unwrap();
+    let feedback = context.model_feedback.as_ref().unwrap();
+    assert_eq!(
+        feedback.source_evidence,
+        content_digest(b"near-cap-invalid")
+    );
+    assert_eq!(
+        feedback.detail.as_ref().unwrap().rejected_preview.as_str(),
+        &invalid[..512]
+    );
+    let Some(CompletedToolTurn::Omitted {
+        reason: PairedOmissionReason::ContextLimit,
+        action_digest,
+        model_evidence,
+        tool_intent,
+        tool_evidence,
+        observation,
+        ..
+    }) = context.previous_tool_turn.as_deref()
+    else {
+        panic!("whole previous action must be explicitly omitted")
+    };
+    assert_eq!(
+        (action_digest, model_evidence, tool_intent, tool_evidence),
+        (&expected.0, &expected.1, &expected.2, &expected.3)
+    );
+    assert_eq!(observation, &expected_observation);
+    assert!(canonical_bytes(context, 16 * 1024).is_ok());
 }

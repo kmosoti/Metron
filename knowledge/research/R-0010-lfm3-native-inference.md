@@ -53,3 +53,20 @@ did not complete and no profile was selected.
 **Relations:** extends R-0009; supports ADR 0021; does not supersede the frozen
 production qualification. Revisit after the fixed comparison, on a model/backend
 or compiler change, or when new measurements contradict the recorded feasibility.
+
+
+## Sampling and reasoning-mode check, 2026-11-12
+
+The active profile's temperature 0.1, top-k 50 and repetition penalty 1.1 match
+Liquid AI's general-use recommendation and its
+[published generation configuration](https://huggingface.co/LiquidAI/LFM3-1.7B/blob/40ebe0aa6662c9d40389c2f5d565b6a2c6aebacd/generation_config.json).
+The observed failures do not establish a sampler mismatch.
+
+The current [model card](https://huggingface.co/LiquidAI/LFM3-1.7B#inference)
+says reasoning is enabled by default and disabling traces can be inconsistent.
+The worker explicitly disables thinking and constrains native tool generation.
+That is a material configuration difference, not evidence that it caused these
+failures or that enabling it will fix them. A thinking-mode comparison would
+need its own versioned grammar/template, explicit output budget, exact preflight
+and matched task evidence. Existing profiles are preserved; no such comparison
+or semantic qualification is claimed here.
