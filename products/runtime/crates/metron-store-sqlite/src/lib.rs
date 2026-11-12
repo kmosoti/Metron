@@ -2,6 +2,7 @@
 #![forbid(unsafe_code)]
 
 mod engine;
+pub mod memory;
 
 use std::path::Path;
 use std::time::Duration;

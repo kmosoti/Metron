@@ -106,7 +106,8 @@ impl SqliteStore {
             | StoreOperation::RecordUncertainty { task_id, .. }
             | StoreOperation::ClaimReconciliation { task_id, .. }
             | StoreOperation::SettleReconciliation { task_id, .. }
-            | StoreOperation::RecordVerification { task_id, .. } => Some(task_id),
+            | StoreOperation::RecordVerification { task_id, .. }
+            | StoreOperation::RecordCodingVerification { task_id, .. } => Some(task_id),
             StoreOperation::Admit { check } => Some(&check.prepared.action.task_id),
             StoreOperation::RecordReceipt { receipt, .. } => Some(&receipt.data().task_id),
             StoreOperation::AdvanceTick { .. }
@@ -204,6 +205,12 @@ impl SqliteStore {
                 accepted,
                 reason,
             } => prior_verification(&tx, task_id, selection, *accepted, reason)?,
+            StoreOperation::RecordCodingVerification {
+                task_id,
+                selection,
+                accepted,
+                reason,
+            } => prior_coding_verification(&tx, task_id, selection, *accepted, reason)?,
             StoreOperation::CreateApprovalRequest {
                 task_id,
                 request_id,
@@ -442,6 +449,15 @@ impl SqliteStore {
                     Some(result) => result,
                     None => return Ok(WriteOutcome::NotCommitted(NotCommitted::EvidenceChanged)),
                 },
+                StoreOperation::RecordCodingVerification {
+                    task_id,
+                    selection,
+                    accepted,
+                    reason,
+                } => match verify_coding(&tx, task_id, selection, *accepted, reason, seq)? {
+                    Some(result) => result,
+                    None => return Ok(WriteOutcome::NotCommitted(NotCommitted::EvidenceChanged)),
+                },
                 StoreOperation::AdvanceTick {
                     expected_tick,
                     new_tick,
@@ -544,6 +560,7 @@ fn create_task(
         revoked: false,
     };
     let state = AgentState {
+        coding_context: None,
         task_id: data.task_id.clone(),
         genesis_digest: digest.clone(),
         max_decision_steps: data.max_decision_steps,
@@ -987,175 +1004,208 @@ fn commit_transition(
     if new_intent.is_some_and(|intent| intent.schema_version != task.data().schema_version) {
         return Err(StoreError::Validation(ValidationError::Version));
     }
-    let valid = match (&state.phase, &item.input.event, transition) {
-        (
-            Phase::New,
-            AgentEvent::TaskAccepted,
-            Transition::Decision {
-                intent:
-                    Intent {
-                        kind: IntentKind::ReadFixture,
-                        ..
-                    },
-                next,
-            },
-        ) => next.phase == Phase::WaitingRead,
-        (
-            Phase::WaitingRead,
-            AgentEvent::EffectSettled {
-                intent_id,
-                output: ReceiptOutput::Fixture { bytes, digest },
-                ..
-            },
-            Transition::Decision {
-                intent:
-                    Intent {
-                        kind:
-                            IntentKind::RequestModel {
-                                input_digest,
-                                context,
-                            },
-                        ..
-                    },
-                next,
-            },
-        ) => {
-            state.pending_intent.as_ref() == Some(intent_id)
-                && next.phase == Phase::WaitingModel
-                && input_digest == digest
-                && context.as_str() == bytes.as_str()
-        }
-        (
-            Phase::WaitingRead,
-            AgentEvent::EffectSettled {
-                intent_id,
-                output: ReceiptOutput::Fixture { bytes, digest },
-                ..
-            },
-            Transition::Decision {
-                intent:
-                    Intent {
-                        kind:
-                            IntentKind::RequestLocalModel {
-                                input_digest,
-                                context,
+    let valid = if let Some(coding) = task.coding() {
+        let genesis = load_genesis(tx, task_id)?;
+        let policy = genesis
+            .coding_policy
+            .as_ref()
+            .ok_or(StoreError::Integrity)?;
+        let controller = match genesis.engine_version.as_str() {
+            "coding-agent/v3" | "coding-harness/v3" => {
+                metron_protocol::coding_runtime::coding_transition
+            }
+            "coding-agent/v3.1" | "coding-harness/v3.1" => {
+                metron_protocol::coding_runtime::coding_transition_phased
+            }
+            "coding-agent/v3.2" | "coding-harness/v3.2" => {
+                metron_protocol::coding_runtime::coding_transition_catalog
+            }
+            "coding-agent/v3.3" | "coding-harness/v3.3" => {
+                metron_protocol::coding_runtime::coding_transition_focused
+            }
+            _ => return Err(StoreError::Integrity),
+        };
+        controller(coding, policy, &state, &item.input.event).as_ref() == Ok(transition)
+    } else {
+        state.coding_context.is_none()
+            && next.coding_context.is_none()
+            && match (&state.phase, &item.input.event, transition) {
+                (
+                    Phase::New,
+                    AgentEvent::TaskAccepted,
+                    Transition::Decision {
+                        intent:
+                            Intent {
+                                kind: IntentKind::ReadFixture,
                                 ..
                             },
+                        next,
+                    },
+                ) => next.phase == Phase::WaitingRead,
+                (
+                    Phase::WaitingRead,
+                    AgentEvent::EffectSettled {
+                        intent_id,
+                        output: ReceiptOutput::Fixture { bytes, digest },
                         ..
                     },
-                next,
-            },
-        ) => {
-            state.pending_intent.as_ref() == Some(intent_id)
-                && next.phase == Phase::WaitingModel
-                && input_digest == digest
-                && context.as_str() == bytes.as_str()
-        }
-        (
-            Phase::WaitingModel,
-            AgentEvent::EffectSettled {
-                intent_id,
-                output:
-                    ReceiptOutput::Model {
-                        candidate: observed,
+                    Transition::Decision {
+                        intent:
+                            Intent {
+                                kind:
+                                    IntentKind::RequestModel {
+                                        input_digest,
+                                        context,
+                                    },
+                                ..
+                            },
+                        next,
                     },
-                ..
-            },
-            Transition::Decision {
-                intent:
-                    Intent {
-                        kind: IntentKind::PublishArtifact { candidate },
-                        ..
-                    },
-                next,
-            },
-        ) => {
-            state.pending_intent.as_ref() == Some(intent_id)
-                && next.phase == Phase::WaitingArtifact
-                && candidate == observed
-        }
-        (
-            Phase::WaitingModel,
-            AgentEvent::EffectSettled {
-                intent_id,
-                output: ReceiptOutput::LocalModel { observation },
-                ..
-            },
-            Transition::Decision {
-                intent:
-                    Intent {
-                        kind: IntentKind::PublishArtifact { candidate },
-                        ..
-                    },
-                next,
-            },
-        ) => {
-            state.pending_intent.as_ref() == Some(intent_id)
-                && next.phase == Phase::WaitingArtifact
-                && matches!(&observation.response, Some(metron_protocol::LocalResponse::Sum(sum)) if candidate.count == sum.count && candidate.sum == sum.sum && candidate.input_digest == observation.input_digest)
-        }
-        (
-            Phase::WaitingModel,
-            AgentEvent::EffectSettled {
-                intent_id,
-                output: ReceiptOutput::LocalModel { observation },
-                ..
-            },
-            Transition::Finalization { next },
-        ) => {
-            state.pending_intent.as_ref() == Some(intent_id)
-                && next.phase == Phase::Rejected
-                && next.pending_intent.is_none()
-                && !matches!(
-                    observation.response,
-                    Some(metron_protocol::LocalResponse::Sum(_))
-                )
-        }
-        (
-            Phase::WaitingArtifact,
-            AgentEvent::EffectSettled {
-                intent_id,
-                output: ReceiptOutput::Published { .. },
-                ..
-            },
-            Transition::Finalization { next },
-        ) => {
-            state.pending_intent.as_ref() == Some(intent_id)
-                && next.phase == Phase::AwaitingVerification
-                && next.pending_intent.is_none()
-        }
-        (_, AgentEvent::EffectUncertain { intent_id }, Transition::Finalization { next }) => {
-            state.pending_intent.as_ref() == Some(intent_id)
-                && next.phase == state.phase
-                && next.pending_intent == state.pending_intent
-        }
-        (_, AgentEvent::Denied { intent_id, .. }, Transition::Finalization { next }) => {
-            state.pending_intent.as_ref() == Some(intent_id)
-                && next.phase == Phase::Rejected
-                && next.pending_intent.is_none()
-        }
-        (
-            _,
-            AgentEvent::EffectSettled {
-                intent_id,
-                output: ReceiptOutput::Failure { .. },
-                ..
-            },
-            Transition::Finalization { next },
-        ) => state.pending_intent.as_ref() == Some(intent_id) && next.phase == Phase::Rejected,
-        (
-            Phase::AwaitingVerification,
-            AgentEvent::Verified { accepted, .. },
-            Transition::Finalization { next },
-        ) => {
-            next.phase
-                == if *accepted {
-                    Phase::Completed
-                } else {
-                    Phase::Rejected
+                ) => {
+                    state.pending_intent.as_ref() == Some(intent_id)
+                        && next.phase == Phase::WaitingModel
+                        && input_digest == digest
+                        && context.as_str() == bytes.as_str()
                 }
-        }
-        _ => false,
+                (
+                    Phase::WaitingRead,
+                    AgentEvent::EffectSettled {
+                        intent_id,
+                        output: ReceiptOutput::Fixture { bytes, digest },
+                        ..
+                    },
+                    Transition::Decision {
+                        intent:
+                            Intent {
+                                kind:
+                                    IntentKind::RequestLocalModel {
+                                        input_digest,
+                                        context,
+                                        ..
+                                    },
+                                ..
+                            },
+                        next,
+                    },
+                ) => {
+                    state.pending_intent.as_ref() == Some(intent_id)
+                        && next.phase == Phase::WaitingModel
+                        && input_digest == digest
+                        && context.as_str() == bytes.as_str()
+                }
+                (
+                    Phase::WaitingModel,
+                    AgentEvent::EffectSettled {
+                        intent_id,
+                        output:
+                            ReceiptOutput::Model {
+                                candidate: observed,
+                            },
+                        ..
+                    },
+                    Transition::Decision {
+                        intent:
+                            Intent {
+                                kind: IntentKind::PublishArtifact { candidate },
+                                ..
+                            },
+                        next,
+                    },
+                ) => {
+                    state.pending_intent.as_ref() == Some(intent_id)
+                        && next.phase == Phase::WaitingArtifact
+                        && candidate == observed
+                }
+                (
+                    Phase::WaitingModel,
+                    AgentEvent::EffectSettled {
+                        intent_id,
+                        output: ReceiptOutput::LocalModel { observation },
+                        ..
+                    },
+                    Transition::Decision {
+                        intent:
+                            Intent {
+                                kind: IntentKind::PublishArtifact { candidate },
+                                ..
+                            },
+                        next,
+                    },
+                ) => {
+                    state.pending_intent.as_ref() == Some(intent_id)
+                        && next.phase == Phase::WaitingArtifact
+                        && matches!(&observation.response, Some(metron_protocol::LocalResponse::Sum(sum)) if candidate.count == sum.count && candidate.sum == sum.sum && candidate.input_digest == observation.input_digest)
+                }
+                (
+                    Phase::WaitingModel,
+                    AgentEvent::EffectSettled {
+                        intent_id,
+                        output: ReceiptOutput::LocalModel { observation },
+                        ..
+                    },
+                    Transition::Finalization { next },
+                ) => {
+                    state.pending_intent.as_ref() == Some(intent_id)
+                        && next.phase == Phase::Rejected
+                        && next.pending_intent.is_none()
+                        && !matches!(
+                            observation.response,
+                            Some(metron_protocol::LocalResponse::Sum(_))
+                        )
+                }
+                (
+                    Phase::WaitingArtifact,
+                    AgentEvent::EffectSettled {
+                        intent_id,
+                        output: ReceiptOutput::Published { .. },
+                        ..
+                    },
+                    Transition::Finalization { next },
+                ) => {
+                    state.pending_intent.as_ref() == Some(intent_id)
+                        && next.phase == Phase::AwaitingVerification
+                        && next.pending_intent.is_none()
+                }
+                (
+                    _,
+                    AgentEvent::EffectUncertain { intent_id },
+                    Transition::Finalization { next },
+                ) => {
+                    state.pending_intent.as_ref() == Some(intent_id)
+                        && next.phase == state.phase
+                        && next.pending_intent == state.pending_intent
+                }
+                (_, AgentEvent::Denied { intent_id, .. }, Transition::Finalization { next }) => {
+                    state.pending_intent.as_ref() == Some(intent_id)
+                        && next.phase == Phase::Rejected
+                        && next.pending_intent.is_none()
+                }
+                (
+                    _,
+                    AgentEvent::EffectSettled {
+                        intent_id,
+                        output: ReceiptOutput::Failure { .. },
+                        ..
+                    },
+                    Transition::Finalization { next },
+                ) => {
+                    state.pending_intent.as_ref() == Some(intent_id)
+                        && next.phase == Phase::Rejected
+                }
+                (
+                    Phase::AwaitingVerification,
+                    AgentEvent::Verified { accepted, .. },
+                    Transition::Finalization { next },
+                ) => {
+                    next.phase
+                        == if *accepted {
+                            Phase::Completed
+                        } else {
+                            Phase::Rejected
+                        }
+                }
+                _ => false,
+            }
     };
     if !valid {
         return Err(StoreError::Integrity);
@@ -1421,12 +1471,29 @@ fn admit(
     )?
     .ok_or(StoreError::Integrity)?;
     let genesis: Genesis = decode!(&genesis, Genesis);
-    if genesis.require_publication_approval
-        && matches!(
-            check.prepared.request,
-            ApprovedRequest::PublishArtifact { .. }
-        )
-    {
+    if let ApprovedRequest::Coding { step, .. } = &check.prepared.request {
+        let policy = genesis
+            .coding_policy
+            .as_ref()
+            .ok_or(StoreError::Integrity)?;
+        if !step.permitted(policy) {
+            return Ok(Ok(deny(
+                tx,
+                &task.data().task_id,
+                &check.intent_id,
+                &BoundedText::new("coding action outside grant").map_err(StoreError::Validation)?,
+                seq,
+            )?));
+        }
+    }
+    if match &check.prepared.request {
+        ApprovedRequest::Coding { step, .. } => genesis
+            .coding_policy
+            .as_ref()
+            .is_some_and(|p| step.requires_approval(p)),
+        ApprovedRequest::PublishArtifact { .. } => genesis.require_publication_approval,
+        _ => false,
+    } {
         let approved = intent.approval.as_ref().is_some_and(|approval| {
             Some(&approval.request_id) == check.approval_id.as_ref()
                 && approval.action_digest == check.prepared.action_digest
@@ -1440,7 +1507,8 @@ fn admit(
     let tariff = match &check.prepared.request {
         ApprovedRequest::ReadFixture { tariff, .. }
         | ApprovedRequest::RequestModel { tariff, .. }
-        | ApprovedRequest::RequestLocalModel { tariff, .. } => tariff,
+        | ApprovedRequest::RequestLocalModel { tariff, .. }
+        | ApprovedRequest::Coding { tariff, .. } => tariff,
         ApprovedRequest::PublishArtifact { plan } => &plan.tariff,
     };
     let amount = Counters {
@@ -1611,22 +1679,31 @@ fn record_receipt(
     {
         return Err(StoreError::Integrity);
     }
-    let shape = matches!(
-        (&prepared.request, &data.output),
-        (
-            ApprovedRequest::ReadFixture { .. },
-            ReceiptOutput::Fixture { .. } | ReceiptOutput::Failure { .. }
-        ) | (
-            ApprovedRequest::RequestModel { .. },
-            ReceiptOutput::Model { .. } | ReceiptOutput::Failure { .. }
-        ) | (
-            ApprovedRequest::RequestLocalModel { .. },
-            ReceiptOutput::LocalModel { .. } | ReceiptOutput::Failure { .. }
-        ) | (
-            ApprovedRequest::PublishArtifact { .. },
-            ReceiptOutput::Published { .. } | ReceiptOutput::Failure { .. }
+    if matches!(prepared.request, ApprovedRequest::Coding { .. }) {
+        metron_protocol::coding_runtime::validate_coding_receipt(
+            &load_genesis(tx, &data.task_id)?,
+            &prepared,
+            receipt,
         )
-    );
+        .map_err(StoreError::Validation)?;
+    }
+    let shape = matches!(prepared.request, ApprovedRequest::Coding { .. })
+        || matches!(
+            (&prepared.request, &data.output),
+            (
+                ApprovedRequest::ReadFixture { .. },
+                ReceiptOutput::Fixture { .. } | ReceiptOutput::Failure { .. }
+            ) | (
+                ApprovedRequest::RequestModel { .. },
+                ReceiptOutput::Model { .. } | ReceiptOutput::Failure { .. }
+            ) | (
+                ApprovedRequest::RequestLocalModel { .. },
+                ReceiptOutput::LocalModel { .. } | ReceiptOutput::Failure { .. }
+            ) | (
+                ApprovedRequest::PublishArtifact { .. },
+                ReceiptOutput::Published { .. } | ReceiptOutput::Failure { .. }
+            )
+        );
     if !shape {
         return Err(StoreError::Integrity);
     }
@@ -1824,6 +1901,21 @@ fn record_receipt(
                                 verification.plan = Some(plan.clone());
                             }
                         }
+                        ReceiptOutput::Coding { observation } => match observation.as_ref() {
+                            metron_protocol::coding_runtime::CodingObservation::ScriptedModel {
+                                ..
+                            } => {
+                                verification.model = Some(receipt.clone());
+                                verification.model_evidence = Some(id.clone());
+                            }
+                            metron_protocol::coding_runtime::CodingObservation::Artifact {
+                                ..
+                            } => {
+                                verification.publication = Some(receipt.clone());
+                                verification.publication_evidence = Some(id.clone());
+                            }
+                            metron_protocol::coding_runtime::CodingObservation::Tool { .. } => {}
+                        },
                         ReceiptOutput::Failure { .. } => {}
                     }
                     insert_input(
@@ -2150,6 +2242,9 @@ fn verify(
     seq: SqlU64,
 ) -> Result<Option<StoreResult>, StoreError> {
     let task = load_task(tx, task_id)?;
+    if task.coding().is_some() {
+        return Err(StoreError::Integrity);
+    }
     let raw = read_blob(
         tx,
         "SELECT state FROM tasks WHERE task_id=?1",
@@ -2186,6 +2281,17 @@ fn verify(
     {
         return Ok(None);
     }
+    finish_verification(tx, &task, accepted, reason, seq)
+}
+
+fn finish_verification(
+    tx: &Transaction<'_>,
+    task: &Task,
+    accepted: bool,
+    reason: &BoundedText<MAX_TEXT>,
+    seq: SqlU64,
+) -> Result<Option<StoreResult>, StoreError> {
+    let task_id = &task.data().task_id;
     let raw = read_blob(
         tx,
         "SELECT account FROM task_accounts WHERE task_id=?1",
@@ -2212,7 +2318,9 @@ fn verify(
     let mut stmt = tx
         .prepare("SELECT value FROM intents WHERE task_id=?1")
         .map_err(sql_error)?;
-    let mut rows = stmt.query([task_id.as_str()]).map_err(sql_error)?;
+    let mut rows = stmt
+        .query([task.data().task_id.as_str()])
+        .map_err(sql_error)?;
     while let Some(row) = rows.next().map_err(sql_error)? {
         let raw: Vec<u8> = bounded_blob(row, 0).map_err(sql_error)?;
         let item: IntentSnapshot = decode!(&raw, IntentSnapshot);
@@ -2229,7 +2337,7 @@ fn verify(
     drop(stmt);
     insert_input(
         tx,
-        &task,
+        task,
         seq,
         InboxSource::Verification,
         None,
@@ -2239,6 +2347,72 @@ fn verify(
         },
     )?;
     Ok(Some(StoreResult::VerificationRecorded))
+}
+
+fn verify_coding(
+    tx: &Transaction<'_>,
+    task_id: &TaskId,
+    selection: &CodingVerificationSelection,
+    accepted: bool,
+    reason: &BoundedText<MAX_TEXT>,
+    seq: SqlU64,
+) -> Result<Option<StoreResult>, StoreError> {
+    let task = load_task(tx, task_id)?;
+    let raw = read_blob(
+        tx,
+        "SELECT state FROM tasks WHERE task_id=?1",
+        task_id.as_str(),
+    )?
+    .ok_or(StoreError::Integrity)?;
+    let state: AgentState = decode!(&raw, AgentState);
+    let raw = read_blob(
+        tx,
+        "SELECT verification FROM tasks WHERE task_id=?1",
+        task_id.as_str(),
+    )?
+    .ok_or(StoreError::Integrity)?;
+    let snapshot: VerificationSnapshot = decode!(&raw, VerificationSnapshot);
+    if !metron_protocol::coding_runtime::coding_selection_matches(
+        &task, &state, &snapshot, selection,
+    ) {
+        return Ok(None);
+    }
+    for id in [
+        &selection.plan_evidence,
+        &selection.model_evidence,
+        &selection.artifact_evidence,
+    ] {
+        let raw = read_blob(
+            tx,
+            "SELECT value FROM evidence WHERE evidence_id=?1",
+            id.as_str(),
+        )?
+        .ok_or(StoreError::Integrity)?;
+        let evidence: EvidenceSnapshot = decode!(&raw, EvidenceSnapshot);
+        if !evidence.selected
+            || evidence.conflict
+            || evidence.receipt.data().task_id != *task_id
+            || evidence
+                .receipt
+                .evidence_id()
+                .map_err(StoreError::Validation)?
+                != *id
+        {
+            return Ok(None);
+        }
+        if id == &selection.plan_evidence
+            && !metron_protocol::coding_runtime::model_content(&evidence.receipt.data().output)
+                .is_some_and(|content| {
+                    matches!(
+                        metron_protocol::coding::parse_coding_action(content.as_bytes()),
+                        Ok(metron_protocol::coding::CodingAction::Plan { .. })
+                    )
+                })
+        {
+            return Ok(None);
+        }
+    }
+    finish_verification(tx, &task, accepted, reason, seq)
 }
 
 fn claim_reconciliation(
@@ -2598,7 +2772,10 @@ fn validate_input_source(tx: &Transaction<'_>, input: &InboxInput) -> Result<(),
             &check.intent_id == intent_id
                 && matches!(
                     reason.as_str(),
-                    "grant revoked" | "account unavailable" | "budget exceeded"
+                    "grant revoked"
+                        | "account unavailable"
+                        | "budget exceeded"
+                        | "coding action outside grant"
                 )
                 && input.evidence_id.is_none()
         }
@@ -2673,6 +2850,12 @@ fn validate_input_source(tx: &Transaction<'_>, input: &InboxInput) -> Result<(),
             InboxSource::Verification,
             AgentEvent::Verified { accepted, reason },
             StoreOperation::RecordVerification {
+                task_id,
+                accepted: a,
+                reason: r,
+                ..
+            }
+            | StoreOperation::RecordCodingVerification {
                 task_id,
                 accepted: a,
                 reason: r,
@@ -2928,6 +3111,41 @@ fn prior_verification(
         let JournalEvent::CommandCommitted { command, result } = &record.data().event;
         if let (
             StoreOperation::RecordVerification {
+                task_id: t,
+                selection: s,
+                accepted: a,
+                reason: r,
+            },
+            StoreResult::VerificationRecorded,
+        ) = (&command.data().operation, result)
+            && t == task_id
+            && s == selection
+        {
+            if *a != accepted || r != reason {
+                return Err(StoreError::Integrity);
+            }
+            return Ok(Some(StoreResult::VerificationRecorded));
+        }
+    }
+    Ok(None)
+}
+fn prior_coding_verification(
+    tx: &Transaction<'_>,
+    task_id: &TaskId,
+    selection: &CodingVerificationSelection,
+    accepted: bool,
+    reason: &BoundedText<MAX_TEXT>,
+) -> Result<Option<StoreResult>, StoreError> {
+    let mut stmt = tx
+        .prepare("SELECT payload FROM journal ORDER BY seq")
+        .map_err(sql_error)?;
+    let mut rows = stmt.query([]).map_err(sql_error)?;
+    while let Some(row) = rows.next().map_err(sql_error)? {
+        let raw = bounded_blob(row, 0).map_err(sql_error)?;
+        let record: JournalRecord = decode!(&raw, JournalRecord);
+        let JournalEvent::CommandCommitted { command, result } = &record.data().event;
+        if let (
+            StoreOperation::RecordCodingVerification {
                 task_id: t,
                 selection: s,
                 accepted: a,
@@ -3259,6 +3477,7 @@ mod authority_tests {
     }
     fn genesis() -> Genesis {
         Genesis {
+            coding_policy: None,
             mode: EngineMode::Agent,
             engine_version: BoundedText::new("sum-agent/v1").unwrap(),
             require_publication_approval: true,
@@ -6095,6 +6314,7 @@ mod tests {
         })
         .unwrap();
         let genesis = Genesis {
+            coding_policy: None,
             mode: EngineMode::Agent,
             engine_version: BoundedText::new("sum-agent/v1").unwrap(),
             require_publication_approval: false,

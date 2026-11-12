@@ -37,6 +37,7 @@ fn existing_unknown_receipt_cannot_be_reconciled_as_known() {
     let task = TaskId::new("unknown").unwrap();
     let mut store = SqliteStore::create(root.join("runtime.sqlite")).unwrap();
     let genesis = Genesis {
+        coding_policy: None,
         mode: EngineMode::Agent,
         engine_version: BoundedText::new("sum-agent/v1").unwrap(),
         require_publication_approval: false,
@@ -152,6 +153,7 @@ fn unposted_large_usage_is_reported_exactly() {
     let task = TaskId::new("unposted").unwrap();
     let mut store = SqliteStore::create(root.join("runtime.sqlite")).unwrap();
     let genesis = Genesis {
+        coding_policy: None,
         mode: EngineMode::Agent,
         engine_version: BoundedText::new("sum-agent/v1").unwrap(),
         require_publication_approval: false,
@@ -274,6 +276,7 @@ fn stale_known_overrun_reconciles_full_actual_and_breaches() {
     let task = TaskId::new("overrun").unwrap();
     let mut store = SqliteStore::create(root.join("runtime.sqlite")).unwrap();
     let genesis = Genesis {
+        coding_policy: None,
         mode: EngineMode::Agent,
         engine_version: BoundedText::new("sum-agent/v1").unwrap(),
         require_publication_approval: false,
@@ -392,6 +395,7 @@ fn equivalent_multiple_receipts_are_reported_unresolved() {
     let task = TaskId::new("multiple").unwrap();
     let mut store = SqliteStore::create(root.join("runtime.sqlite")).unwrap();
     let genesis = Genesis {
+        coding_policy: None,
         mode: EngineMode::Agent,
         engine_version: BoundedText::new("sum-agent/v1").unwrap(),
         require_publication_approval: false,

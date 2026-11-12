@@ -154,6 +154,7 @@ fn valid_rehashed_chain_cannot_hide_changed_transition() {
     let task =
         metron_testkit::sum_task(task_id.clone(), PrincipalId::new("principal").unwrap()).unwrap();
     let genesis = Genesis {
+        coding_policy: None,
         mode: EngineMode::Agent,
         engine_version: BoundedText::new("sum-agent/v1").unwrap(),
         require_publication_approval: false,
