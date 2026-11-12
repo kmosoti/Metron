@@ -24,13 +24,11 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: |
-            . -> target
-            products/runtime -> target
+          workspaces: . -> target
       - name: Prepare pinned inference dependency cache
-        if: hashFiles('products/runtime/crates/metron-inference-worker/Cargo.toml') != ''
+        if: hashFiles('crates/metron-inference-worker/Cargo.toml') != ''
         run: |
-          cargo fetch --locked --target x86_64-unknown-linux-gnu --manifest-path products/runtime/Cargo.toml
+          cargo fetch --locked --target x86_64-unknown-linux-gnu
           python3 tools/prepare-mistralrs-cache.py --target x86_64-unknown-linux-gnu
       - name: Format
         run: cargo fmt --all --check
@@ -38,12 +36,6 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Tests (unit + architecture invariants)
         run: cargo test --workspace
-      - name: Runtime format, clippy and tests
-        working-directory: products/runtime
-        run: |
-          cargo fmt --all --check
-          cargo clippy --workspace --all-targets -- -D warnings
-          cargo test --workspace
       - name: Smoke run
         run: |
           cargo run -p metron-cli -- run experiments/manifests/smoke-majority3.json --results target/results

@@ -21,14 +21,14 @@ The executable evidence is retained in the product tests:
 
 | Property | Reproducible evidence |
 | --- | --- |
-| Pure, bounded decisions | [Agent tests](../../products/runtime/crates/metron-agent/src/lib.rs), including decision caps and uncertain outcomes |
-| Transactional accounting and recovery | [SQLite tests](../../products/runtime/crates/metron-store-sqlite/src/engine.rs), including concurrency, stale leases, exact unposted vectors, collisions and reconciliation fences |
-| Opaque consumed execution authority | [Policy doctests](../../products/runtime/crates/metron-harness/src/policy.rs), external consumer plus construction, cloning, deserialization, default and reuse failures |
-| Process-kill recovery | [Crash tests](../../products/runtime/crates/metron-host/tests/crash.rs), killing actual children after outbox, admission, synced publication, receipt/inbox and verification commits |
-| Replay beyond hash validity | [Behavioral replay negative control](../../products/runtime/crates/metron-host/tests/behavior_replay.rs), changing a transition and recomputing a valid journal chain |
-| Read-only audits and separate artifact checking | [CLI audit tests](../../products/runtime/crates/metron-host/tests/cli_audit.rs), corrupted artifact/cache and bounded audit capacity |
-| Approval grants no execution by itself | [CLI approval test](../../products/runtime/crates/metron-host/tests/cli_workflow.rs) |
-| Unknown and large usage remain visible | [Reconciliation tests](../../products/runtime/crates/metron-host/tests/reconcile_unknown.rs), including exact decimal `184467440737095516160` |
+| Pure, bounded decisions | [Agent tests](../../crates/metron-agent/src/lib.rs), including decision caps and uncertain outcomes |
+| Transactional accounting and recovery | [SQLite tests](../../crates/metron-store-sqlite/src/engine.rs), including concurrency, stale leases, exact unposted vectors, collisions and reconciliation fences |
+| Opaque consumed execution authority | [Policy doctests](../../crates/metron-harness/src/policy.rs), external consumer plus construction, cloning, deserialization, default and reuse failures |
+| Process-kill recovery | [Crash tests](../../crates/metron-host/tests/crash.rs), killing actual children after outbox, admission, synced publication, receipt/inbox and verification commits |
+| Replay beyond hash validity | [Behavioral replay negative control](../../crates/metron-host/tests/behavior_replay.rs), changing a transition and recomputing a valid journal chain |
+| Read-only audits and separate artifact checking | [CLI audit tests](../../crates/metron-host/tests/cli_audit.rs), corrupted artifact/cache and bounded audit capacity |
+| Approval grants no execution by itself | [CLI approval test](../../crates/metron-host/tests/cli_workflow.rs) |
+| Unknown and large usage remain visible | [Reconciliation tests](../../crates/metron-host/tests/reconcile_unknown.rs), including exact decimal `184467440737095516160` |
 
 An independent consumer of the public store API additionally checked two SQLite
 connections competing for the final principal budget unit: exactly one admission

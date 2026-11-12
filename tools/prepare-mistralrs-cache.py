@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Repair the pinned SDK's missing build-script Git metadata watch path.
 
-Run after fetching the runtime's locked dependencies. This changes only an
+Run after fetching the workspace's locked dependencies. This changes only an
 ignored symlink in Cargo's Git checkout; no SDK source files are modified.
 """
 
@@ -53,7 +53,7 @@ def prepare(package):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--manifest-path", type=Path, default=Path(__file__).resolve().parents[1] / "products/runtime/Cargo.toml")
+    parser.add_argument("--manifest-path", type=Path, default=Path(__file__).resolve().parents[1] / "Cargo.toml")
     parser.add_argument("--target", help="target triple (defaults to rustc's host)")
     args = parser.parse_args()
     target = args.target

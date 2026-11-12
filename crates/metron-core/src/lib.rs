@@ -26,6 +26,8 @@
 //! * [`checkpoint::EpisodeCheckpoint`] — everything needed to resume an
 //!   episode that suspended waiting for an external service.
 
+mod canonical;
+
 pub mod bits;
 pub mod capability;
 pub mod checkpoint;

@@ -234,7 +234,7 @@ impl JournalEntry {
             seq: u64,
             event: JournalEvent,
         }
-        let bytes = serde_json::to_vec(&Body {
+        let bytes = crate::canonical::to_vec(&Body {
             seq,
             event: event.replay_projection(),
         })
@@ -408,6 +408,59 @@ impl Episode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn journal_question_maps_preserve_legacy_sorted_body_and_chain_hash() {
+        let event = |params| JournalEvent::EpisodeStarted {
+            episode: EpisodeId(1),
+            inquiry: InquiryId(2),
+            question: Question {
+                kind: "test".into(),
+                statement: "Q".into(),
+                params,
+                answer_frame: FrameId::from("answer"),
+            },
+            manifest_hash: ContentHash::GENESIS,
+            seed: 7,
+            code_version: "v".into(),
+        };
+        let first: serde_json::Value =
+            serde_json::from_str(r#"{"z":1,"a":{"z":2,"a":3}}"#).unwrap();
+        let second: serde_json::Value =
+            serde_json::from_str(r#"{"a":{"a":3,"z":2},"z":1}"#).unwrap();
+        let first = event(first);
+        let second = event(second);
+        #[derive(Serialize)]
+        struct Body<'a> {
+            seq: u64,
+            event: &'a JournalEvent,
+        }
+        let expected = br#"{"seq":0,"event":{"event":"episode_started","episode":1,"inquiry":2,"question":{"kind":"test","statement":"Q","params":{"a":{"a":3,"z":2},"z":1},"answer_frame":"answer"},"manifest_hash":"0000000000000000000000000000000000000000000000000000000000000000","seed":7,"code_version":"v"}}"#;
+        assert_eq!(
+            crate::canonical::to_vec(&Body {
+                seq: 0,
+                event: &first
+            })
+            .unwrap(),
+            expected
+        );
+        assert_eq!(
+            crate::canonical::to_vec(&Body {
+                seq: 0,
+                event: &second
+            })
+            .unwrap(),
+            expected
+        );
+        let a = JournalEntry::seal(0, 10, first, ContentHash::GENESIS);
+        let b = JournalEntry::seal(0, 99, second, ContentHash::GENESIS);
+        assert_eq!(
+            a.hash.to_hex(),
+            "9fa85d7119f243e9170a74b726d724e0f498fc61a089d03898aa6f38d92568eb"
+        );
+        assert_eq!(a.hash, b.hash);
+        assert!(a.verify() && b.verify());
+    }
 
     #[test]
     fn chain_verifies_and_detects_tampering() {

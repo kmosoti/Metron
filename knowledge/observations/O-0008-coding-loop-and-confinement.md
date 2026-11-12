@@ -17,7 +17,7 @@ these observations do not establish alpha.1 readiness.**
 
 Implementation baseline: `15e461c741025346c16889aadef9699c72beeeca`, with
 subsequent regression checks recorded alongside their source changes. The
-[coding entry point](../../products/runtime/coding.md) documents the executable
+[coding entry point](../../docs/coding.md) documents the executable
 interface; [ADR-0022](../../docs/adr/0022-alpha1-coding-and-memory.md) diagrams the
 authority and verification boundaries. Operational inputs, commands, binary
 hashes, journals and test logs are retained in the local alpha1 artifact record.
