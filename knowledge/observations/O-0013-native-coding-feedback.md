@@ -76,6 +76,12 @@ reservation retained. Chain/accounting/projection and behavior replay remained
 valid; no edit, freeze or evaluator occurred. The unanswered execution remains
 unresolved and must not be redispatched as though it had never run.
 
+A clarified V8 calculator follow-up also kept the empty workspace and the
+same engine/budgets. It planned, then proposed List with dot three times despite
+explicit null-root guidance. It ended rejected after four model requests and
+zero tools, with no reservations or hold and valid audit/replay. Clarifying the
+public objective alone did not resolve this directory mismatch in that attempt.
+
 ## Bounded thinking-mode diagnostic
 
 A separate model-only probe submitted one actual prior Read/action/result pair
