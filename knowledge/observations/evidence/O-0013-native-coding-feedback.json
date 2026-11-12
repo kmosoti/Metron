@@ -376,7 +376,8 @@
         "run.py": "3a906e120f3d47bfd8adfa1c0a09d54341d9ef609851f9c2fc1b20cc1b56fd13",
         "run-metadata.json": "8210b80dcd3ea60f96644d942f9ebe33204c040fa6cade3d53a5df1f77f9fdef",
         "result.json": "f5bdbc136494ed920bb6d79dce5e77059d7bc0192948b7a040709bfec01fe617"
-      }
+      },
+      "independent_audit_sha256": "11b4f7837476c6238a90b4c016fea2f9d3bdebc51fadfc027993d950aa065bda"
     }
   ]
 }
