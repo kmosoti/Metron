@@ -357,6 +357,7 @@ impl LocalInferenceDriver {
                                 context,
                                 profile_digest,
                                 native_tools,
+                                ..
                             } = step.as_ref()
                             else {
                                 return None;
