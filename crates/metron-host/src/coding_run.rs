@@ -45,6 +45,8 @@ struct Settings {
     mode: EngineMode,
     #[serde(default = "legacy_context_version")]
     context_version: u8,
+    #[serde(default)]
+    resource_budget_required: bool,
 }
 fn legacy_context_version() -> u8 {
     1
@@ -824,6 +826,45 @@ fn event_capture(path: &Path) -> Result<metron_inference_local::driver::EventSin
         }
     }))
 }
+fn external_resource_budget_path(path: &Path, workspace: &Path) -> Result<PathBuf, String> {
+    // A model may edit any workspace file, including a formerly operator-written policy.
+    // Resolve both boundaries before accepting policy contents; budgeted execution requires
+    // an existing workspace so this check never creates state merely to validate authority.
+    let workspace = fs::canonicalize(workspace)
+        .map_err(|e| format!("resource budget requires an existing workspace: {e}"))?;
+    if !workspace.is_dir() {
+        return Err("resource budget requires a workspace directory".into());
+    }
+    let resolved = fs::canonicalize(path).map_err(|e| format!("resource budget path: {e}"))?;
+    if resolved.starts_with(&workspace) {
+        return Err("resource budget must resolve outside the mutable workspace".into());
+    }
+    Ok(resolved)
+}
+fn resource_budget_flag(args: &[String]) -> Result<Option<String>, String> {
+    if args
+        .iter()
+        .any(|arg| arg.starts_with("--resource-budget") && arg != "--resource-budget")
+    {
+        return Err("expected --resource-budget FILE".into());
+    }
+    let positions = args
+        .iter()
+        .enumerate()
+        .filter(|(_, arg)| arg.as_str() == "--resource-budget")
+        .map(|(i, _)| i)
+        .collect::<Vec<_>>();
+    match positions.as_slice() {
+        [] => Ok(None),
+        [i] => args
+            .get(i + 1)
+            .filter(|value| !value.is_empty() && !value.starts_with("--"))
+            .cloned()
+            .map(Some)
+            .ok_or("--resource-budget requires FILE".into()),
+        _ => Err("duplicate --resource-budget".into()),
+    }
+}
 fn flag(args: &[String], name: &str) -> Option<String> {
     args.windows(2)
         .find(|pair| pair[0] == name)
@@ -1196,6 +1237,7 @@ fn operator(args: &[String]) -> Result<serde_json::Value, String> {
 }
 
 fn run(args: &[String]) -> Result<serde_json::Value, String> {
+    let resource_budget_path = resource_budget_flag(args)?;
     let action = args.first().map(String::as_str).unwrap_or("");
     if matches!(
         action,
@@ -1262,7 +1304,7 @@ fn run(args: &[String]) -> Result<serde_json::Value, String> {
             return Err("legacy execution removed; historical journals are read-only".into());
         }
     }
-    let settings: Settings = if fresh {
+    let mut settings: Settings = if fresh {
         if !args.iter().any(|a| a == "--experimental") {
             return Err("unqualified coding attempts require --experimental".into());
         }
@@ -1272,6 +1314,7 @@ fn run(args: &[String]) -> Result<serde_json::Value, String> {
         let context_version =
             context_version_for_recipe(profile.as_ref().map(|p| p.prompt_recipe_digest.as_str()));
         Settings {
+            resource_budget_required: resource_budget_path.is_some(),
             context_version,
             task: read(Path::new(&required(args, "--task")?))?,
             policy: read(Path::new(&required(args, "--policy")?))?,
@@ -1293,6 +1336,38 @@ fn run(args: &[String]) -> Result<serde_json::Value, String> {
     } else {
         read(&run_dir.join("coding-settings.json"))?
     };
+    if action != "audit" && settings.resource_budget_required && resource_budget_path.is_none() {
+        return Err("this run requires --resource-budget FILE on every execution/resume".into());
+    }
+    let resource_policy = if action != "audit" {
+        resource_budget_path
+            .as_ref()
+            .map(|path| {
+                let resolved = external_resource_budget_path(
+                    Path::new(path),
+                    Path::new(settings.policy.workspace_root.as_str()),
+                )?;
+                let profile = settings
+                    .profile
+                    .as_ref()
+                    .ok_or("resource budget requires native profile")?;
+                let policy = crate::resource_budget::policy(
+                    &resolved,
+                    settings.task.data().task_id.clone(),
+                    settings.task.data().principal_id.clone(),
+                )?;
+                policy
+                    .validate(profile)
+                    .map_err(|e| format!("resource budget: {e:?}"))?;
+                Ok::<_, String>(policy)
+            })
+            .transpose()?
+    } else {
+        None
+    };
+    let require_budget_update =
+        !fresh && !settings.resource_budget_required && resource_budget_path.is_some();
+    settings.resource_budget_required |= resource_budget_path.is_some();
     settings.validate(action != "audit")?;
     let workspace = PathBuf::from(settings.policy.workspace_root.as_str());
     if !workspace.is_absolute()
@@ -1350,6 +1425,17 @@ fn run(args: &[String]) -> Result<serde_json::Value, String> {
             .map_err(|e| format!("task: {e:?}"))?,
         )?;
     }
+    if require_budget_update && action != "audit" {
+        let pending = run_dir.join("coding-settings-budget-pending.json");
+        write_new(
+            &pending,
+            &canonical_bytes(&settings, MAX_INTERNAL).map_err(|e| format!("settings: {e:?}"))?,
+        )?;
+        fs::rename(&pending, run_dir.join("coding-settings.json")).map_err(|e| e.to_string())?;
+        File::open(&run_dir)
+            .and_then(|dir| dir.sync_all())
+            .map_err(|e| e.to_string())?;
+    }
     let store_path = run_dir.join("runtime.sqlite");
     let mut store = if fresh {
         SqliteStore::create(&store_path)
@@ -1405,6 +1491,10 @@ fn run(args: &[String]) -> Result<serde_json::Value, String> {
             ),
             _ => None,
         };
+        let native = native.map(|driver| match resource_policy {
+            Some(policy) => driver.with_resource_budget(policy),
+            None => driver,
+        });
         // Never replay a script from the start: resume consumes only replies
         // after model receipts already committed for this task.
         let observed = projection.task_account.posted.model_requests.get() as usize;
@@ -1557,6 +1647,7 @@ mod tests {
             max_processes: 16,
         };
         let settings = Settings {
+            resource_budget_required: false,
             context_version: 8,
             task,
             policy,
@@ -2309,6 +2400,109 @@ mod tests {
         drop(driver);
         drop(store);
         fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn budget_requirement_survives_resume_and_missing_flag_never_mutates_journal() {
+        let (root, mut settings, store) = setup(
+            "budget-required",
+            EngineMode::Harness,
+            vec![CodingTool::Finish],
+            false,
+        );
+        settings.resource_budget_required = true;
+        write_new(
+            &root.join("run/coding-settings.json"),
+            &canonical_bytes(&settings, MAX_INTERNAL).unwrap(),
+        )
+        .unwrap();
+        drop(store);
+        let db = root.join("run/runtime.sqlite");
+        let before = fs::read(&db).unwrap();
+        let args = vec![
+            "resume".into(),
+            "--run-dir".into(),
+            root.join("run").to_str().unwrap().into(),
+        ];
+        assert!(
+            run(&args)
+                .unwrap_err()
+                .contains("requires --resource-budget")
+        );
+        assert_eq!(fs::read(&db).unwrap(), before);
+        assert!(!root.join("run/worker-events-revision-0.jsonl").exists());
+        let mut malformed = args;
+        malformed.push("--resource-budget".into());
+        assert!(run(&malformed).unwrap_err().contains("requires FILE"));
+        assert_eq!(fs::read(&db).unwrap(), before);
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn external_budget_resolution_reads_the_external_target_not_the_mutable_alias() {
+        use std::os::unix::fs::symlink;
+        let root = std::env::temp_dir().join(format!(
+            "metron-external-budget-resolution-{}",
+            std::process::id()
+        ));
+        fs::create_dir(&root).unwrap();
+        let workspace = root.join("workspace");
+        fs::create_dir(&workspace).unwrap();
+        let external = root.join("operator-policy.json");
+        fs::write(&external, b"operator bounds").unwrap();
+        let alias = workspace.join("alias.json");
+        symlink(&external, &alias).unwrap();
+        let resolved = external_resource_budget_path(&alias, &workspace).unwrap();
+        assert_eq!(resolved, fs::canonicalize(&external).unwrap());
+        fs::remove_file(&alias).unwrap();
+        fs::write(&alias, b"replacement model content").unwrap();
+        assert_eq!(fs::read(&resolved).unwrap(), b"operator bounds");
+        fs::write(&external, b"updated operator bounds").unwrap();
+        assert_eq!(
+            fs::read(external_resource_budget_path(&external, &workspace).unwrap()).unwrap(),
+            b"updated operator bounds"
+        );
+        assert!(external_resource_budget_path(&external, &root.join("missing-workspace")).is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn invalid_budget_opt_in_does_not_rewrite_existing_run_settings() {
+        let (root, settings, store) = setup(
+            "invalid-budget-opt-in",
+            EngineMode::Harness,
+            vec![CodingTool::Finish],
+            false,
+        );
+        let path = root.join("run/coding-settings.json");
+        write_new(&path, &canonical_bytes(&settings, MAX_INTERNAL).unwrap()).unwrap();
+        drop(store);
+        let before_settings = fs::read(&path).unwrap();
+        let before_journal = fs::read(root.join("run/runtime.sqlite")).unwrap();
+        let result = run(&[
+            "resume".into(),
+            "--run-dir".into(),
+            root.join("run").to_str().unwrap().into(),
+            "--resource-budget".into(),
+            root.join("missing.json").to_str().unwrap().into(),
+        ]);
+        assert!(result.is_err());
+        assert_eq!(fs::read(&path).unwrap(), before_settings);
+        assert_eq!(
+            fs::read(root.join("run/runtime.sqlite")).unwrap(),
+            before_journal
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn resource_budget_flag_rejects_duplicates_and_flag_values() {
+        assert!(resource_budget_flag(&["--resource-budget".into(), "--worker".into()]).is_err());
+        assert!(
+            resource_budget_flag(&[
+                "--resource-budget".into(),
+                "a".into(),
+                "--resource-budget".into(),
+                "b".into()
+            ])
+            .is_err()
+        );
     }
     #[test]
     fn audit_is_read_only_and_does_not_require_the_original_workspace() {

@@ -75,10 +75,11 @@ fn fixture(
     ));
     fs::create_dir(&path).unwrap();
     let worker = path.join("fake-worker");
+    let script_mode = mode.strip_prefix("budget_").unwrap_or(mode);
     let script = format!(
         r##"#!/usr/bin/python3
 import json,struct,sys,os,time
-mode={mode:?}
+mode={script_mode:?}
 def read():
  h=sys.stdin.buffer.read(4)
  if len(h)!=4: sys.exit(0)
@@ -106,7 +107,11 @@ time.sleep(1)
     );
     fs::write(&worker, script).unwrap();
     fs::set_permissions(&worker, fs::Permissions::from_mode(0o700)).unwrap();
-    let profile = profile(&worker, concurrency);
+    let profile = if mode.starts_with("budget_") {
+        budget_profile(&worker, concurrency)
+    } else {
+        profile(&worker, concurrency)
+    };
     let session = QualificationSession::create(
         &path,
         content_digest(path.to_string_lossy().as_bytes()),
@@ -335,4 +340,222 @@ fn chunk_prefill_configuration_is_opt_in_and_bounded() {
     p.scoped_prefix_cache = true;
     assert!(p.validate().is_ok());
     assert!(kv_target(&p).is_err());
+}
+
+fn budget_profile(worker: &std::path::Path, concurrency: u16) -> LocalProfile {
+    let mut p = profile(worker, concurrency);
+    p.device = LocalDevice::Cuda {
+        uuid: BoundedText::new("GPU-test").unwrap(),
+        model: BoundedText::new("test").unwrap(),
+        memory_bytes: SqlU64::new(1 << 30).unwrap(),
+        driver: BoundedText::new("test").unwrap(),
+    };
+    p.chunked_prefill = true;
+    p.cache_target_bytes = Some(SqlU64::new(128 << 20).unwrap());
+    p
+}
+fn budget_policy(
+    worker: &std::path::Path,
+    concurrency: u16,
+    pool: metron_inference_local::context_budget::DeviceBudget,
+) -> metron_inference_local::context_budget::BudgetPolicy {
+    use metron_inference_local::context_budget::*;
+    let p = budget_profile(worker, concurrency);
+    BudgetPolicy {
+        pool,
+        bounds: ResidentBounds {
+            scope: ResourceScope {
+                profile_digest: p.digest().unwrap(),
+                device_uuid: "GPU-test".into(),
+            },
+            weights: Some(100),
+            recurrent: Some(100),
+            workspace: Some(100),
+            runtime: Some(100),
+            fixed_kv_pool_bytes: Some(128 << 20),
+            kv_usable_tokens_lower_bound: Some(2048 * u64::from(concurrency)),
+            margin: 100,
+            provenance: "synthetic fake-worker bounds only".into(),
+            disjoint_upper_bounds: true,
+        },
+        task_id: metron_protocol::TaskId::new("unused").unwrap(),
+        principal_id: metron_protocol::PrincipalId::new("unused").unwrap(),
+    }
+}
+#[test]
+fn budget_scope_and_unknown_bounds_deny_before_spawn() {
+    use metron_inference_local::context_budget::*;
+    for unknown in [false, true] {
+        let (path, driver, mut session, spawned) = fixture("budget_reject", 1);
+        let pool = DeviceBudget::new("GPU-test".into(), 1 << 30, 0).unwrap();
+        let mut policy = budget_policy(&path.join("fake-worker"), 1, pool.clone());
+        let permits = session.admit(&[("calibration-sum-02", 0, false)]).unwrap();
+        policy.task_id = permits[0].request().task_id.clone();
+        if unknown {
+            policy.principal_id = permits[0].request().principal_id.clone();
+            policy.bounds.weights = None;
+        }
+        let mut driver = driver.with_resource_budget(policy);
+        assert!(matches!(
+            driver.execute_qualification_cohort(permits).as_slice(),
+            [QualificationOutcome::Rejected(_)]
+        ));
+        assert!(!spawned.load(Ordering::Acquire));
+        assert_eq!(pool.reserved_bytes(), Ok(0));
+        drop(driver);
+        drop(session);
+        fs::remove_dir_all(path).unwrap();
+    }
+}
+#[test]
+fn budget_retains_warm_worker_residency_and_rechecks_scope() {
+    use metron_inference_local::context_budget::*;
+    let (path, driver, mut session, spawned) = fixture("budget_reject", 1);
+    let pool = DeviceBudget::new("GPU-test".into(), 1 << 30, 0).unwrap();
+    let mut policy = budget_policy(&path.join("fake-worker"), 1, pool.clone());
+    let permits = session.admit(&[("calibration-sum-02", 0, false)]).unwrap();
+    policy.task_id = permits[0].request().task_id.clone();
+    policy.principal_id = permits[0].request().principal_id.clone();
+    let first_dispatch = permits[0].request().dispatch_id.clone();
+    let mut driver = driver.with_resource_budget(policy.clone());
+    assert!(matches!(
+        driver.execute_qualification_cohort(permits).as_slice(),
+        [QualificationOutcome::Rejected(_)]
+    ));
+    assert!(spawned.load(Ordering::Acquire));
+    assert_eq!(pool.reserved_bytes(), Ok((128 << 20) + 500));
+    session
+        .settle(
+            &[metron_inference_local::qualification::QualificationResult {
+                dispatch_id: first_dispatch,
+                observation: None,
+                rejection: Some(BoundedText::new("before submission").unwrap()),
+            }],
+        )
+        .unwrap();
+    // Changing policy on a warm process must not bypass the cohort gate.
+    policy.principal_id = metron_protocol::PrincipalId::new("other").unwrap();
+    driver = driver.with_resource_budget(policy);
+    let permits = session.admit(&[("calibration-tool-00", 0, false)]).unwrap();
+    assert!(matches!(
+        driver.execute_qualification_cohort(permits).as_slice(),
+        [QualificationOutcome::Rejected(_)]
+    ));
+    assert_eq!(pool.reserved_bytes(), Ok((128 << 20) + 500));
+    driver.shutdown();
+    assert_eq!(pool.reserved_bytes(), Ok(0));
+    drop(driver);
+    drop(session);
+    fs::remove_dir_all(path).unwrap();
+}
+
+#[test]
+fn two_drivers_share_one_resident_envelope_atomically() {
+    use metron_inference_local::context_budget::*;
+    let envelope = (128 << 20) + 500;
+    let pool = DeviceBudget::new("GPU-test".into(), envelope, 0).unwrap();
+    let barrier = Arc::new(std::sync::Barrier::new(2));
+    let mut threads = Vec::new();
+    for _ in 0..2 {
+        let (path, driver, mut session, spawned) = fixture("budget_reject", 1);
+        let permits = session.admit(&[("calibration-sum-02", 0, false)]).unwrap();
+        let mut policy = budget_policy(&path.join("fake-worker"), 1, pool.clone());
+        policy.task_id = permits[0].request().task_id.clone();
+        policy.principal_id = permits[0].request().principal_id.clone();
+        let mut driver = driver.with_resource_budget(policy);
+        let barrier = barrier.clone();
+        threads.push(std::thread::spawn(move || {
+            barrier.wait();
+            let result = driver.execute_qualification_cohort(permits);
+            assert!(matches!(
+                result.as_slice(),
+                [QualificationOutcome::Rejected(_)]
+            ));
+            (path, driver, session, spawned)
+        }));
+    }
+    let workers = threads
+        .into_iter()
+        .map(|t| t.join().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        workers
+            .iter()
+            .filter(|(_, _, _, spawned)| spawned.load(Ordering::Acquire))
+            .count(),
+        1
+    );
+    assert_eq!(pool.reserved_bytes(), Ok(envelope));
+    for (path, driver, session, _) in workers {
+        drop(driver);
+        drop(session);
+        fs::remove_dir_all(path).unwrap();
+    }
+    assert_eq!(pool.reserved_bytes(), Ok(0));
+}
+
+#[test]
+fn component_upper_bounds_reject_overlap_unknown_overflow_and_too_small_pool() {
+    use metron_inference_local::context_budget::*;
+    let worker = std::env::current_exe().unwrap();
+    let profile = budget_profile(&worker, 1);
+    let pool = DeviceBudget::new("GPU-test".into(), 1 << 30, 0).unwrap();
+    let mut policy = budget_policy(&worker, 1, pool);
+    assert_eq!(
+        resident_bytes(&profile, &policy.bounds),
+        Ok((128 << 20) + 500)
+    );
+    policy.bounds.kv_usable_tokens_lower_bound = None;
+    assert_eq!(
+        resident_bytes(&profile, &policy.bounds),
+        Err(BudgetError::Unqualified)
+    );
+    policy.bounds.kv_usable_tokens_lower_bound = Some(2047);
+    assert_eq!(
+        resident_bytes(&profile, &policy.bounds),
+        Err(BudgetError::Capacity)
+    );
+    policy.bounds.kv_usable_tokens_lower_bound = Some(32768);
+    assert_eq!(
+        resident_bytes(&profile, &policy.bounds),
+        Err(BudgetError::Capacity)
+    );
+    policy.bounds.kv_usable_tokens_lower_bound = Some(2048);
+    let mut unaligned_profile = profile.clone();
+    unaligned_profile.context_tokens = 2049;
+    policy.bounds.scope.profile_digest = unaligned_profile.digest().unwrap();
+    policy.bounds.kv_usable_tokens_lower_bound = Some(2049);
+    assert_eq!(
+        resident_bytes(&unaligned_profile, &policy.bounds),
+        Err(BudgetError::Capacity)
+    );
+    policy.bounds.kv_usable_tokens_lower_bound = Some(2080);
+    assert_eq!(
+        resident_bytes(&unaligned_profile, &policy.bounds),
+        Ok((128 << 20) + 500)
+    );
+    policy.bounds.scope.profile_digest = profile.digest().unwrap();
+    policy.bounds.kv_usable_tokens_lower_bound = Some(2048);
+    policy.bounds.weights = Some(u64::MAX);
+    assert_eq!(
+        resident_bytes(&profile, &policy.bounds),
+        Err(BudgetError::Overflow)
+    );
+    policy.bounds.weights = None;
+    assert_eq!(
+        resident_bytes(&profile, &policy.bounds),
+        Err(BudgetError::Unqualified)
+    );
+    policy.bounds.weights = Some(100);
+    policy.bounds.disjoint_upper_bounds = false;
+    assert_eq!(
+        resident_bytes(&profile, &policy.bounds),
+        Err(BudgetError::Unqualified)
+    );
+    policy.bounds.disjoint_upper_bounds = true;
+    policy.bounds.fixed_kv_pool_bytes = Some(1);
+    assert_eq!(
+        resident_bytes(&profile, &policy.bounds),
+        Err(BudgetError::Capacity)
+    );
 }

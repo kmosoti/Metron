@@ -178,6 +178,15 @@ metron-runtime coding identities --catalog catalog.json --profile profile.json -
 metron-runtime coding experiment --experimental --run-dir /absolute/private/run --task task.json --policy policy.json --catalog catalog.json --acceptance acceptance.json --profile profile.json --worker /absolute/pinned/metron-inference-worker --artifact /absolute/models/LFM3-1.7B-Q4_K_M.gguf --mode agent
 ```
 
+Native execution can optionally add `--resource-budget budget.json`. This
+enables conditional resident-worker admission only when all provenance-backed
+upper bounds are supplied; see [context planning and resource-budgeted coding](architecture/context-budget.md).
+The flag does not raise the profile's context limit or establish model quality.
+Keep the budget file outside the model-writable workspace: the host resolves
+the workspace and policy path canonically, rejects a policy resolving inside
+the workspace, and reads from the resolved external path. Budgeted mode
+requires the workspace to exist already.
+
 Use `--mode harness` for the standalone caller. `--script script.json` replaces
 the profile/worker/artifact arguments for controlled tests; it uses a distinct
 model identity and never represents native generation. Native attempts require
@@ -279,6 +288,12 @@ present. Resume never silently redispatches an uncertain effect. Outstanding
 reservations remain held. An unresolved process marker prevents workspace reuse
 until cleanup has been established by an operator; deleting a marker alone is
 not cleanup evidence.
+
+If a run was created with `--resource-budget`, every later execution or resume
+must supply a valid budget file; omission is rejected. Host settings retain this
+requirement, while the file contents remain invocation-local and are revalidated
+against the selected profile and device. A previously unbudgeted run can opt in
+on resume. See [context planning and resource-budgeted coding](architecture/context-budget.md).
 
 ## Local verification
 

@@ -102,6 +102,21 @@ fn write_new(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     result
 }
 pub fn execute(args: &[String]) -> ExitCode {
+    if args.first().is_some_and(|a| a == "budget") {
+        let result = options(&args[1..], &["--input"])
+            .ok_or("expected model budget --input FILE".to_string())
+            .and_then(|opts| crate::resource_budget::calculate(Path::new(&opts["--input"])));
+        return match result {
+            Ok(report) => {
+                println!("{report}");
+                ExitCode::SUCCESS
+            }
+            Err(error) => {
+                eprintln!("{error}");
+                ExitCode::FAILURE
+            }
+        };
+    }
     if args.first().is_some_and(|arg| arg == "compare") {
         let args = &args[1..];
         let mut opts = std::collections::BTreeMap::new();
