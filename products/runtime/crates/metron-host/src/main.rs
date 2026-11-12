@@ -1,5 +1,8 @@
 //! Composition root for the scripted alpha.0 runtime.
 #![forbid(unsafe_code)]
+mod coding_acceptance;
+mod coding_run;
+mod coding_tools;
 mod comparison_runner;
 mod hardware;
 mod installer;
@@ -30,7 +33,59 @@ use metron_protocol::{
 use metron_store_sqlite::SqliteStore;
 use std::{env, fs, io::Read, path::PathBuf, process::ExitCode};
 
-fn cognition(genesis: &Genesis) -> Result<Box<dyn Cognition>, (CliOutcome, &'static str)> {
+fn cognition(
+    genesis: &Genesis,
+    task: &Task,
+) -> Result<Box<dyn Cognition>, (CliOutcome, &'static str)> {
+    if let Some(task) = task.coding() {
+        let policy = genesis
+            .coding_policy
+            .as_deref()
+            .ok_or((CliOutcome::IntegrityFailure, "missing coding policy"))?;
+        return match (genesis.mode, genesis.engine_version.as_str()) {
+            (EngineMode::Agent, "coding-agent/v3") => {
+                metron_agent::CodingAgent::legacy_v3(task, policy)
+                    .map(|c| Box::new(c) as Box<dyn Cognition>)
+                    .map_err(|_| (CliOutcome::IntegrityFailure, "invalid coding policy"))
+            }
+            (EngineMode::Harness, "coding-harness/v3") => {
+                metron_harness::planner::CodingPlanner::legacy_v3(task, policy)
+                    .map(|c| Box::new(c) as Box<dyn Cognition>)
+                    .map_err(|_| (CliOutcome::IntegrityFailure, "invalid coding policy"))
+            }
+            (EngineMode::Agent, "coding-agent/v3.1") => {
+                metron_agent::CodingAgent::legacy_v3_1(task, policy)
+                    .map(|c| Box::new(c) as Box<dyn Cognition>)
+                    .map_err(|_| (CliOutcome::IntegrityFailure, "invalid coding policy"))
+            }
+            (EngineMode::Harness, "coding-harness/v3.1") => {
+                metron_harness::planner::CodingPlanner::legacy_v3_1(task, policy)
+                    .map(|c| Box::new(c) as Box<dyn Cognition>)
+                    .map_err(|_| (CliOutcome::IntegrityFailure, "invalid coding policy"))
+            }
+            (EngineMode::Agent, "coding-agent/v3.2") => {
+                metron_agent::CodingAgent::legacy_v3_2(task, policy)
+                    .map(|c| Box::new(c) as Box<dyn Cognition>)
+                    .map_err(|_| (CliOutcome::IntegrityFailure, "invalid coding policy"))
+            }
+            (EngineMode::Harness, "coding-harness/v3.2") => {
+                metron_harness::planner::CodingPlanner::legacy_v3_2(task, policy)
+                    .map(|c| Box::new(c) as Box<dyn Cognition>)
+                    .map_err(|_| (CliOutcome::IntegrityFailure, "invalid coding policy"))
+            }
+            (EngineMode::Agent, "coding-agent/v3.3") => {
+                metron_agent::CodingAgent::new(task, policy)
+                    .map(|c| Box::new(c) as Box<dyn Cognition>)
+                    .map_err(|_| (CliOutcome::IntegrityFailure, "invalid coding policy"))
+            }
+            (EngineMode::Harness, "coding-harness/v3.3") => {
+                metron_harness::planner::CodingPlanner::new(task, policy)
+                    .map(|c| Box::new(c) as Box<dyn Cognition>)
+                    .map_err(|_| (CliOutcome::IntegrityFailure, "invalid coding policy"))
+            }
+            _ => Err((CliOutcome::IntegrityFailure, "unknown coding engine")),
+        };
+    }
     match (
         genesis.mode,
         genesis.engine_version.as_str(),
@@ -304,6 +359,12 @@ fn action(command: CliCommand, args: &[String]) -> Result<CliReport, (CliOutcome
             .map_err(|_| (CliOutcome::InvalidInput, "cannot read task"))?;
         let mut task: Task =
             parse_envelope(&bytes).map_err(|_| (CliOutcome::InvalidInput, "invalid task"))?;
+        if task.coding().is_some() {
+            return Err((
+                CliOutcome::InvalidInput,
+                "coding contract cannot select the legacy sum family",
+            ));
+        }
         if local.is_some() {
             let mut data = task.data().clone();
             data.schema_version = SchemaVersion::V2;
@@ -345,6 +406,7 @@ fn action(command: CliCommand, args: &[String]) -> Result<CliReport, (CliOutcome
             (EngineMode::Harness, true) => "sum-local-harness/v2",
         };
         let genesis = Genesis {
+            coding_policy: None,
             mode,
             engine_version: BoundedText::new(version)
                 .map_err(|_| (CliOutcome::InvalidInput, "invalid version"))?,
@@ -469,11 +531,12 @@ fn action(command: CliCommand, args: &[String]) -> Result<CliReport, (CliOutcome
             }
         }
     } else if matches!(command, CliCommand::Run | CliCommand::Resume) {
-        let genesis = {
+        let projection = {
             let mut snapshot = store.audit().map_err(audit_error)?;
-            snapshot.projection(&task_id).map_err(audit_error)?.genesis
+            snapshot.projection(&task_id).map_err(audit_error)?
         };
-        let engine = cognition(&genesis)?;
+        let genesis = projection.genesis;
+        let engine = cognition(&genesis, &projection.task)?;
         if let Some(run) = &local
             && genesis.local_profile.as_ref() != Some(&run.selected.profile)
         {
@@ -514,7 +577,7 @@ fn action(command: CliCommand, args: &[String]) -> Result<CliReport, (CliOutcome
     let projection = snapshot.projection(&task_id).map_err(audit_error)?;
     if matches!(command, CliCommand::Replay | CliCommand::Verify) {
         let checks = metron_harness::audit::verify(&mut snapshot, &task_id).map_err(audit_error)?;
-        let engine = cognition(&projection.genesis)?;
+        let engine = cognition(&projection.genesis, &projection.task)?;
         let behavior = if checks.chain_valid {
             Some(
                 metron_harness::replay::behavior(&mut snapshot, &task_id, engine.as_ref())
@@ -567,6 +630,15 @@ fn action(command: CliCommand, args: &[String]) -> Result<CliReport, (CliOutcome
         for intent in page.records {
             let usage = reported_usage(&mut snapshot, &intent).map_err(audit_error)?;
             match intent.intent.kind {
+                metron_protocol::IntentKind::Coding { step } => match step.as_ref() {
+                    metron_protocol::coding_runtime::CodingStep::Model { .. } => {
+                        reported_model = usage
+                    }
+                    metron_protocol::coding_runtime::CodingStep::Tool { .. }
+                    | metron_protocol::coding_runtime::CodingStep::Freeze { .. } => {
+                        reported_publication = usage
+                    }
+                },
                 metron_protocol::IntentKind::ReadFixture => reported_read = usage,
                 metron_protocol::IntentKind::RequestModel { .. }
                 | metron_protocol::IntentKind::RequestLocalModel { .. } => reported_model = usage,
@@ -626,6 +698,9 @@ fn action(command: CliCommand, args: &[String]) -> Result<CliReport, (CliOutcome
 }
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().skip(1).collect();
+    if args.first().is_some_and(|arg| arg == "coding") {
+        return coding_run::execute(&args[1..]);
+    }
     if args.first().is_some_and(|arg| arg == "model") {
         return model_cli::execute(&args[1..]);
     }

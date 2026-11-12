@@ -3,6 +3,7 @@ use metron_protocol::*;
 
 fn initial(limit: u8) -> AgentState {
     AgentState {
+        coding_context: None,
         task_id: TaskId::new("task").unwrap(),
         genesis_digest: content_digest(b"genesis"),
         max_decision_steps: limit,

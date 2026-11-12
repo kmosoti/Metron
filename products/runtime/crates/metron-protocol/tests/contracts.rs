@@ -54,7 +54,8 @@ fn external_primitives_and_closed_json_reject_invalid_spellings() {
         "\"schema_version\":1,\"extra\":true",
         1,
     );
-    let version = valid.replacen("\"schema_version\":1", "\"schema_version\":3", 1);
+    // V3 is now supported for coding failures; V4 remains unsupported.
+    let version = valid.replacen("\"schema_version\":1", "\"schema_version\":4", 1);
     let variant = valid.replacen("\"kind\":\"known\"", "\"kind\":\"bogus\"", 1);
     for input in [duplicate, unknown, version, variant] {
         assert!(parse_envelope::<Receipt>(input.as_bytes()).is_err());
@@ -236,6 +237,7 @@ fn materialization_rejects_tampered_plan_tariff_and_model_context() {
 #[test]
 fn transition_validation_preserves_decision_cap_and_revision() {
     let state = AgentState {
+        coding_context: None,
         task_id: TaskId::new("task").unwrap(),
         genesis_digest: content_digest(b"genesis"),
         max_decision_steps: 0,
@@ -429,6 +431,7 @@ fn approval_expiry_round_trips_and_tick_addition_is_checked() {
 fn journal_and_inbox_bindings_match_independent_vectors() {
     let task: Task = parse_envelope(br#"{"schema_version":1,"task_id":"task","principal_id":"principal","objective":"sum","budget":{"max_model_requests":1,"max_tool_calls":2,"max_spend_micros_usd":0,"max_elapsed_ms":null}}"#).unwrap();
     let genesis = Genesis {
+        coding_policy: None,
         mode: EngineMode::Agent,
         engine_version: BoundedText::new("sum-agent/v1").unwrap(),
         require_publication_approval: false,
@@ -464,6 +467,7 @@ fn journal_and_inbox_bindings_match_independent_vectors() {
 #[test]
 fn terminal_and_waiting_phase_pending_invariants_are_enforced() {
     let mut state = AgentState {
+        coding_context: None,
         task_id: TaskId::new("task").unwrap(),
         genesis_digest: content_digest(b"genesis"),
         max_decision_steps: 8,
@@ -515,6 +519,7 @@ fn terminal_and_waiting_phase_pending_invariants_are_enforced() {
 #[test]
 fn verified_finalization_cannot_inject_pending_intent() {
     let previous = AgentState {
+        coding_context: None,
         task_id: TaskId::new("task").unwrap(),
         genesis_digest: content_digest(b"genesis"),
         max_decision_steps: 8,
@@ -749,6 +754,7 @@ fn qualification_checks_each_observation_and_caps_input_before_decoding() {
 fn local_genesis_and_materialization_reject_mixed_versions_and_profiles() {
     let task: Task = parse_envelope(br#"{"schema_version":1,"task_id":"t","principal_id":"p","objective":"sum","budget":{"max_model_requests":1,"max_tool_calls":2,"max_spend_micros_usd":0,"max_elapsed_ms":null}}"#).unwrap();
     let mut genesis = Genesis {
+        coding_policy: None,
         mode: EngineMode::Agent,
         engine_version: BoundedText::new("sum-agent/v1").unwrap(),
         require_publication_approval: false,

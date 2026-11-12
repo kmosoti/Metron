@@ -99,6 +99,7 @@ impl RuntimeSnapshot for Snapshot {
 fn setup() -> Snapshot {
     let task: Task = parse_envelope(br#"{"schema_version":1,"task_id":"task","principal_id":"principal","objective":"sum","budget":{"max_model_requests":1,"max_tool_calls":2,"max_spend_micros_usd":0,"max_elapsed_ms":null}}"#).unwrap();
     let genesis = Genesis {
+        coding_policy: None,
         mode: EngineMode::Agent,
         engine_version: BoundedText::new("sum-agent/v1").unwrap(),
         require_publication_approval: false,
@@ -164,6 +165,7 @@ fn setup() -> Snapshot {
         integrity_hold: false,
     };
     let state = AgentState {
+        coding_context: None,
         task_id: task.data().task_id.clone(),
         genesis_digest: head,
         max_decision_steps: 8,

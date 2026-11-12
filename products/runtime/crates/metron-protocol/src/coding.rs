@@ -129,11 +129,108 @@ pub enum RustProgram {
     Clippy,
 }
 
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CodingTool {
+    Plan,
+    List,
+    Search,
+    Read,
+    Edit,
+    Run,
+    JjSnapshot,
+    JjDiff,
+    Smt,
+    Lean,
+    MemoryPut,
+    MemorySearch,
+    Finish,
+}
+
+/// Host-owned immutable policy; it is never populated from a model proposal.
+/// Filesystem identity and sandbox support need additional host preflight.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CodingPolicy {
+    pub schema_version: u16,
+    pub principal_id: PrincipalId,
+    pub project_id: BoundedText<128>,
+    pub workspace_root: BoundedText<MAX_TEXT>,
+    pub memory_collection: Option<BoundedText<128>>,
+    pub allowed_tools: Vec<CodingTool>,
+    pub allowed_programs: Vec<RustProgram>,
+    pub require_mutation_approval: bool,
+    pub max_file_bytes: u32,
+    pub max_output_bytes: u32,
+    pub command_timeout_ms: u32,
+    pub command_memory_bytes: crate::SqlU64,
+    pub max_processes: u16,
+}
+impl CodingPolicy {
+    pub fn validate(&self, task: &CodingTask) -> Result<(), ValidationError> {
+        let data = task.data();
+        if self.schema_version != 1
+            || self.principal_id != data.principal_id
+            || self.project_id != data.project_id
+            || self.memory_collection != data.memory_collection
+            || !self.workspace_root.as_str().starts_with('/')
+            || self.workspace_root.as_str().contains('\0')
+        {
+            return Err(ValidationError::Binding);
+        }
+        let unique: std::collections::BTreeSet<_> = self.allowed_tools.iter().collect();
+        if self.allowed_tools.is_empty()
+            || self.allowed_tools.len() != unique.len()
+            || self.allowed_tools.len() > 13
+            || self.allowed_programs.len() > 4
+            || self
+                .allowed_programs
+                .iter()
+                .enumerate()
+                .any(|(i, p)| self.allowed_programs[..i].contains(p))
+            || self.max_file_bytes == 0
+            || self.max_file_bytes > 1024 * 1024
+            || self.max_output_bytes == 0
+            || self.max_output_bytes > MAX_MODEL_OUTPUT as u32
+            || self.command_timeout_ms == 0
+            || self.command_timeout_ms > 120_000
+            || self.command_memory_bytes.get() < 128 * 1024 * 1024
+            || self.command_memory_bytes.get() > 64 * 1024 * 1024 * 1024
+            || self.max_processes == 0
+            || self.max_processes > 256
+        {
+            return Err(ValidationError::Limit);
+        }
+        canonical_bytes(self, MAX_ENVELOPE)?;
+        Ok(())
+    }
+    pub fn digest(&self, task: &CodingTask) -> Result<Digest, ValidationError> {
+        self.validate(task)?;
+        structural_digest("coding-policy/v1", &[&canonical_bytes(self, MAX_ENVELOPE)?])
+    }
+    /// Requested tool/profile data cannot raise these host grants. Persona is
+    /// absent by construction; changing one cannot add an allowed action.
+    pub fn permits(&self, action: &CodingAction) -> bool {
+        action.validate().is_ok()
+            && self.allowed_tools.contains(&action.tool())
+            && match action {
+                CodingAction::Run { program, .. } => self.allowed_programs.contains(program),
+                CodingAction::MemoryPut { .. } | CodingAction::MemorySearch { .. } => {
+                    self.memory_collection.is_some()
+                }
+                _ => true,
+            }
+    }
+}
+
 /// This is an untrusted proposal. Finish requests verification; it cannot set
 /// a verdict. Personas deliberately have no place in the authority binding.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "tool", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CodingAction {
+    Plan {
+        steps: Vec<BoundedText<256>>,
+    },
     List {
         directory: Option<WorkspacePath>,
     },
@@ -178,8 +275,38 @@ pub enum CodingAction {
     },
 }
 impl CodingAction {
+    pub fn tool(&self) -> CodingTool {
+        match self {
+            Self::Plan { .. } => CodingTool::Plan,
+            Self::List { .. } => CodingTool::List,
+            Self::Search { .. } => CodingTool::Search,
+            Self::Read { .. } => CodingTool::Read,
+            Self::Edit { .. } => CodingTool::Edit,
+            Self::Run { .. } => CodingTool::Run,
+            Self::JjSnapshot => CodingTool::JjSnapshot,
+            Self::JjDiff => CodingTool::JjDiff,
+            Self::Smt { .. } => CodingTool::Smt,
+            Self::Lean { .. } => CodingTool::Lean,
+            Self::MemoryPut { .. } => CodingTool::MemoryPut,
+            Self::MemorySearch { .. } => CodingTool::MemorySearch,
+            Self::Finish { .. } => CodingTool::Finish,
+        }
+    }
+    pub fn mutates_workspace(&self) -> bool {
+        matches!(
+            self,
+            Self::Edit { .. } | Self::Run { .. } | Self::JjSnapshot
+        )
+    }
     pub fn validate(&self) -> Result<(), ValidationError> {
         match self {
+            Self::Plan { steps }
+                if steps.is_empty()
+                    || steps.len() > 12
+                    || steps.iter().any(|s| s.as_str().trim().is_empty()) =>
+            {
+                return Err(ValidationError::Limit);
+            }
             Self::Read {
                 first_line,
                 line_count,
