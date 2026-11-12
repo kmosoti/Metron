@@ -1,0 +1,98 @@
+{
+  "schema_version": 1,
+  "artifact_directory": "/home/kmosoti/.cache/metron-alpha1/artifacts/product-phase-c-controls",
+  "hardware": {
+    "device": "NVIDIA GeForce RTX 3060 Laptop GPU",
+    "device_uuid": "GPU-9cfade90-dabc-1aeb-423c-1a96ba059764",
+    "reported_total_bytes": 6442450944,
+    "driver": "615.78.08"
+  },
+  "sdk_revision": "fb4cdc3730dc64b366724e7637a205a8b7747499",
+  "model_sha256": "3793e1e6e2266919d6e015287221b41100175a98eddaba92e111aed3b05c93c4",
+  "model_bytes": 1099627808,
+  "provenance_sha256": {
+    "pins.json": "78ae9b90ebbe1e4382262b9cb16af11a02c453492dcb9620c624dd0b5b4fb7a4",
+    "results.json": "5379d6fbdcab659857726c94001a87ea6f2274babb1accd28a816bd95ca684c6",
+    "comparison.json": "64b673422662ca5b2f10b0a3d4f3248f9b554f26390c4972240cd4111a5bee20"
+  },
+  "runs": [
+    {
+      "case": "128-unpaged",
+      "stdout_sha256": "b57e0b1f95c9c00f84f903c8aecc9508333d653117bb36788b557320cb38a63c",
+      "stderr_sha256": "a7eeac55be37ba60babf01951cdb21952bb07a756d0672b582991e390ac4bbce"
+    },
+    {
+      "case": "128-paged",
+      "stdout_sha256": "423824972b17c984c1427ee7c194fda2da430300a71d4ae57ad47b994724e024",
+      "stderr_sha256": "f55deb3bd799552e97a46ce20a4c70880959d5c08a50cedf555a3b16950c46ab"
+    },
+    {
+      "case": "513-unpaged",
+      "stdout_sha256": "597e508931c0c56da9ade000fdb8520789164348ff68d4f54204c81181e6c425",
+      "stderr_sha256": "ae08a8c267b497d3260c2196cb9940d97f1a45ab6a2e725901c1ee888cbb5906"
+    },
+    {
+      "case": "513-paged",
+      "stdout_sha256": "f73219eed98dce255c861f500c879854c0607085c1f85874efdba1c5e17e25bc",
+      "stderr_sha256": "a9d3f938e87655d2c826e37ed208170ca5b04ad7656a40a9225283737e37e491"
+    }
+  ],
+  "conditions": {
+    "fresh_process_per_run": true,
+    "sequence_count": 1,
+    "activation_and_kv_dtype": "BF16",
+    "prefix_cache": false,
+    "cuda_graphs": false,
+    "logits_callback": "identity CustomLogitsProcessor; neutral repeat/frequency/presence penalties; no bias, DRY or constraint",
+    "numeric_tolerance": "not qualified"
+  },
+  "measurements": {
+    "128": {
+      "logit_count": 128000,
+      "bitwise_equal": true,
+      "max_absolute_error": 0.0,
+      "relative_rms_error": 0.0,
+      "top_token": 2083,
+      "rendered_sha256": "c4cfc839df2e7d5785c5cfade5fcef79377d83af296d07df2d270cf42bca0d85",
+      "token_ids_sha256": "5e21ecba8088467b2cff845718776fc5e0fa38a61e33f229f737be43256a88fc"
+    },
+    "513": {
+      "logit_count": 128000,
+      "bitwise_equal": false,
+      "max_absolute_error": 0.8125,
+      "rms_error": 0.16086321727037478,
+      "relative_rms_error": 0.04115282540153568,
+      "relative_rms_definition": "sqrt(sum((unpaged-paged)^2)/sum(unpaged^2))",
+      "top_token": 2083,
+      "rendered_sha256": "37f76efd1688b053393d982cc0a900e76cbb8b83a3e3fb91dfb60e7440f714da",
+      "token_ids_sha256": "5c105d3532034392ce5cec434cbc84d45a399ef7afb37287e799473bcd5e5474"
+    },
+    "paged_pool": {
+      "payload_bytes": 67043328,
+      "planning_target_bytes": 67108864,
+      "gpu_blocks": 93,
+      "usable_tokens": 2944,
+      "block_size_tokens": 32
+    },
+    "unpaged_callback_logical_kv_bytes": {
+      "128": 2883584,
+      "513": 8925184
+    },
+    "sampled_process_gpu_max_bytes": {
+      "128_unpaged": 1306525696,
+      "128_paged": 1373634560,
+      "513_unpaged": 1407188992,
+      "513_paged": 1407188992
+    },
+    "sample_interval_seconds": 0.5,
+    "exact_resident_weight_bytes": null,
+    "exclusive_runtime_workspace_bytes": null
+  },
+  "limitations": [
+    "External PID sampling maxima are not guaranteed true peaks.",
+    "Process GPU sample includes weights and runtime and does not isolate components.",
+    "Unpaged callback logical KV bytes are not allocated resident bytes.",
+    "Source-derived chunk plans are not direct per-forward traces.",
+    "No defensible numerical tolerance was frozen; diagnostic does not qualify routes or coding."
+  ]
+}

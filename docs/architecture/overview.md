@@ -23,6 +23,7 @@ flowchart TD
     Worker[metron-inference-worker: isolated model process] --> Local
     Worker --> Protocol
     Worker --> SDK[Pinned mistral.rs SDK]
+    Worker -.->|inherited stderr; observation only| Resource[Operator-captured resource JSONL<br/>outside worker protocol and authority]
     subgraph Support[Development and documentation only]
         Testkit[metron-testkit and fixtures]
         Archive[Archived laboratory findings]
@@ -37,6 +38,12 @@ through bounded framed requests; it does not link the SDK. Agent/protocol code
 does not perform I/O. Test fixtures and development support remain outside
 runtime authority. Archived research records and report data are documentation,
 not executable product components.
+
+Versioned resource observations are written as JSON lines to the worker's
+inherited stderr and can be captured by the operator. They are outside the
+framed worker protocol, journals, and authority flow. The bounded diagnostic
+example is development support; it is not a product layer or profile
+qualification path.
 
 ## Execution and authority
 
