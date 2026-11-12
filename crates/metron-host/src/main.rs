@@ -14,6 +14,7 @@ mod model_cli;
 mod qualification;
 mod qualification_capture;
 mod qualification_runner;
+mod resource_budget;
 mod session_identity;
 mod toolkit;
 use metron_protocol::{

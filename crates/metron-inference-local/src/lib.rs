@@ -3,6 +3,7 @@
 
 pub mod artifact;
 pub mod chunk_prefill;
+pub mod context_budget;
 pub mod framing;
 pub mod resources;
 
