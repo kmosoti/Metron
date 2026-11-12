@@ -96,6 +96,25 @@ flowchart LR
     Host -->|unknown execution| Hold[Hold reservation; no fabricated result]
 ```
 
+Recipe v9 accepts the conventional `.` spelling for the workspace root in
+native `list.directory` and `run.directory` arguments. The adapter records the
+original arguments and converts that spelling to the existing canonical null
+root before domain validation and admission. Completed history uses the actual
+canonical action. This adds no path or tool authority: file paths and all other
+directory strings retain their existing validation. Earlier recipes still reject
+`.` and replay their original results. V9 uses the existing context11 controller;
+its native coding acceptance remains unqualified.
+
+```mermaid
+flowchart LR
+    SDK[SDK: captured native arguments] --> Codec[Recipe-specific argument codec]
+    Codec -->|V9 List or Run: exact dot becomes canonical root| Domain[Typed action validation]
+    Codec -->|V1–V8: original validation| Domain
+    Domain --> Authority[Host: workspace grants and durable admission]
+    SDK --> Evidence[Original call evidence retained]
+    Authority --> Receipt[Known receipt or unresolved reservation]
+```
+
 ## Inputs and invocation
 
 Provide separate absolute paths for an owner-private workspace and the private

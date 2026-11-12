@@ -321,4 +321,37 @@ mod tests {
             assert!(!p.context.contains("tool_intent"));
         }
     }
+    #[test]
+    fn v9_canonical_list_history_uses_null_and_preserves_intent_and_result() {
+        let raw = metron_protocol::NativeCallEvidence::capture(
+            1,
+            vec![("list".into(), r#"{"directory":"."}"#.into())],
+            None,
+        )
+        .unwrap();
+        let recipe = Digest::new(metron_protocol::LOCAL_CODING_V9_RECIPE_SHA).unwrap();
+        let content = raw.action_content_for_recipe(&recipe).unwrap();
+        let action = metron_protocol::coding::parse_coding_action(content.as_bytes()).unwrap();
+        let mut t = turn();
+        if let CompletedToolTurn::Complete {
+            action: previous,
+            observation,
+            ..
+        } = &mut t
+        {
+            *previous = action;
+            observation.tool = CodingTool::List;
+        }
+        let ctx = json!({"previous_tool_turn_untrusted":t, "recent_observations_untrusted":[]})
+            .to_string();
+        let pair = project_v8(&ctx, Some(&t)).unwrap().pair.unwrap();
+        assert_eq!(pair.alias, "2".repeat(64));
+        assert_eq!(pair.name, "list");
+        assert_eq!(
+            serde_json::from_str::<Value>(&pair.arguments).unwrap(),
+            json!({"directory":null})
+        );
+        assert!(pair.result.contains("data <tool_call>"));
+        assert_eq!(raw.calls[0].arguments.as_str(), r#"{"directory":"."}"#);
+    }
 }
