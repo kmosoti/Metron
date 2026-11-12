@@ -821,10 +821,12 @@ impl LocalInferenceDriver {
                         || observation.submission_cohort.size as usize != count
                         || observation.submission_cohort.position as usize != index
                         || observation
-                            .validate(
+                            .validate_with_context(
                                 &self.profile,
                                 &request.request_digest,
                                 request.output_schema,
+                                request.context.as_str(),
+                                request.previous_tool_turn.as_ref(),
                             )
                             .is_err()
                     {
