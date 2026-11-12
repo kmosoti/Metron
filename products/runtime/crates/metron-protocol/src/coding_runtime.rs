@@ -326,11 +326,17 @@ impl MemorySelection {
                 .iter()
                 .any(|prior| prior.dispatch == source.dispatch)
                 || source.annotations.iter().enumerate().any(|(j, a)| {
-                    a.target_dispatch != source.dispatch
-                        || a.stale == a.related_dispatch.is_some()
-                        || source.annotations[..j]
-                            .iter()
-                            .any(|prior| prior.dispatch == a.dispatch)
+                    (if a.stale {
+                        a.related_dispatch.is_some() || a.target_dispatch != source.dispatch
+                    } else {
+                        a.related_dispatch.as_ref().is_none_or(|related| {
+                            related == &a.target_dispatch
+                                || (a.target_dispatch != source.dispatch
+                                    && related != &source.dispatch)
+                        })
+                    }) || source.annotations[..j]
+                        .iter()
+                        .any(|prior| prior.dispatch == a.dispatch)
                 })
                 || usize::from(source.slot) != i
                 || source.annotations.len() > 8
