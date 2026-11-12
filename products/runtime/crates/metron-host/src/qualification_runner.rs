@@ -130,22 +130,33 @@ pub fn heldout(inputs: HeldoutInputs<'_>) -> io::Result<QualificationReport> {
         .count()
         .try_into()
         .map_err(|_| error("too many cases"))?;
-    let mut latencies: Vec<_> = warm
-        .cases
-        .iter()
-        .filter_map(|case| case.latency_ms.map(|v| v.get()))
-        .collect();
-    latencies.sort_unstable();
-    let percentile = |p: usize| {
-        latencies
-            .get((latencies.len() * p).div_ceil(100).saturating_sub(1))
-            .copied()
-            .and_then(|n| SqlU64::new(n).ok())
-    };
-    warm.p50_latency_ms = percentile(50);
-    warm.p95_latency_ms = percentile(95);
+    let (p50, p95) = completion_percentiles(warm.cases.iter().map(|case| case.latency_ms));
+    warm.first_visible_samples = Some(
+        warm.cases
+            .iter()
+            .filter(|case| case.first_visible_ms.is_some())
+            .count() as u32,
+    );
+    warm.p50_latency_ms = p50;
+    warm.p95_latency_ms = p95;
     Ok(warm)
 }
+// A partial cohort cannot establish the completion-latency percentiles used
+// by qualification. Keep them unavailable rather than silently sampling a subset.
+fn completion_percentiles(
+    values: impl Iterator<Item = Option<SqlU64>>,
+) -> (Option<SqlU64>, Option<SqlU64>) {
+    let Some(mut values): Option<Vec<_>> = values.collect() else {
+        return (None, None);
+    };
+    if values.is_empty() {
+        return (None, None);
+    }
+    values.sort_unstable_by_key(|value| value.get());
+    let at = |p: usize| Some(values[(values.len() * p).div_ceil(100) - 1]);
+    (at(50), at(95))
+}
+
 fn number(value: u64) -> io::Result<SqlU64> {
     SqlU64::new(value).map_err(|_| error("measurement overflow"))
 }
@@ -265,7 +276,15 @@ fn submit(
                 .map(|c| content_digest(c.as_str().as_bytes())),
             response: content,
             reasoning,
-            latency_ms: timing.as_ref().and_then(|t| number(t.latency_ms).ok()),
+            latency_ms: timing
+                .as_ref()
+                .and_then(|t| t.latency_ms)
+                .and_then(|v| number(v).ok()),
+            first_visible_ms: timing
+                .as_ref()
+                .and_then(|t| t.first_visible_ms)
+                .map(number)
+                .transpose()?,
             token_ids_digest: timing.as_ref().and_then(|t| t.token_ids_digest.clone()),
             rendered_digest: timing.as_ref().and_then(|t| t.rendered_digest.clone()),
             prompt_time_us: timing
@@ -310,17 +329,7 @@ pub fn calibrate(
                        measurements,
                        elapsed: u64|
      -> io::Result<QualificationReport> {
-        let mut latencies: Vec<_> = cases
-            .iter()
-            .filter_map(|c: &QualificationCase| c.latency_ms.map(|v| v.get()))
-            .collect();
-        latencies.sort_unstable();
-        let percentile = |p: usize| {
-            latencies
-                .get((latencies.len() * p).div_ceil(100).saturating_sub(1))
-                .copied()
-                .and_then(|n| SqlU64::new(n).ok())
-        };
+        let (p50, p95) = completion_percentiles(cases.iter().map(|case| case.latency_ms));
         Ok(QualificationReport {
             schema_version: SchemaVersion::V2,
             evaluator_digest: content_digest(b"metron-local-inference-eval/v1"),
@@ -333,8 +342,14 @@ pub fn calibrate(
             operational_elapsed_ms: None,
             elapsed_ms: Some(number(elapsed)?),
             accepted_tasks: cases.iter().filter(|c| c.response.is_some()).count() as u32,
-            p50_latency_ms: percentile(50),
-            p95_latency_ms: percentile(95),
+            first_visible_samples: Some(
+                cases
+                    .iter()
+                    .filter(|case| case.first_visible_ms.is_some())
+                    .count() as u32,
+            ),
+            p50_latency_ms: p50,
+            p95_latency_ms: p95,
             cases,
             warmups,
         })
@@ -461,4 +476,22 @@ pub fn calibrate(
     measurements.push(capture.finish_worker(0)?);
     let warm = make_report(false, cases, warmups, measurements, warm_elapsed)?;
     Ok((cold, warm))
+}
+
+#[cfg(test)]
+mod timing_tests {
+    use super::*;
+    #[test]
+    fn completion_percentiles_require_every_scored_case() {
+        let value = |n| Some(SqlU64::new(n).unwrap());
+        assert_eq!(
+            completion_percentiles([value(10), None].into_iter()),
+            (None, None)
+        );
+        assert_eq!(completion_percentiles([].into_iter()), (None, None));
+        assert_eq!(
+            completion_percentiles([value(30), value(10), value(20)].into_iter()),
+            (value(20), value(30))
+        );
+    }
 }

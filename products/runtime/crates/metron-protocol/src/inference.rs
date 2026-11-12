@@ -801,6 +801,9 @@ pub struct QualificationCase {
     pub response: Option<BoundedText<MAX_MODEL_OUTPUT>>,
     pub reasoning: Option<BoundedText<MAX_MODEL_OUTPUT>>,
     pub latency_ms: Option<SqlU64>,
+    /// Dispatch began to first received nonempty, non-reasoning output frame.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_visible_ms: Option<SqlU64>,
     /// Backend-reported durations, not sampled resource phase boundaries.
     pub prompt_time_us: Option<SqlU64>,
     pub completion_time_us: Option<SqlU64>,
@@ -917,6 +920,9 @@ pub struct QualificationReport {
     /// Scored trial interval.
     pub elapsed_ms: Option<SqlU64>,
     pub accepted_tasks: u32,
+    /// Number of scored cases with a measured first visible output.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_visible_samples: Option<u32>,
     pub p50_latency_ms: Option<SqlU64>,
     pub p95_latency_ms: Option<SqlU64>,
     /// Separately retained unscored warmup observations, in worker-start order.
@@ -926,6 +932,24 @@ pub struct QualificationReport {
 impl QualificationReport {
     pub fn validate(&self) -> Result<(), ValidationError> {
         self.profile.validate()?;
+        if self.first_visible_samples.is_none()
+            && self
+                .cases
+                .iter()
+                .any(|case| case.first_visible_ms.is_some())
+        {
+            return Err(ValidationError::Binding);
+        }
+        if self.first_visible_samples.is_some_and(|n| {
+            n as usize
+                != self
+                    .cases
+                    .iter()
+                    .filter(|case| case.first_visible_ms.is_some())
+                    .count()
+        }) {
+            return Err(ValidationError::Binding);
+        }
         if self.schema_version != SchemaVersion::V2
             || self.cases.is_empty()
             || self.cases.len() > 144
