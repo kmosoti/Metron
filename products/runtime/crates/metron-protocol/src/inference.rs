@@ -39,6 +39,11 @@ pub const LOCAL_CODING_V4_SYSTEM: &str = "You are a coding agent. Return exactly
 pub const LOCAL_CODING_V4_SCHEMA_MODE: &str = "metron-phase-filtered-json-actions/v1";
 pub const LOCAL_CODING_V4_RECIPE_SHA: &str =
     "2693d6fad75a0c85196bc9790997bb9c5fa728146abc730c49f2bac89583f706";
+/// V5 compact JSON: canonical and tool-first property orders, no external whitespace.
+pub const LOCAL_CODING_V5_SYSTEM: &str = LOCAL_CODING_V4_SYSTEM;
+pub const LOCAL_CODING_V5_SCHEMA_MODE: &str = "metron-phase-two-orders-compact-json/v1";
+pub const LOCAL_CODING_V5_RECIPE_SHA: &str =
+    "97b1861b8dcb60cc430773e4fe84cba781dd2c665228d8cc102483848d85d7c2";
 pub const LFM3_TOKENIZER_TRANSFORM_VERSION: &str = "lfm3-gguf-user-defined-tokens/v1";
 pub const LFM3_AUX_TOKENIZER_SHA: &str =
     "7e226e34bface23ccf6e495d157bf77186c1c30a7659880e1a8994db528c3701";
@@ -61,6 +66,7 @@ pub fn is_local_coding_recipe(digest: &str) -> bool {
             | LOCAL_CODING_V2_RECIPE_SHA
             | LOCAL_CODING_V3_RECIPE_SHA
             | LOCAL_CODING_V4_RECIPE_SHA
+            | LOCAL_CODING_V5_RECIPE_SHA
     )
 }
 /// Return the exact system text and JSON Schema for the selected coding recipe.
@@ -70,6 +76,7 @@ pub fn local_coding_recipe(digest: &str) -> Option<(&'static str, serde_json::Va
         LOCAL_CODING_V2_RECIPE_SHA => (LOCAL_CODING_V2_SYSTEM, LOCAL_CODING_V2_SCHEMA),
         LOCAL_CODING_V3_RECIPE_SHA => (LOCAL_CODING_V3_SYSTEM, LOCAL_CODING_V2_SCHEMA),
         LOCAL_CODING_V4_RECIPE_SHA => (LOCAL_CODING_V4_SYSTEM, LOCAL_CODING_V2_SCHEMA),
+        LOCAL_CODING_V5_RECIPE_SHA => (LOCAL_CODING_V5_SYSTEM, LOCAL_CODING_V2_SCHEMA),
         _ => return None,
     };
     Some((
@@ -117,6 +124,143 @@ pub fn filtered_coding_action_schema(
     }
     schema.sort_all_objects();
     Ok(schema)
+}
+
+/// Deterministic raw schema bytes retain both object-property orders independently
+/// of serde_json's workspace-wide preserve_order feature.
+pub fn compact_ordered_coding_schema(
+    tools: &[crate::coding::CodingTool],
+) -> Result<Vec<u8>, ValidationError> {
+    use serde::ser::{SerializeMap, Serializer};
+    struct Properties<'a> {
+        properties: &'a serde_json::Map<String, serde_json::Value>,
+        tool_first: bool,
+    }
+    impl Serialize for Properties<'_> {
+        fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            let mut map = serializer.serialize_map(Some(self.properties.len()))?;
+            if self.tool_first {
+                map.serialize_entry("tool", &self.properties["tool"])?;
+            }
+            let mut keys: Vec<_> = self.properties.keys().collect();
+            keys.sort_unstable();
+            for key in keys {
+                if !self.tool_first || key != "tool" {
+                    map.serialize_entry(key, &self.properties[key])?;
+                }
+            }
+            map.end()
+        }
+    }
+    struct Variant<'a> {
+        value: &'a serde_json::Value,
+        tool_first: bool,
+    }
+    impl Serialize for Variant<'_> {
+        fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            let obj = self
+                .value
+                .as_object()
+                .ok_or_else(|| serde::ser::Error::custom("invalid schema variant"))?;
+            let props = obj
+                .get("properties")
+                .and_then(serde_json::Value::as_object)
+                .ok_or_else(|| serde::ser::Error::custom("missing schema properties"))?;
+            if !props.contains_key("tool") {
+                return Err(serde::ser::Error::custom("missing tool schema"));
+            }
+            let mut map = serializer.serialize_map(Some(obj.len()))?;
+            let mut keys: Vec<_> = obj.keys().collect();
+            keys.sort_unstable();
+            for key in keys {
+                if key == "properties" {
+                    map.serialize_entry(
+                        key,
+                        &Properties {
+                            properties: props,
+                            tool_first: self.tool_first,
+                        },
+                    )?;
+                } else {
+                    map.serialize_entry(key, &obj[key])?;
+                }
+            }
+            map.end()
+        }
+    }
+    #[derive(Serialize)]
+    struct CompactSchema<'a> {
+        #[serde(rename = "x-guidance")]
+        guidance: Guidance,
+        #[serde(rename = "anyOf")]
+        variants: Vec<Variant<'a>>,
+    }
+    #[derive(Serialize)]
+    struct Guidance {
+        whitespace_flexible: bool,
+    }
+    let schema = filtered_coding_action_schema(tools)?;
+    let variants = schema["anyOf"].as_array().ok_or(ValidationError::Binding)?;
+    let variants = variants
+        .iter()
+        .flat_map(|value| {
+            [
+                Variant {
+                    value,
+                    tool_first: false,
+                },
+                Variant {
+                    value,
+                    tool_first: true,
+                },
+            ]
+        })
+        .collect();
+    canonical_bytes(
+        &CompactSchema {
+            guidance: Guidance {
+                whitespace_flexible: false,
+            },
+            variants,
+        },
+        MAX_LOCAL_REQUEST_FRAME,
+    )
+}
+
+/// Reject parsers that lose the property ordering used by the compact grammar.
+pub fn parse_compact_ordered_coding_schema(
+    raw: &[u8],
+    tools: &[crate::coding::CodingTool],
+) -> Result<serde_json::Value, ValidationError> {
+    if raw != compact_ordered_coding_schema(tools)? {
+        return Err(ValidationError::Binding);
+    }
+    let value: serde_json::Value =
+        serde_json::from_slice(raw).map_err(|e| ValidationError::Json(e.to_string()))?;
+    let variants = value["anyOf"].as_array().ok_or(ValidationError::Binding)?;
+    if variants.len() != tools.len() * 2 {
+        return Err(ValidationError::Binding);
+    }
+    for pair in variants.as_chunks::<2>().0 {
+        let canonical = pair[0]["properties"]
+            .as_object()
+            .ok_or(ValidationError::Binding)?;
+        let tool_first = pair[1]["properties"]
+            .as_object()
+            .ok_or(ValidationError::Binding)?;
+        let keys: Vec<_> = canonical.keys().map(String::as_str).collect();
+        let mut sorted = keys.clone();
+        sorted.sort_unstable();
+        let mut expected = vec!["tool"];
+        expected.extend(sorted.iter().copied().filter(|key| *key != "tool"));
+        if keys != sorted || tool_first.keys().map(String::as_str).collect::<Vec<_>>() != expected {
+            return Err(ValidationError::Binding);
+        }
+    }
+    if canonical_bytes(&value, MAX_LOCAL_REQUEST_FRAME)? != raw {
+        return Err(ValidationError::Binding);
+    }
+    Ok(value)
 }
 
 /// Frozen function schemas selected solely from the admitted controller catalog.
@@ -434,7 +578,7 @@ impl LocalProfile {
         }
         let tokenizer_digest = if matches!(
             self.prompt_recipe_digest.as_str(),
-            LOCAL_CODING_V3_RECIPE_SHA | LOCAL_CODING_V4_RECIPE_SHA
+            LOCAL_CODING_V3_RECIPE_SHA | LOCAL_CODING_V4_RECIPE_SHA | LOCAL_CODING_V5_RECIPE_SHA
         ) {
             gguf_lfm3_corrected_tokenizer_digest(&self.artifact_digest)?
         } else {
@@ -1067,7 +1211,9 @@ impl WorkerRequest {
             profile.validate()?;
             let native = matches!(
                 profile.prompt_recipe_digest.as_str(),
-                LOCAL_CODING_V3_RECIPE_SHA | LOCAL_CODING_V4_RECIPE_SHA
+                LOCAL_CODING_V3_RECIPE_SHA
+                    | LOCAL_CODING_V4_RECIPE_SHA
+                    | LOCAL_CODING_V5_RECIPE_SHA
             );
             if native != native_tools.is_some()
                 || native_tools.as_ref().is_some_and(|tools| {

@@ -18,6 +18,7 @@ known errors without producing useful progress in those trials:
 | 07, full toolkit | A valid plan followed by `list(directory="/")`; two model requests, no tool effects; v3.4 rejected the path. |
 | 08, full toolkit | A valid plan followed by three absolute-directory proposals despite validation feedback; four charged model requests, no tool effects; v3.5 stopped at its bound. |
 | 09, calculator-scoped catalog | Native plan arguments included object-valued and stringified steps; three charged model requests, no tool effects. |
+| 10, phase-filtered JSON | Valid plan, then external whitespace padding and invalid file content/digest proposals; no files. Four charged model requests and one charged tool call; artifact generation remained unresolved. |
 
 All retained journals audit, account and behavior-replay. These are negative
 application results, not calculator or repair acceptance. The bounded controller
@@ -65,6 +66,41 @@ The CPU controls demonstrate admissible grammar bytes, not useful model
 generation or full application completion. Independent host parsing, policy,
 approval, fresh admission, usage accounting and uncertain-outcome holds remain
 necessary. Native calculator/repair and memory/resource gates stay open.
+
+## Compact JSON with two property orders
+
+llguidance 1.9.1's `JsonCompileOptions` supports
+`x-guidance.whitespace_flexible=false`, which removes optional whitespace outside
+JSON strings. Its object compiler emits properties in schema order and provides
+no flexible-order option. Trial 10 establishes the padding behavior; it does not
+prove property ordering caused the model to choose it.
+
+Recipe v5 duplicates each admitted object schema in canonical and tool-first
+property orders, then disables external whitespace. A custom serializer pins
+the raw schema bytes independently of Cargo feature unification. Before
+sampling, the worker verifies that its parsed schema preserves both orders.
+This avoids globally enabling insertion-ordered JSON maps, which would alter
+legacy identity serialization.
+
+CPU controls against those exact bytes accept both plan orders and Rust strings
+containing escaped newlines, indentation and quotes. They reject external
+padding, object-valued plan steps, absolute paths and catalog-excluded actions.
+These controls eliminate the observed padding path in the grammar; useful CUDA
+generation remains a separate acceptance test.
+
+```mermaid
+flowchart LR
+    Catalog[Trusted phase and tool catalog] --> Schema[Versioned raw schema bytes]
+    Schema --> Check[Worker verifies property orders]
+    Check --> Decode[Constrained model generation]
+    Decode --> Proposal[Untrusted JSON action]
+    Proposal --> Host[Host parsing, policy and fresh admission]
+    Host --> Effect[Bounded effect and durable receipt]
+```
+
+The v3.7 controller also makes invalid-proposal feedback format-neutral. Earlier
+v3.5/v3.6 recovery wording remains unchanged for historical replay. A bounded
+static diagnostic still conveys no new effect authority.
 
 **Relations:** refines O-0008/O-0009 and #26; supports the next discriminating
 native experiment in #28. No production profile or alpha.1 completion follows.
