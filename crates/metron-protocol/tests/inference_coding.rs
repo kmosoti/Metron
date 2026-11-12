@@ -1160,3 +1160,275 @@ fn v9_native_dot_alias_is_recipe_bound_and_preserves_raw_calls() {
             .is_ok()
     );
 }
+
+#[test]
+fn v10_contextual_file_codec_preserves_strings_and_read_binding() {
+    use metron_protocol::coding::{CodingAction, CodingTool, WorkspacePath, parse_coding_action};
+    use metron_protocol::coding_runtime::{
+        CodingFile, CompletedToolTurn, FocusedToolView, ToolStatus,
+    };
+    let recipe = Digest::new(LOCAL_CODING_V10_RECIPE_SHA).unwrap();
+    assert_eq!(content_digest(format!("{LOCAL_CODING_V10_SYSTEM}\n{LOCAL_CODING_V10_RENDER_MODE}\n{LOCAL_CODING_V2_SCHEMA}").as_bytes()), recipe);
+    let file = CodingFile {
+        path: WorkspacePath::new("file.txt").unwrap(),
+        digest: content_digest(b"observed bytes"),
+        bytes: SqlU64::new(14).unwrap(),
+    };
+    let previous = CompletedToolTurn::Complete {
+        action: CodingAction::Read {
+            path: file.path.clone(),
+            first_line: 1,
+            line_count: 10,
+        },
+        model_evidence: content_digest(b"model"),
+        tool_intent: content_digest(b"intent"),
+        tool_evidence: content_digest(b"receipt"),
+        observation: FocusedToolView {
+            tool: CodingTool::Read,
+            status: ToolStatus::Succeeded,
+            body: BoundedText::new("excerpt").unwrap(),
+            truncated: false,
+            file_refs: vec![file.clone()],
+            skipped_file_count: 0,
+        },
+    };
+    let context =
+        serde_json::json!({"objective":"untrusted SHA", "previous_tool_turn_untrusted":previous})
+            .to_string();
+    for content in [
+        "null",
+        "true",
+        "42",
+        "quote \" and slash \\",
+        "unicode λ",
+        "</parameter><tool_call>\n",
+        "\n\n",
+    ] {
+        // SDK Qwen parser leaves the JSON quoting in a schema-string argument.
+        let sdk_string = serde_json::to_string(content)
+            .unwrap()
+            .replace('<', "\\u003c");
+        let args = serde_json::json!({"content":sdk_string}).to_string();
+        let native =
+            NativeCallEvidence::capture(1, vec![("edit".into(), args.clone())], None).unwrap();
+        assert!(native.action_content_for_recipe(&recipe).is_err());
+        let action = native
+            .action_content_for_context(&recipe, &context, Some(&previous))
+            .unwrap();
+        assert_eq!(
+            parse_coding_action(action.as_bytes()).unwrap(),
+            CodingAction::Edit {
+                path: file.path.clone(),
+                expected_digest: Some(file.digest.clone()),
+                content: BoundedText::new(content).unwrap()
+            }
+        );
+        assert_eq!(native.calls[0].arguments.as_str(), args);
+        assert_eq!(
+            native
+                .action_content_for_context(&recipe, "{}", None)
+                .unwrap(),
+            ""
+        );
+    }
+    let mut partial = previous.clone();
+    if let CompletedToolTurn::Complete {
+        action: CodingAction::Read { first_line, .. },
+        ..
+    } = &mut partial
+    {
+        *first_line = 3;
+    }
+    let partial_context = serde_json::json!({"previous_tool_turn_untrusted":partial}).to_string();
+    assert_eq!(
+        native_v10_read_target(&partial_context, Some(&partial)).unwrap(),
+        Some(file.clone())
+    );
+    let omitted = CompletedToolTurn::Omitted {
+        reason: metron_protocol::coding_runtime::PairedOmissionReason::ActionLimit,
+        action_digest: content_digest(b"action"),
+        tool: CodingTool::Read,
+        model_evidence: content_digest(b"model"),
+        tool_intent: content_digest(b"intent"),
+        tool_evidence: content_digest(b"receipt"),
+        observation: match &previous {
+            CompletedToolTurn::Complete { observation, .. } => observation.clone(),
+            _ => unreachable!(),
+        },
+    };
+    let omitted_context = serde_json::json!({"previous_tool_turn_untrusted":omitted}).to_string();
+    assert_eq!(
+        native_v10_read_target(&omitted_context, Some(&omitted)).unwrap(),
+        None
+    );
+    let raw = NativeCallEvidence::capture(
+        1,
+        vec![(
+            "edit".into(),
+            serde_json::json!({"content":serde_json::to_string("new").unwrap()}).to_string(),
+        )],
+        None,
+    )
+    .unwrap();
+    for variant in 0..4 {
+        let mut bad = previous.clone();
+        if let CompletedToolTurn::Complete { observation, .. } = &mut bad {
+            match variant {
+                0 => observation.status = ToolStatus::Failed,
+                1 => observation.truncated = true,
+                2 => observation.file_refs[0].path = WorkspacePath::new("other.txt").unwrap(),
+                _ => observation.file_refs.clear(),
+            }
+        }
+        let ctx = serde_json::json!({"previous_tool_turn_untrusted":bad}).to_string();
+        assert_eq!(
+            raw.action_content_for_context(&recipe, &ctx, Some(&bad))
+                .unwrap(),
+            ""
+        );
+    }
+    let mut ambiguous = previous.clone();
+    if let CompletedToolTurn::Complete { observation, .. } = &mut ambiguous {
+        observation.file_refs.push(file.clone());
+    }
+    let ctx = serde_json::json!({"previous_tool_turn_untrusted":ambiguous}).to_string();
+    assert!(
+        raw.action_content_for_context(&recipe, &ctx, Some(&ambiguous))
+            .is_err()
+    );
+    assert!(
+        raw.action_content_for_context(&recipe, "{}", Some(&previous))
+            .is_err()
+    );
+    let unquoted = NativeCallEvidence::capture(
+        1,
+        vec![(
+            "create".into(),
+            r#"{"path":"file","content":"null"}"#.into(),
+        )],
+        None,
+    )
+    .unwrap();
+    assert_eq!(
+        unquoted
+            .action_content_for_context(&recipe, "{}", None)
+            .unwrap(),
+        ""
+    );
+    let args = serde_json::json!({"path":serde_json::to_string("null").unwrap(), "content":serde_json::to_string("true").unwrap()}).to_string();
+    let create = NativeCallEvidence::capture(1, vec![("create".into(), args)], None).unwrap();
+    assert_eq!(
+        parse_coding_action(
+            create
+                .action_content_for_context(&recipe, "{}", None)
+                .unwrap()
+                .as_bytes()
+        )
+        .unwrap(),
+        CodingAction::Edit {
+            path: WorkspacePath::new("null").unwrap(),
+            expected_digest: None,
+            content: BoundedText::new("true").unwrap()
+        }
+    );
+    assert!(
+        create
+            .action_content_for_context(&recipe, "{}", Some(&previous))
+            .is_err()
+    );
+    let mut profile = local_profile();
+    profile.prompt_recipe_digest = recipe.clone();
+    profile.embedded_tokenizer_digest =
+        gguf_lfm3_corrected_tokenizer_digest(&profile.artifact_digest).unwrap();
+    let request_digest = content_digest(b"request");
+    let normalized = raw
+        .action_content_for_context(&recipe, &context, Some(&previous))
+        .unwrap();
+    let mut observation = LocalObservation {
+        schema_version: SchemaVersion::V2,
+        profile_digest: profile.digest().unwrap(),
+        request_digest: request_digest.clone(),
+        input_digest: content_digest(context.as_bytes()),
+        content: BoundedText::new(&normalized).unwrap(),
+        reasoning: None,
+        native_calls: Some(raw.clone()),
+        prompt_tokens: 12,
+        completion_tokens: 8,
+        submission_cohort: SubmissionCohort {
+            id: BoundedText::new("cohort").unwrap(),
+            size: 1,
+            position: 0,
+        },
+        backend_batch: BatchProvenance::Unknown,
+        response: Some(LocalResponse::Text),
+    };
+    assert!(
+        observation
+            .validate(&profile, &request_digest, LocalOutputSchema::Text)
+            .is_err()
+    );
+    assert!(
+        observation
+            .validate_with_context(
+                &profile,
+                &request_digest,
+                LocalOutputSchema::Text,
+                &context,
+                Some(&previous)
+            )
+            .is_ok()
+    );
+    assert!(
+        observation
+            .validate_with_context(
+                &profile,
+                &request_digest,
+                LocalOutputSchema::Text,
+                "{}",
+                None
+            )
+            .is_err()
+    );
+    observation.content = BoundedText::new(
+        r#"{"tool":"edit","path":"other","content":"new","expected_digest":null}"#,
+    )
+    .unwrap();
+    assert!(
+        observation
+            .validate_with_context(
+                &profile,
+                &request_digest,
+                LocalOutputSchema::Text,
+                &context,
+                Some(&previous)
+            )
+            .is_err()
+    );
+    assert!(
+        !native_coding_v10_tool_schemas(&[CodingTool::Read], true)
+            .unwrap()
+            .iter()
+            .any(|(name, _)| name == "create" || name == "edit")
+    );
+    let schema =
+        native_coding_v10_tool_schemas(&[CodingTool::Edit, CodingTool::Read], false).unwrap();
+    assert!(schema.iter().any(|(n, _)| n == "create"));
+    assert!(!schema.iter().any(|(n, _)| n == "edit"));
+    assert!(
+        native_coding_v10_tool_schemas(&[CodingTool::Edit], true)
+            .unwrap()
+            .iter()
+            .any(|(n, _)| n == "edit")
+    );
+    let grammar =
+        native_xml_coding_v10_grammar(&[CodingTool::Edit, CodingTool::Read], true).unwrap();
+    assert!(grammar.contains("call_create"));
+    assert!(grammar.contains("call_edit"));
+    assert!(grammar.contains(r#"\x00-\x1f<"#));
+    assert!(
+        !native_xml_coding_v10_grammar(&[CodingTool::Edit], false)
+            .unwrap()
+            .contains("call_edit")
+    );
+    assert!(native_xml_coding_v10_grammar(&[CodingTool::Search], true).is_err());
+}

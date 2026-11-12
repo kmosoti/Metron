@@ -68,6 +68,12 @@ pub const LOCAL_CODING_V9_RENDER_MODE: &str = "metron-native-xml-paired-tool-his
 pub const LOCAL_CODING_V9_RECIPE_SHA: &str =
     "7af6356cde25a650ff05fe7a66e30d0a99f47022746560673342de8c1ad7c207";
 
+/// Native create and last-read-bound edit, with XML-safe JSON string arguments.
+pub const LOCAL_CODING_V10_SYSTEM: &str = LOCAL_CODING_V9_SYSTEM;
+pub const LOCAL_CODING_V10_RENDER_MODE: &str = "metron-native-file-tools/v1;create-noreplace;edit-last-complete-untruncated-read-cas;json-quoted-xml-safe-strings-decode-once;typed-create-edit-action-history;gated-catalog-help-projection;structured-preflight;v9-root-alias;untrusted-feedback";
+pub const LOCAL_CODING_V10_RECIPE_SHA: &str =
+    "7059e2174d8da680813d6b29bca75119290e4de509cb0a8f2d8649ea3a677e79";
+
 /// Build the complete XML grammar from trusted tool names only. The small V6
 /// catalog is experimental; any other tool fails closed before sampling.
 pub fn native_xml_coding_grammar(
@@ -222,6 +228,7 @@ pub fn is_local_coding_recipe(digest: &str) -> bool {
             | LOCAL_CODING_V7_RECIPE_SHA
             | LOCAL_CODING_V8_RECIPE_SHA
             | LOCAL_CODING_V9_RECIPE_SHA
+            | LOCAL_CODING_V10_RECIPE_SHA
     )
 }
 /// Return the exact system text and JSON Schema for the selected coding recipe.
@@ -236,6 +243,7 @@ pub fn local_coding_recipe(digest: &str) -> Option<(&'static str, serde_json::Va
         LOCAL_CODING_V7_RECIPE_SHA => (LOCAL_CODING_V7_SYSTEM, LOCAL_CODING_V2_SCHEMA),
         LOCAL_CODING_V8_RECIPE_SHA => (LOCAL_CODING_V8_SYSTEM, LOCAL_CODING_V2_SCHEMA),
         LOCAL_CODING_V9_RECIPE_SHA => (LOCAL_CODING_V9_SYSTEM, LOCAL_CODING_V2_SCHEMA),
+        LOCAL_CODING_V10_RECIPE_SHA => (LOCAL_CODING_V10_SYSTEM, LOCAL_CODING_V2_SCHEMA),
         _ => return None,
     };
     Some((
@@ -471,6 +479,166 @@ pub fn native_coding_v8_tool_schemas(
 ) -> Result<Vec<(String, serde_json::Value)>, ValidationError> {
     native_xml_coding_v8_grammar(tools)?;
     native_coding_tool_schemas(tools)
+}
+
+/// Resolve only the immediately preceding completed, successful Read.
+pub fn native_v10_read_target(
+    context: &str,
+    previous: Option<&crate::coding_runtime::CompletedToolTurn>,
+) -> Result<Option<crate::coding_runtime::CodingFile>, ValidationError> {
+    use crate::{
+        coding::CodingAction,
+        coding_runtime::{CompletedToolTurn, ToolStatus},
+    };
+    let value: serde_json::Value =
+        serde_json::from_str(context).map_err(|e| ValidationError::Json(e.to_string()))?;
+    let object = value.as_object().ok_or(ValidationError::Binding)?;
+    let embedded = object.get("previous_tool_turn_untrusted");
+    match previous {
+        Some(turn)
+            if embedded
+                != Some(&serde_json::to_value(turn).map_err(|_| ValidationError::Binding)?) =>
+        {
+            return Err(ValidationError::Binding);
+        }
+        None if embedded.is_some() => return Err(ValidationError::Binding),
+        _ => {}
+    }
+    let Some(turn) = previous else {
+        return Ok(None);
+    };
+    turn.validate()?;
+    let CompletedToolTurn::Complete {
+        action: CodingAction::Read { path, .. },
+        observation,
+        ..
+    } = turn
+    else {
+        return Ok(None);
+    };
+    if observation.status != ToolStatus::Succeeded
+        || observation.truncated
+        || observation.skipped_file_count != 0
+        || observation.file_refs.len() != 1
+        || observation.file_refs[0].path != *path
+    {
+        return Ok(None);
+    }
+    Ok(Some(observation.file_refs[0].clone()))
+}
+
+/// V10 tool schemas map both native file functions to the Edit grant.
+pub fn native_coding_v10_tool_schemas(
+    tools: &[crate::coding::CodingTool],
+    edit_available: bool,
+) -> Result<Vec<(String, serde_json::Value)>, ValidationError> {
+    use crate::coding::CodingTool;
+    native_xml_coding_v8_grammar(tools)?;
+    let mut result = Vec::new();
+    for tool in tools {
+        if *tool == CodingTool::Edit {
+            result.push(("create".into(), serde_json::json!({"type":"object", "properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false})));
+            if edit_available {
+                result.push(("edit".into(), serde_json::json!({"type":"object","properties":{"content":{"type":"string"}},"required":["content"],"additionalProperties":false})));
+            }
+        } else {
+            result.extend(native_coding_tool_schemas(&[*tool])?);
+        }
+    }
+    Ok(result)
+}
+
+/// Fixed catalog grammar: strings are JSON strings with literal '<' excluded.
+pub fn native_xml_coding_v10_grammar(
+    tools: &[crate::coding::CodingTool],
+    edit_available: bool,
+) -> Result<String, ValidationError> {
+    use crate::coding::CodingTool;
+    use std::fmt::Write as _;
+    native_xml_coding_v8_grammar(tools)?;
+    let mut branches: Vec<(&str, &[(&str, &str)])> = Vec::new();
+    for tool in [
+        CodingTool::Plan,
+        CodingTool::List,
+        CodingTool::Edit,
+        CodingTool::Read,
+        CodingTool::Run,
+        CodingTool::Finish,
+    ] {
+        if !tools.contains(&tool) {
+            continue;
+        }
+        match tool {
+            CodingTool::Plan => branches.push(("plan", &[("steps", "strings")])),
+            CodingTool::List => branches.push(("list", &[("directory", "directory")])),
+            CodingTool::Edit => {
+                branches.push(("create", &[("path", "quoted"), ("content", "quoted")]));
+                if edit_available {
+                    branches.push(("edit", &[("content", "quoted")]));
+                }
+            }
+            CodingTool::Read => branches.push((
+                "read",
+                &[
+                    ("path", "quoted"),
+                    ("first_line", "firstline"),
+                    ("line_count", "linecount"),
+                ],
+            )),
+            CodingTool::Run => branches.push((
+                "run",
+                &[
+                    ("program", "quoted"),
+                    ("args", "strings"),
+                    ("directory", "directory"),
+                ],
+            )),
+            CodingTool::Finish => branches.push(("finish", &[("summary", "quoted")])),
+            _ => unreachable!(),
+        }
+    }
+    let mut out = String::from("start: <tool_call> \"\\n\"? call \"\\n\"? </tool_call>\ncall: ");
+    for (i, (name, _)) in branches.iter().enumerate() {
+        if i > 0 {
+            out.push_str(" | ");
+        }
+        write!(out, "call_{name}").expect("string write");
+    }
+    out.push('\n');
+    for (name, fields) in branches {
+        writeln!(
+            out,
+            "call_{name}: \"<function={name}>\" \"\\n\"? state_{name}_0 </function>"
+        )
+        .expect("string write");
+        for mask in 0..(1usize << fields.len()) {
+            write!(out, "state_{name}_{mask}: ").expect("string write");
+            let mut first = true;
+            for i in 0..fields.len() {
+                if mask & (1 << i) == 0 {
+                    if !first {
+                        out.push_str(" | ");
+                    }
+                    first = false;
+                    write!(out, "arg_{name}_{i} state_{name}_{}", mask | (1 << i))
+                        .expect("string write");
+                }
+            }
+            out.push('\n');
+        }
+        for (i, (field, kind)) in fields.iter().enumerate() {
+            writeln!(out,"arg_{name}_{i}: \"<parameter={field}>\" \"\\n\"? {kind} \"\\n\"? </parameter> \"\\n\"?").expect("string write");
+        }
+    }
+    out.push_str(
+        r#"quoted: /"([^"\\\x00-\x1f<]|\\(["\\\/bfnrt]|u[0-9a-fA-F]{4}))*"/
+strings: "[" (quoted ("," quoted)*)? "]"
+directory: quoted | "null"
+firstline: /[1-9][0-9]{0,9}/
+linecount: /([1-9]|[1-9][0-9]|1[0-9][0-9]|200)/
+"#,
+    );
+    Ok(out)
 }
 
 /// Identify the embedded tokenizer through the full verified GGUF digest.
@@ -752,6 +920,7 @@ impl LocalProfile {
                 | LOCAL_CODING_V7_RECIPE_SHA
                 | LOCAL_CODING_V8_RECIPE_SHA
                 | LOCAL_CODING_V9_RECIPE_SHA
+                | LOCAL_CODING_V10_RECIPE_SHA
         ) {
             gguf_lfm3_corrected_tokenizer_digest(&self.artifact_digest)?
         } else {
@@ -850,7 +1019,87 @@ impl NativeCallEvidence {
     }
     /// Normalize only the versioned native directory alias; evidence remains unchanged.
     pub fn action_content_for_recipe(&self, recipe: &Digest) -> Result<String, ValidationError> {
+        if recipe.as_str() == LOCAL_CODING_V10_RECIPE_SHA {
+            return Err(ValidationError::Binding);
+        }
         self.action_content_with_root_alias(recipe.as_str() == LOCAL_CODING_V9_RECIPE_SHA)
+    }
+    /// V10 resolves its target from the admitted bounded prompt and typed prior turn.
+    pub fn action_content_for_context(
+        &self,
+        recipe: &Digest,
+        context: &str,
+        previous: Option<&crate::coding_runtime::CompletedToolTurn>,
+    ) -> Result<String, ValidationError> {
+        if recipe.as_str() != LOCAL_CODING_V10_RECIPE_SHA {
+            return self.action_content_for_recipe(recipe);
+        }
+        let target = native_v10_read_target(context, previous)?;
+        canonical_bytes(self, MAX_MODEL_OUTPUT)?;
+        if self.choice_count != 1 || self.overflow_digest.is_some() || self.calls.len() != 1 {
+            return Ok(String::new());
+        }
+        let call = &self.calls[0];
+        let Ok(serde_json::Value::Object(mut args)) = serde_json::from_str(call.arguments.as_str())
+        else {
+            return Ok(String::new());
+        };
+        if args.contains_key("tool") {
+            return Ok(String::new());
+        }
+        let name = call.name.as_str();
+        if !matches!(
+            name,
+            "plan" | "list" | "create" | "edit" | "read" | "run" | "finish"
+        ) {
+            return Ok(String::new());
+        }
+        for key in ["path", "content", "summary", "program", "directory"] {
+            if let Some(value) = args.get_mut(key)
+                && let Some(raw) = value.as_str()
+            {
+                let Ok(decoded) = serde_json::from_str::<String>(raw) else {
+                    return Ok(String::new());
+                };
+                *value = serde_json::Value::String(decoded);
+            }
+        }
+        if matches!(name, "list" | "run")
+            && args.get("directory").and_then(serde_json::Value::as_str) == Some(".")
+        {
+            args.insert("directory".into(), serde_json::Value::Null);
+        }
+        let domain_name = match name {
+            "create"
+                if args.len() == 2 && args.contains_key("path") && args.contains_key("content") =>
+            {
+                args.insert("expected_digest".into(), serde_json::Value::Null);
+                "edit"
+            }
+            "edit" if args.len() == 1 && args.contains_key("content") => {
+                let Some(file) = target else {
+                    return Ok(String::new());
+                };
+                args.insert(
+                    "path".into(),
+                    serde_json::to_value(file.path).map_err(|_| ValidationError::Binding)?,
+                );
+                args.insert(
+                    "expected_digest".into(),
+                    serde_json::to_value(file.digest).map_err(|_| ValidationError::Binding)?,
+                );
+                "edit"
+            }
+            "create" | "edit" => return Ok(String::new()),
+            other => other,
+        };
+        args.insert("tool".into(), serde_json::Value::String(domain_name.into()));
+        let mut value = serde_json::Value::Object(args);
+        value.sort_all_objects();
+        match canonical_bytes(&value, MAX_MODEL_OUTPUT) {
+            Ok(bytes) => String::from_utf8(bytes).map_err(|_| ValidationError::Binding),
+            Err(_) => Ok(String::new()),
+        }
     }
     fn action_content_with_root_alias(&self, root_alias: bool) -> Result<String, ValidationError> {
         canonical_bytes(self, MAX_MODEL_OUTPUT)?;
@@ -918,6 +1167,34 @@ impl LocalObservation {
         request_digest: &Digest,
         schema: LocalOutputSchema,
     ) -> Result<(), ValidationError> {
+        if profile.prompt_recipe_digest.as_str() == LOCAL_CODING_V10_RECIPE_SHA {
+            return Err(ValidationError::Binding);
+        }
+        self.validate_inner(profile, request_digest, schema, None)
+    }
+    pub fn validate_with_context(
+        &self,
+        profile: &LocalProfile,
+        request_digest: &Digest,
+        schema: LocalOutputSchema,
+        context: &str,
+        previous: Option<&crate::coding_runtime::CompletedToolTurn>,
+    ) -> Result<(), ValidationError> {
+        if profile.prompt_recipe_digest.as_str() != LOCAL_CODING_V10_RECIPE_SHA {
+            return self.validate(profile, request_digest, schema);
+        }
+        if crate::content_digest(context.as_bytes()) != self.input_digest {
+            return Err(ValidationError::Binding);
+        }
+        self.validate_inner(profile, request_digest, schema, Some((context, previous)))
+    }
+    fn validate_inner(
+        &self,
+        profile: &LocalProfile,
+        request_digest: &Digest,
+        schema: LocalOutputSchema,
+        context: Option<(&str, Option<&crate::coding_runtime::CompletedToolTurn>)>,
+    ) -> Result<(), ValidationError> {
         profile.validate()?;
         if self.schema_version != SchemaVersion::V2
             || self.profile_digest != profile.digest()?
@@ -960,8 +1237,15 @@ impl LocalObservation {
                     | LOCAL_CODING_V7_RECIPE_SHA
                     | LOCAL_CODING_V8_RECIPE_SHA
                     | LOCAL_CODING_V9_RECIPE_SHA
-            ) || native.action_content_for_recipe(&profile.prompt_recipe_digest)?
-                != self.content.as_str()
+                    | LOCAL_CODING_V10_RECIPE_SHA
+            ) || match context {
+                Some((text, previous)) => native.action_content_for_context(
+                    &profile.prompt_recipe_digest,
+                    text,
+                    previous,
+                )?,
+                None => native.action_content_for_recipe(&profile.prompt_recipe_digest)?,
+            } != self.content.as_str()
             {
                 return Err(ValidationError::Binding);
             }
@@ -972,6 +1256,7 @@ impl LocalObservation {
                 | LOCAL_CODING_V7_RECIPE_SHA
                 | LOCAL_CODING_V8_RECIPE_SHA
                 | LOCAL_CODING_V9_RECIPE_SHA
+                | LOCAL_CODING_V10_RECIPE_SHA
         ) {
             return Err(ValidationError::Binding);
         }
@@ -1445,6 +1730,7 @@ impl WorkerRequest {
                     | LOCAL_CODING_V7_RECIPE_SHA
                     | LOCAL_CODING_V8_RECIPE_SHA
                     | LOCAL_CODING_V9_RECIPE_SHA
+                    | LOCAL_CODING_V10_RECIPE_SHA
             );
             if previous_tool_turn.is_some()
                 && !matches!(
@@ -1452,6 +1738,7 @@ impl WorkerRequest {
                     LOCAL_CODING_V7_RECIPE_SHA
                         | LOCAL_CODING_V8_RECIPE_SHA
                         | LOCAL_CODING_V9_RECIPE_SHA
+                        | LOCAL_CODING_V10_RECIPE_SHA
                 )
             {
                 return Err(ValidationError::Binding);
@@ -1489,6 +1776,17 @@ impl WorkerRequest {
                         .as_deref()
                         .map(Vec::as_slice)
                         .ok_or(ValidationError::Binding)?,
+                )?;
+            }
+            if profile.prompt_recipe_digest.as_str() == LOCAL_CODING_V10_RECIPE_SHA {
+                let target =
+                    native_v10_read_target(context.as_str(), previous_tool_turn.as_deref())?;
+                native_xml_coding_v10_grammar(
+                    native_tools
+                        .as_deref()
+                        .map(Vec::as_slice)
+                        .ok_or(ValidationError::Binding)?,
+                    target.is_some(),
                 )?;
             }
             if crate::content_digest(context.as_str().as_bytes()) != *input_digest

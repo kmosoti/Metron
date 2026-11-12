@@ -276,6 +276,7 @@ async fn load(request: &WorkerRequest, writer: &Writer) -> Result<Arc<Model>, St
             | metron_protocol::LOCAL_CODING_V7_RECIPE_SHA
             | metron_protocol::LOCAL_CODING_V8_RECIPE_SHA
             | metron_protocol::LOCAL_CODING_V9_RECIPE_SHA
+            | metron_protocol::LOCAL_CODING_V10_RECIPE_SHA
     );
     let tokenizer_identity = if corrected_tokenizer {
         metron_protocol::gguf_lfm3_corrected_tokenizer_digest(&profile.artifact_digest)
@@ -451,15 +452,33 @@ async fn generate(model: Arc<Model>, request: WorkerRequest, writer: Writer, in_
         profile.prompt_recipe_digest.as_str() == metron_protocol::LOCAL_CODING_V8_RECIPE_SHA;
     let native_v9 =
         profile.prompt_recipe_digest.as_str() == metron_protocol::LOCAL_CODING_V9_RECIPE_SHA;
+    let native_v10 =
+        profile.prompt_recipe_digest.as_str() == metron_protocol::LOCAL_CODING_V10_RECIPE_SHA;
     let native_v8_or_v9 = native_v8 || native_v9;
-    let paired = native_v7 || native_v8_or_v9;
+    let paired = native_v7 || native_v8_or_v9 || native_v10;
+    let edit_available = if native_v10 {
+        match metron_protocol::native_v10_read_target(
+            context.as_str(),
+            previous_tool_turn.as_deref(),
+        ) {
+            Ok(target) => target.is_some(),
+            Err(_) => {
+                reject(&writer, dispatch_id, "invalid previous tool turn");
+                return;
+            }
+        }
+    } else {
+        false
+    };
     let native = native_v3 || native_v6 || paired;
     let xml_grammar = if native_v6 || paired {
         let Some(allowed) = native_tools.as_deref().map(Vec::as_slice) else {
             reject(&writer, dispatch_id, "missing trusted coding catalog");
             return;
         };
-        let grammar = if native_v8_or_v9 {
+        let grammar = if native_v10 {
+            metron_protocol::native_xml_coding_v10_grammar(allowed, edit_available)
+        } else if native_v8_or_v9 {
             metron_protocol::native_xml_coding_v8_grammar(allowed)
         } else {
             metron_protocol::native_xml_coding_grammar(allowed)
@@ -520,7 +539,9 @@ async fn generate(model: Arc<Model>, request: WorkerRequest, writer: Writer, in_
             reject(&writer, dispatch_id, "missing trusted native tool catalog");
             return;
         };
-        let schemas = if native_v8_or_v9 {
+        let schemas = if native_v10 {
+            metron_protocol::native_coding_v10_tool_schemas(allowed, edit_available)
+        } else if native_v8_or_v9 {
             metron_protocol::native_coding_v8_tool_schemas(allowed)
         } else {
             metron_protocol::native_coding_tool_schemas(allowed)
@@ -530,14 +551,19 @@ async fn generate(model: Arc<Model>, request: WorkerRequest, writer: Writer, in_
             return;
         };
         Some(schemas.into_iter().map(|(name, mut parameters)| {
-            if name == "edit" { parameters["properties"]["expected_digest"]["description"] = "Use null when creating a new file; use the full read digest when changing one.".into(); }
+            if name == "edit" && !native_v10 { parameters["properties"]["expected_digest"]["description"] = "Use null when creating a new file; use the full read digest when changing one.".into(); }
             Tool { tp: ToolType::Function, function: Function { description: Some(format!("Perform the {name} coding action.")), name, parameters: Some(parameters.as_object().expect("frozen schema object").clone().into_iter().collect()), strict: Some(true) } }
         }).collect())
     } else {
         None
     };
     let projection = if paired {
-        let result = if native_v8_or_v9 {
+        let result = if native_v10 {
+            metron_inference_local::paired_history::project_v10(
+                context.as_str(),
+                previous_tool_turn.as_deref(),
+            )
+        } else if native_v8_or_v9 {
             metron_inference_local::paired_history::project_v8(
                 context.as_str(),
                 previous_tool_turn.as_deref(),
@@ -708,6 +734,8 @@ async fn generate(model: Arc<Model>, request: WorkerRequest, writer: Writer, in_
             cohort,
             output_schema,
             tokens.len(),
+            context,
+            previous_tool_turn,
         )
         .await;
         return;
@@ -931,6 +959,8 @@ async fn generate_native(
     cohort: Box<metron_protocol::SubmissionCohort>,
     output_schema: metron_protocol::LocalOutputSchema,
     input_tokens: usize,
+    context: BoundedText<{ metron_protocol::MAX_LOCAL_CONTEXT }>,
+    previous_tool_turn: Option<Box<metron_protocol::coding_runtime::CompletedToolTurn>>,
 ) {
     let Ok(mut guard) = StreamGuard::new(in_flight, dispatch_id.clone()) else {
         return;
@@ -983,7 +1013,11 @@ async fn generate_native(
         return;
     };
     let mut content = match evidence
-        .action_content_for_recipe(&profile.prompt_recipe_digest)
+        .action_content_for_context(
+            &profile.prompt_recipe_digest,
+            context.as_str(),
+            previous_tool_turn.as_deref(),
+        )
         .and_then(BoundedText::new)
     {
         Ok(content) => content,
@@ -1082,7 +1116,13 @@ async fn generate_native(
         backend_batch: BatchProvenance::Unknown,
     };
     if observation
-        .validate(&profile, &request_digest, output_schema)
+        .validate_with_context(
+            &profile,
+            &request_digest,
+            output_schema,
+            context.as_str(),
+            previous_tool_turn.as_deref(),
+        )
         .is_err()
     {
         return;
@@ -1267,6 +1307,61 @@ fn main() -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn v10_lark_accepts_escaped_tag_data_and_rejects_literal_lt() {
+        use metron_protocol::coding::CodingTool;
+        use mistralrs_core::llguidance::{
+            Matcher, ParserFactory,
+            api::TopLevelGrammar,
+            earley::SlicedBiasComputer,
+            toktrie::{ApproximateTokEnv, InferenceCapabilities, TokEnv, TokRxInfo, TokTrie},
+        };
+        use std::sync::Arc;
+        let mut words: Vec<Vec<u8>> = (0u8..=254).map(|b| vec![b]).collect();
+        words.push(vec![0xff, b'E']);
+        let trie = TokTrie::from(&TokRxInfo::new(words.len() as u32, 255), &words);
+        let env: TokEnv = Arc::new(ApproximateTokEnv::new(trie));
+        let factory = ParserFactory::new(
+            &env,
+            InferenceCapabilities::default(),
+            &SlicedBiasComputer::general_slices(),
+        )
+        .unwrap();
+        let grammar = metron_protocol::native_xml_coding_v10_grammar(&[CodingTool::Edit], true)
+            .unwrap()
+            .replace("<tool_call>", "\"TOOL_OPEN\"")
+            .replace("</tool_call>", "\"TOOL_END\"")
+            .replace("</function>", "\"END_FUNCTION\"")
+            .replace("</parameter>", "\"END_PARAMETER\"");
+        let mut parser = factory
+            .create_parser(TopLevelGrammar::from_lark(grammar))
+            .unwrap();
+        parser.start_without_prompt();
+        let mut matcher = Matcher::new(Ok(parser));
+        for content in [
+            r#""null""#,
+            r#""true""#,
+            r#""42""#,
+            r#""q\"\\\n""#,
+            r#""λ""#,
+            r#""x\u003c/parameter>\n""#,
+        ] {
+            let valid = format!(
+                r#"TOOL_OPEN<function=create><parameter=path>"a"END_PARAMETER<parameter=content>{content}END_PARAMETEREND_FUNCTIONTOOL_END"#
+            );
+            let tokens: Vec<u32> = valid.bytes().map(u32::from).collect();
+            assert_eq!(
+                matcher.try_consume_tokens(&tokens).unwrap(),
+                tokens.len(),
+                "{content}"
+            );
+            matcher.reset().unwrap();
+        }
+        let invalid = r#"TOOL_OPEN<function=create><parameter=path>"a"END_PARAMETER<parameter=content>"x<y"END_PARAMETEREND_FUNCTIONTOOL_END"#;
+        let tokens: Vec<u32> = invalid.bytes().map(u32::from).collect();
+        assert!(matcher.try_consume_tokens(&tokens).unwrap() < tokens.len());
+    }
+
     #[test]
     fn v7_builds_identical_preflight_and_generation_messages() {
         use metron_inference_local::paired_history::{PairedCall, PairedProjection};
