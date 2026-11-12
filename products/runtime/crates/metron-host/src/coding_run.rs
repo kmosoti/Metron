@@ -982,7 +982,7 @@ mod tests {
     ) -> (PathBuf, Settings, SqliteStore) {
         setup_at(&std::env::temp_dir(), name, mode, allowed, approval)
     }
-    fn setup_at(
+    pub(super) fn setup_at(
         parent: &Path,
         name: &str,
         mode: EngineMode,
@@ -1371,3 +1371,7 @@ mod tests {
 
 #[cfg(test)]
 mod recovery_tests;
+
+#[cfg(test)]
+#[path = "coding_run/tool_security_tests.rs"]
+mod tool_security_tests;
