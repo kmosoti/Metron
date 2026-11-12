@@ -23,10 +23,11 @@ impl ContentHash {
 
     /// Hashes the canonical JSON serialisation of `value`.
     ///
-    /// `serde_json` serialises maps in key order and structs in field order,
-    /// so the result is deterministic for a given type and value.
+    /// Map entries are sorted by their JSON keys recursively. Struct fields
+    /// retain their serialization order, including when `serde_json/preserve_order`
+    /// is enabled by another workspace dependency.
     pub fn of_json<T: Serialize + ?Sized>(value: &T) -> Result<Self, serde_json::Error> {
-        let bytes = serde_json::to_vec(value)?;
+        let bytes = crate::canonical::to_vec(value)?;
         Ok(Self::of_bytes(&bytes))
     }
 
@@ -97,6 +98,7 @@ impl<'de> Deserialize<'de> for ContentHash {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::canonical;
 
     #[test]
     fn known_vector() {
@@ -121,5 +123,75 @@ mod tests {
         let a = ContentHash::of_json(&serde_json::json!({"b": 1, "a": [1, 2]})).unwrap();
         let b = ContentHash::of_json(&serde_json::json!({"a": [1, 2], "b": 1})).unwrap();
         assert_eq!(a, b);
+    }
+    #[test]
+    fn nested_maps_are_sorted_but_struct_fields_keep_declaration_order() {
+        #[derive(Serialize)]
+        struct Record {
+            zebra: u8,
+            alpha: serde_json::Value,
+        }
+        let value: serde_json::Value =
+            serde_json::from_str(r#"{"z":1,"a":{"z":2,"a":3}}"#).unwrap();
+        let expected = br#"{"a":{"a":3,"z":2},"z":1}"#;
+        assert_eq!(canonical::to_vec(&value).unwrap(), expected);
+        assert_eq!(
+            ContentHash::of_json(&value).unwrap(),
+            ContentHash::of_bytes(expected)
+        );
+        let record = Record {
+            zebra: 7,
+            alpha: value,
+        };
+        let expected = br#"{"zebra":7,"alpha":{"a":{"a":3,"z":2},"z":1}}"#;
+        assert_eq!(canonical::to_vec(&record).unwrap(), expected);
+        assert_eq!(
+            ContentHash::of_json(&record).unwrap(),
+            ContentHash::of_bytes(expected)
+        );
+    }
+
+    #[test]
+    fn sequence_enum_scalars_and_large_numbers_match_json() {
+        #[derive(Serialize)]
+        enum Example {
+            Unit,
+            New(u128),
+            Pair(u8, &'static str),
+            Record { z: i32, a: bool },
+        }
+        let examples = [
+            Example::Unit,
+            Example::New(u128::MAX),
+            Example::Pair(1, "x"),
+            Example::Record { z: -2, a: true },
+        ];
+        let expected = br#"["Unit",{"New":340282366920938463463374607431768211455},{"Pair":[1,"x"]},{"Record":{"z":-2,"a":true}}]"#;
+        assert_eq!(canonical::to_vec(&examples).unwrap(), expected);
+        assert_eq!(
+            ContentHash::of_json(&examples).unwrap(),
+            ContentHash::of_bytes(expected)
+        );
+        for value in [0.0, -0.0, 1.25, f64::INFINITY, f64::NAN] {
+            assert_eq!(
+                canonical::to_vec(&value).unwrap(),
+                serde_json::to_vec(&value).unwrap()
+            );
+        }
+        assert_eq!(
+            canonical::to_vec(&i128::MIN).unwrap(),
+            serde_json::to_vec(&i128::MIN).unwrap()
+        );
+    }
+
+    #[test]
+    fn map_sorting_uses_decoded_keys_and_rejects_invalid_keys() {
+        use std::collections::BTreeMap;
+        let value = BTreeMap::from([("a", 1), ("\n", 2)]);
+        assert_eq!(canonical::to_vec(&value).unwrap(), br#"{"\n":2,"a":1}"#);
+        let invalid = BTreeMap::from([((1, 2), true)]);
+        let expected = serde_json::to_vec(&invalid).unwrap_err();
+        let actual = ContentHash::of_json(&invalid).unwrap_err();
+        assert_eq!(actual.to_string(), expected.to_string());
     }
 }

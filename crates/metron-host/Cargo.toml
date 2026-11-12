@@ -19,8 +19,8 @@ rustix = { version = "=1.1.6", features = ["fs"] }
 rusqlite = { version = "=0.37.0", features = ["bundled"] }
 metron-testkit = { path = "../metron-testkit" }
 
-[lints]
-workspace = true
+[lints.rust]
+unsafe_code = "forbid"
 
 [[bin]]
 name = "metron-runtime"

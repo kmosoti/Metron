@@ -19,7 +19,7 @@ concurrency/latency target in [ADR 0021](../../docs/adr/0021-local-inference.md)
 The source is `f45f7c27d5c7a2c4ae12b463384de0bc5473fa9c`; the worker executable
 SHA-256 is `f74e87d7ee2d7dbc134b04abcaaa8c5af82d303c5ae3fc9e71734cd1e4148b81`. The SDK is pinned to
 `fb4cdc3730dc64b366724e7637a205a8b7747499`. Model and auxiliary identities are
-listed in the [runtime setup](../../products/runtime/README.md#local-worker-and-comparisons).
+listed in the [runtime setup](../../docs/agent-harness.md#local-worker-and-comparisons).
 
 ## Request and execution evidence
 

@@ -9,5 +9,5 @@ license.workspace = true
 metron-protocol = { path = "../metron-protocol" }
 rusqlite = { version = "=0.37.0", features = ["bundled", "backup"] }
 
-[lints]
-workspace = true
+[lints.rust]
+unsafe_code = "forbid"

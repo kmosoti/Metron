@@ -1,120 +1,46 @@
 # Metron
 
-**Hexagonal Cognitive Kernel: a laboratory where a resource-bounded system
-learns hidden Boolean functions through several representations, and where
-every claim has to survive measurement.**
+Metron is a Rust-native agent and execution harness with explicit authority,
+bounded effects and durable replay.
 
 [![ci](https://github.com/kmosoti/Metron/actions/workflows/ci.yml/badge.svg)](https://github.com/kmosoti/Metron/actions/workflows/ci.yml)
 
-The [runtime alpha.0](products/runtime/README.md) is an isolated Rust-native agent
-and execution harness with pure decision logic, durable execution and replay.
-It runs one scripted fixture task; live local inference is a later milestone. The
-[runtime research and implementation sequence](knowledge/research/README.md)
-records the source evidence, contracts and staged acceptance criteria.
-[Issue #7](https://github.com/kmosoti/Metron/issues/7) tracks implementation.
-The implemented system described below is the research laboratory.
+- [metron-agent](crates/metron-agent): pure task coordination and typed proposals.
+- [metron-harness](crates/metron-harness): independently usable admission,
+  orchestration and standalone planning.
+- Supporting crates provide the host, SQLite state, scoped tools and local
+  inference through a separate mistral.rs worker.
 
-The system never sees the function it is trying to learn. It asks questions
-through a port, pays for every answer with a receipt, and commits a guess
-that the laboratory judges once the episode is over. These rules are not a
-convention: the build fails if any of them is broken.
+All crates share the root Cargo workspace, lockfile and Rust 1.100 toolchain pin.
+See the [architecture diagrams](docs/architecture/overview.md) for component and
+execution boundaries.
 
-## The picture
+## Use and develop
 
-```mermaid
-flowchart LR
-    RUN["Episode runner<br/>journal: a hash chain"] -->|applies| OPS["Operators<br/>observe · transform · consult · commit"]
-    OPS -->|writes views| INQ["Inquiry<br/>views in frames,<br/>joined by contracts"]
-    OPS -->|probe a row| ORACLE(["Oracle port"])
-    OPS -->|read| KNOW(["Knowledge port"])
-    OPS -->|ask| SERVICE(["Service port"])
-    ORACLE --> TARGET[("Hidden target")]
-    ORACLE -.->|receipt| RUN
-    KNOW --> POOL[("Hypothesis pool")]
-    SERVICE -.->|request file| SESSION["Claude Code session"]
-    INQ ==>|committed answer| JUDGE{{"Judge"}}
-    subgraph SYSTEM["The system under study"]
-        RUN
-        OPS
-        INQ
-    end
-    subgraph LAB["The laboratory, sealed"]
-        TARGET
-        POOL
-        JUDGE
-    end
-```
-
-Four rules hold everywhere, and `cargo test` checks them on every build: the
-core is pure, the laboratory owns ground truth, every external operation
-leaves a receipt, and representations meet only through explicit transform
-contracts that say what they preserve, lose and assume.
-
-## One episode
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant R as Runner
-    participant O as Operator
-    participant L as Laboratory
-    participant J as Journal
-    participant I as Inquiry
-    R->>O: apply, with the episode's seeded RNG
-    O->>L: probe row 5
-    L-->>O: f(row 5) = 1
-    L-->>R: a receipt with cost and hashes
-    R->>J: journal the receipt before reading the result
-    O->>I: write a view under a transform contract
-    R->>R: check what this kind of operator may write
-    Note over R,I: repeat until an operator commits an answer
-    R->>J: the answer and the head hash
-    L->>L: judge the answer after the episode
-```
-
-The same manifest and seed always produce the same journal head, so any run
-can be replayed and audited, including runs that paused to ask a language
-model a question.
-
-## Research findings
-
-The [laboratory results and milestone snapshot](knowledge/observations/O-0002-laboratory-results-snapshot.md)
-collects the measured routing, retrieval and promotion findings, their figures,
-and the laboratory's outcome milestones. Supporting reports and accepted decisions
-are linked there.
-
-## Explore
-
-```mermaid
-flowchart TB
-    CLI["metron-cli<br/>composition root"] --> LAB["metron-lab<br/>sealed evaluator"]
-    CLI --> APP["metron-app<br/>use cases"]
-    CLI --> OPS["metron-operators<br/>strategies"]
-    CLI --> ADA["metron-adapters<br/>effects"]
-    LAB --> CORE["metron-core<br/>pure domain and ports"]
-    APP --> CORE
-    OPS --> CORE
-    ADA --> CORE
-```
-
-| If you want to… | Go to |
-|---|---|
-| see the rules the build enforces | [docs/architecture/invariants.md](docs/architecture/invariants.md) |
-| follow an episode end to end, crate by crate | [docs/architecture/overview.md](docs/architecture/overview.md) |
-| read the milestones and their exit criteria | [docs/architecture/milestones.md](docs/architecture/milestones.md) |
-| know why things are the way they are | [docs/adr](docs/adr/README.md) |
-| check what was assumed and what survived | [docs/research/priors.md](docs/research/priors.md) |
-| open the raw measurements | [experiments/reports](experiments/reports/README.md) |
-| run experiments, or answer a consultation as the language model | [experiments/README.md](experiments/README.md) |
-| follow the development and review workflow | [CONTRIBUTING.md](CONTRIBUTING.md) |
-| find dated decisions, research and observations | [knowledge/README.md](knowledge/README.md) |
-| change the code, as a person or a coding agent | [AGENTS.md](AGENTS.md) |
+[Agent and harness usage](docs/agent-harness.md) describes the composed host.
+[Bounded coding](docs/coding.md) covers task, policy, tool and model bindings.
 
 ```sh
-cargo test --workspace                                                    # the rules, as tests
-cargo run -p metron-cli -- run experiments/manifests/smoke-majority3.json # one episode
-cargo run --release -p metron-cli -- headroom experiments/manifests/headroom-arity5.json
-cargo run -p metron-cli -- figures                                        # refresh laboratory figures
+cargo build --locked -p metron-host
+cargo test --locked --workspace
 ```
 
-Apache-2.0. See [LICENSE](LICENSE).
+The host builds the `metron-runtime` CLI. Build the local inference worker
+separately with the required backend feature; a host build does not select CUDA.
+The repository pins `beta-2026-11-07` (Rust 1.100.0-beta.12).
+
+Alpha.1 is in development. Local LFM3 Q4 CUDA generation is verified; useful
+model-written coding and all required resource gates have not yet passed.
+[Issue #7](https://github.com/kmosoti/Metron/issues/7) tracks release acceptance.
+The scripted `sum-v1` fixture is compatibility evidence, not general usage.
+
+## Research and contribution
+
+The [knowledge index](knowledge/README.md) holds research and dated observations.
+The retained Boolean-function [laboratory](docs/architecture/laboratory.md)
+keeps its sealed evaluator, experiments and existing commands. Its
+[results snapshot](knowledge/observations/O-0002-laboratory-results-snapshot.md)
+records findings separately from agent/harness capability claims.
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) for development, review and human release
+procedures. Architecture diagrams accompany human review.
