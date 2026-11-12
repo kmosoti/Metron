@@ -35,12 +35,12 @@ pub struct ComparisonRequest {
 /// A one-shot authority, neither clonable nor deserializable.
 ///
 /// ```compile_fail
-/// use metron_harness::comparison::ComparisonPermit;
+/// use metron_inference_local::comparison::ComparisonPermit;
 /// fn duplicate(permit: &ComparisonPermit) -> ComparisonPermit { permit.clone() }
 /// ```
 ///
 /// ```compile_fail
-/// use metron_harness::comparison::ComparisonPermit;
+/// use metron_inference_local::comparison::ComparisonPermit;
 /// let _: ComparisonPermit = metron_protocol::parse_envelope(b"{}").unwrap();
 /// ```
 pub struct ComparisonPermit {

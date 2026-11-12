@@ -69,6 +69,62 @@
         "sha256": "f1147d25b37ed7a91333c072df39ced0da83bf3df5d773e742f467d45e2a43bd"
       },
       "journal_checks": {"chain": true, "accounting": true, "projection": true, "behavior_replay": true, "reservations": 0, "holds": 0, "unposted": 0}
+    },
+    {
+      "case": "native-repair-v10-harness-guided-01",
+      "mode": "harness",
+      "elapsed_seconds": 894.6695246570744,
+      "source_revision": "2a90ed944c4e2274df85a1c10d348c686b595061",
+      "merged_source_equivalent_to": "898bae3d868fce6db3454a556a2afd91d246d7e1",
+      "outcome": "rejected",
+      "exit_code": 4,
+      "usage": {"model_requests": 12, "posted_tools": 11},
+      "budget": {"model_requests": 12, "tool_calls": 24, "decision_steps": 48},
+      "tool_sequence": [
+        {"tool": "read", "path": "cargo.toml", "status": "failed", "reason": "file not found"},
+        {"tool": "read", "path": "cargo.toml", "status": "failed", "reason": "file not found"},
+        {"tool": "read", "path": "src/main.rs", "status": "succeeded", "file_sha256": "3855474da8f13007366defab5f1d44b85c2a00ac415bb216e8e3c6657342056a"},
+        {"tool": "edit", "path": "src/main.rs", "status": "succeeded", "file_sha256_after": "50e9d9935ef94a97f5bb382e7daed235b09e06ca406ea04e9ebb86458236dabb", "note": "content used HTML entities for Rust generic syntax and ampersand"},
+        {"tool": "read", "path": "src/main.rs", "status": "succeeded", "count_after_edit": 5, "file_sha256_each": "50e9d9935ef94a97f5bb382e7daed235b09e06ca406ea04e9ebb86458236dabb"},
+        {"tool": "read", "path": "Cargo.toml", "status": "succeeded", "count_after_edit": 2, "file_sha256_each": "b210625e08a83b0a44ec92dc799df6c91e9fbfcc47a01ffc5cc0508f6858d1f9"}
+      ],
+      "post_edit_read_order": ["src/main.rs", "src/main.rs", "Cargo.toml", "src/main.rs", "src/main.rs", "Cargo.toml", "src/main.rs"],
+      "finish_invoked": false,
+      "cargo_run_invoked": false,
+      "freeze_or_evaluator": false,
+      "workspace": {
+        "initial_fixture_manifest_sha256": "9679eaacfb925d9b76cb6abf40582ab2ff54eeb5660236333d7822517d8af8f1",
+        "src_main_sha256_before_edit": "3855474da8f13007366defab5f1d44b85c2a00ac415bb216e8e3c6657342056a",
+        "source_sha256_after_run": "50e9d9935ef94a97f5bb382e7daed235b09e06ca406ea04e9ebb86458236dabb"
+      },
+      "public_instruction_variant": ["plan first", "use minimal edit", "ASCII flags and JSON escaping instructions", "each plan step under 100 characters"],
+      "matched_quality_comparison": false,
+      "independent_audit": null,
+      "host_report": {
+        "path": "native-coding/native-repair-v10-harness-guided-01/stdout.jsonl",
+        "sha256": "30261256a144afc1fe35f28258f9115f2b03bf72d621ac4b90993eb3fe324fce",
+        "journal_head": "373e12f9be0a534e73533349f946824776637b6a212368c32e5674f82c066e51",
+        "chain": true,
+        "accounting": true,
+        "projection": true,
+        "behavior_replay": true,
+        "reservations": 0,
+        "holds": 0,
+        "unposted": 0
+      },
+      "raw_run_db_sha256": "99b95ef9588276b4ef5b68011882c0ba46c12edb780659b67550af472d415f24",
+      "raw_artifacts_sha256": {
+        "preparation.json": "00cbaeb423072e7b109be2a4936a1f405c48741d0a66ebbc712cc377cad05811",
+        "task.json": "98419403706f630ea2315d27507ceef9a165fc1cfdb81ab990e51d234adb0fad",
+        "policy.json": "606932f7bec6ae7fa121d8f49ad2c3217db51b4a6edd840504115ef854a6d671",
+        "catalog.json": "6c61eeaefd3c1eeda3ed9bc215b8b715ed2ec41568d9731f8ca2fdd19e908c69",
+        "preregistered.json": "c72625e18c9dbada023c14bf4e1783b5c612f90731d69c6c78035ff808bff0fa",
+        "result.json": "affd7aeaddb5b0ffaf95b8d67e78ea3e7b2f6c95b31801011579e42d4e2187d8",
+        "initial-fixture.json": "9679eaacfb925d9b76cb6abf40582ab2ff54eeb5660236333d7822517d8af8f1",
+        "identities.json": "351c582d90c1ccc610802b177b229ab2138fca15ed9961a98aa06ca18230a1c7"
+      },
+      "recipe_sha256": "7059e2174d8da680813d6b29bca75119290e4de509cb0a8f2d8649ea3a677e79",
+      "profile_sha256": "60ec1da024ae18c959e06b0d7208d9158468aa4d141615b51a5de4a15caeee0e"
     }
   ],
   "context_sources": {

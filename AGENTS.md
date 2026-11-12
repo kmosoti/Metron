@@ -23,9 +23,14 @@ part of the current product.
 - `metron-testkit` is development-only support. Its fixtures do not define
   product task architecture. The current alpha.1 gates remain open until
   independently accepted native coding and required resource evidence pass.
-- Keep the `sum-v1` compatibility boundary explicit; it is not a general task
-  framework. Preserve legacy journal/read-only replay behavior unless a
-  separately reviewed migration establishes compatibility.
+- Public agent, planner and harness APIs support coding coordination only;
+  do not restore sum-driven producers or a generic task framework.
+- Keep historical sum compatibility private and read-only. The host may
+  replay/verify recognized legacy journals without migration; do not add
+  legacy writers, reconciliation, or claims that every historical profile
+  has been replay-qualified.
+- Harness effects require explicit ports. Do not add an implicit driver,
+  filesystem fallback, or test-only effect implementation to production.
 
 ## Layout
 
@@ -45,6 +50,10 @@ evidence and decisions live in `knowledge/`.
   accounting, crash recovery, path confinement, CAS mutation, SDK isolation,
   and independent verification. Changes to wire formats, durable state or
   authority boundaries require an ADR and focused regression evidence.
+- Production harness code must remain free of ambient I/O; keep concrete
+  filesystem/model adapters in the host or local inference adapter. Keep
+  controlled coding fixtures and recorded model replies in the dev-only
+  `metron_testkit::coding` module.
 - Distinguish model weight artifact bytes, KV/cache state, runtime workspace
   and measured device memory. A trained context limit or KV estimate alone
   does not establish physical fit. Permit larger trained contexts only when
