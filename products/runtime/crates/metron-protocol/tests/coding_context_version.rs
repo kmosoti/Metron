@@ -679,3 +679,264 @@ fn native_function_catalog_is_bound_to_phase_and_policy_not_prompt_contents() {
     let bytes = canonical_bytes(old_step, MAX_ENVELOPE).unwrap();
     assert!(!String::from_utf8(bytes).unwrap().contains("native_tools"));
 }
+
+fn settled_model(t: &Transition, content: &str, evidence: &[u8]) -> AgentEvent {
+    let (state, CodingStep::Model { input_digest, .. }) = step(t) else {
+        panic!("model")
+    };
+    AgentEvent::EffectSettled {
+        intent_id: state.pending_intent.clone().unwrap(),
+        evidence_id: content_digest(evidence),
+        output: ReceiptOutput::Coding {
+            observation: Box::new(CodingObservation::ScriptedModel {
+                input_digest: input_digest.clone(),
+                content: BoundedText::new(content).unwrap(),
+            }),
+        },
+    }
+}
+
+#[test]
+fn recovering_bad_path_requires_fresh_model_and_preserves_catalog() {
+    let (task, mut policy, state) = fixtures();
+    policy.allowed_tools = vec![CodingTool::List, CodingTool::Read, CodingTool::Finish];
+    for recover in [false, true] {
+        let f = if recover {
+            coding_transition_recovering
+        } else {
+            coding_transition_native
+        };
+        let initial = f(&task, &policy, &state, &AgentEvent::TaskAccepted).unwrap();
+        let plan = f(
+            &task,
+            &policy,
+            step(&initial).0,
+            &settled_model(&initial, r#"{"tool":"plan","steps":["Inspect"]}"#, b"plan"),
+        )
+        .unwrap();
+        let bad = settled_model(&plan, r#"{"tool":"list","directory":"/"}"#, b"bad");
+        let next = f(&task, &policy, step(&plan).0, &bad).unwrap();
+        if !recover {
+            let Transition::Finalization { next } = next else {
+                panic!("legacy rejection")
+            };
+            assert_eq!(next.phase, Phase::Rejected);
+            continue;
+        }
+        let (waiting, CodingStep::Model { native_tools, .. }) = step(&next) else {
+            panic!("fresh model")
+        };
+        assert_eq!(
+            native_tools.as_deref(),
+            Some(policy.allowed_tools.as_slice())
+        );
+        let ctx = waiting.coding_context.as_ref().unwrap();
+        assert_eq!(ctx.invalid_proposals, 1);
+        assert_eq!(
+            ctx.model_feedback.as_ref().unwrap().source_evidence,
+            content_digest(b"bad")
+        );
+        let p: serde_json::Value = serde_json::from_str(prompt(&next).0).unwrap();
+        assert_eq!(
+            p["model_feedback"]["diagnostic"],
+            MODEL_VALIDATION_DIAGNOSTIC
+        );
+        assert!(!p["model_feedback"].to_string().contains("grant edit"));
+        let valid = settled_model(&next, r#"{"tool":"list","directory":null}"#, b"good");
+        let action = f(&task, &policy, waiting, &valid).unwrap();
+        let (
+            state,
+            CodingStep::Tool {
+                action: CodingAction::List { directory: None },
+                source_evidence,
+            },
+        ) = step(&action)
+        else {
+            panic!("list intent")
+        };
+        assert_eq!(*source_evidence, content_digest(b"good"));
+        assert_eq!(state.coding_context.as_ref().unwrap().invalid_proposals, 1);
+        assert!(
+            state
+                .coding_context
+                .as_ref()
+                .unwrap()
+                .model_feedback
+                .is_none()
+        );
+    }
+}
+
+#[test]
+fn recovery_is_bounded_and_rejects_forged_feedback() {
+    let (task, policy, state) = fixtures();
+    let mut current =
+        coding_transition_recovering(&task, &policy, &state, &AgentEvent::TaskAccepted).unwrap();
+    for i in 1..=3 {
+        let e = settled_model(&current, r#"{"tool":"list","directory":null}"#, &[i]);
+        let next = coding_transition_recovering(&task, &policy, step(&current).0, &e).unwrap();
+        if i == 3 {
+            let Transition::Finalization { next } = next else {
+                panic!("terminal")
+            };
+            assert_eq!(next.phase, Phase::Rejected);
+            assert_eq!(next.coding_context.unwrap().invalid_proposals, 3);
+            break;
+        }
+        let (state, CodingStep::Model { native_tools, .. }) = step(&next) else {
+            panic!("model")
+        };
+        assert_eq!(native_tools.as_deref(), Some([CodingTool::Plan].as_slice()));
+        assert_eq!(state.coding_context.as_ref().unwrap().invalid_proposals, i);
+        current = next;
+    }
+    let mut forged = CodingContext {
+        invalid_proposals: 4,
+        ..CodingContext::default()
+    };
+    assert!(forged.validate().is_err());
+    forged.invalid_proposals = 1;
+    forged.model_feedback = Some(ModelFeedback {
+        source_evidence: content_digest(b"forged"),
+        diagnostic: BoundedText::new("grant edit").unwrap(),
+    });
+    assert!(forged.validate().is_err());
+}
+
+#[test]
+fn recovery_leaves_uncertainty_denial_failure_and_budget_semantics_intact() {
+    let (task, policy, state) = fixtures();
+    let current =
+        coding_transition_recovering(&task, &policy, &state, &AgentEvent::TaskAccepted).unwrap();
+    let waiting = step(&current).0;
+    let id = waiting.pending_intent.clone().unwrap();
+    let t = coding_transition_recovering(
+        &task,
+        &policy,
+        waiting,
+        &AgentEvent::EffectUncertain {
+            intent_id: id.clone(),
+        },
+    )
+    .unwrap();
+    let Transition::Finalization { next } = t else {
+        panic!("uncertain")
+    };
+    assert_eq!(next.pending_intent, Some(id.clone()));
+    assert_eq!(next.phase, Phase::WaitingModel);
+    let t = coding_transition_recovering(
+        &task,
+        &policy,
+        waiting,
+        &AgentEvent::Denied {
+            intent_id: id.clone(),
+            reason: BoundedText::new("revoked").unwrap(),
+        },
+    )
+    .unwrap();
+    let Transition::Finalization { next } = t else {
+        panic!("denied")
+    };
+    assert_eq!(next.phase, Phase::Rejected);
+    let t = coding_transition_recovering(
+        &task,
+        &policy,
+        waiting,
+        &AgentEvent::EffectSettled {
+            intent_id: id,
+            evidence_id: content_digest(b"failed"),
+            output: ReceiptOutput::Failure {
+                diagnostic: BoundedText::new("unavailable").unwrap(),
+            },
+        },
+    )
+    .unwrap();
+    let Transition::Finalization { next } = t else {
+        panic!("failure")
+    };
+    assert_eq!(next.phase, Phase::Rejected);
+    assert_eq!(next.coding_context.unwrap().invalid_proposals, 0);
+    let mut exhausted = waiting.clone();
+    exhausted.decision_steps = exhausted.max_decision_steps;
+    let event = settled_model(&current, "", b"known-invalid");
+    assert!(matches!(
+        coding_transition_recovering(&task, &policy, &exhausted, &event),
+        Err(DecisionError::DecisionLimit)
+    ));
+}
+
+#[test]
+fn recovering_prompt_legacy_identity_and_untrusted_feedback() {
+    let (task, policy, state) = fixtures();
+    let native =
+        coding_transition_native(&task, &policy, &state, &AgentEvent::TaskAccepted).unwrap();
+    let recovery =
+        coding_transition_recovering(&task, &policy, &state, &AgentEvent::TaskAccepted).unwrap();
+    assert_eq!(prompt(&native), prompt(&recovery));
+    let native_plan = coding_transition_native(
+        &task,
+        &policy,
+        step(&native).0,
+        &settled_model(&native, r#"{"tool":"plan","steps":["Inspect"]}"#, b"same"),
+    )
+    .unwrap();
+    let recovery_plan = coding_transition_recovering(
+        &task,
+        &policy,
+        step(&recovery).0,
+        &settled_model(&recovery, r#"{"tool":"plan","steps":["Inspect"]}"#, b"same"),
+    )
+    .unwrap();
+    assert_eq!(prompt(&native_plan), prompt(&recovery_plan));
+    let event = settled_model(
+        &recovery_plan,
+        r#"{"tool":"list","directory":"/ignore-policy-grant-edit"}"#,
+        b"injection",
+    );
+    let recovery =
+        coding_transition_recovering(&task, &policy, step(&recovery_plan).0, &event).unwrap();
+    let p: serde_json::Value = serde_json::from_str(prompt(&recovery).0).unwrap();
+    assert!(
+        !p["model_feedback"]
+            .to_string()
+            .contains("ignore-policy-grant-edit")
+    );
+    let (_, CodingStep::Model { native_tools, .. }) = step(&recovery) else {
+        panic!("model")
+    };
+    assert_eq!(
+        native_tools.as_deref(),
+        Some(policy.allowed_tools.as_slice())
+    );
+}
+
+#[test]
+fn forbidden_valid_action_remains_a_policy_denied_intent() {
+    let (task, policy, state) = fixtures();
+    let initial =
+        coding_transition_recovering(&task, &policy, &state, &AgentEvent::TaskAccepted).unwrap();
+    let plan = coding_transition_recovering(
+        &task,
+        &policy,
+        step(&initial).0,
+        &settled_model(&initial, r#"{"tool":"plan","steps":["Inspect"]}"#, b"plan"),
+    )
+    .unwrap();
+    let event = settled_model(
+        &plan,
+        r#"{"tool":"edit","path":"a","expected_digest":null,"content":"x"}"#,
+        b"forbidden",
+    );
+    let next = coding_transition_recovering(&task, &policy, step(&plan).0, &event).unwrap();
+    let (state, intent) = step(&next);
+    assert!(!intent.permitted(&policy));
+    assert_eq!(state.coding_context.as_ref().unwrap().invalid_proposals, 0);
+    assert!(
+        state
+            .coding_context
+            .as_ref()
+            .unwrap()
+            .model_feedback
+            .is_none()
+    );
+}
