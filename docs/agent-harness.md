@@ -110,6 +110,71 @@ Local requests permit up to 64 KiB of decoded context and a 512 KiB framed reque
 
 The fixed comparisons test short and near-8K inputs across three repetitions. An operational candidate must meet correctness, both roles' p95 usable-output latency below one second, a process GPU memory peak at most 4 GiB and at least 1 GiB free GPU memory; concurrency 1 is a baseline rather than a selectable candidate. There may be no acceptable candidate. The staggered case records whether the reasoner SDK stream is still awaiting its terminal response when the selector reaches the worker; actual backend batch membership remains unknown. These results do not automatically promote a profile: production selection retains the separate frozen-corpus qualification gate. See [ADR 0021](adr/0021-local-inference.md) and [R-0010](../knowledge/research/R-0010-lfm3-native-inference.md).
 
+### Resource observations
+
+The worker writes versioned `metron_resource_observation` JSON lines to its
+inherited stderr at `before_load` and `loaded_idle`. This is an
+operator-captured, out-of-band observation channel; it does not travel through
+the worker reply protocol, enter a journal, or authorize effects. Keep the full
+stderr log, which also contains ordinary host, worker and SDK messages. To
+separate the structured records from a normal comparison run:
+
+```sh
+metron-runtime model compare --worker /absolute/path/to/metron-inference-worker \
+  --artifacts /absolute/path/to/cache --output /absolute/path/to/results \
+  2>comparison.stderr
+rg '"kind":"metron_resource_observation"' comparison.stderr \
+  >resource-observations.jsonl
+```
+
+Each record is one line, bounded to 16 KiB, with `schema_version: 1`, phase,
+identity, weights, load baseline, KV, runtime, aggregate and limits
+groups. Optional numeric values include a unit, basis and an unavailable
+reason; `value: null` means unavailable, never zero. `identity` binds worker,
+profile, artifact, device, configured context/output/sequences and scheduler
+information. `weights` distinguishes verified GGUF bytes and the pinned
+descriptor-derived packed-payload estimate from resident GPU weight bytes,
+which remain unavailable without isolated attribution. `load_baseline` is an
+inclusive loaded-idle `model plus runtime` observation: it is not a weight-only
+measurement, a runtime-only delta, or an amount to add to `aggregate`. The
+artifact's verified file size and descriptor-derived packed tensor estimate
+are storage measures; neither is actual resident GPU weight usage. Exact
+resident weight attribution remains unavailable. `kv` reports actual paged
+pool tensor dtype, shape and payload plus realized usable capacity when
+exposed. The unpaged callback logical-retention value, when produced by the
+development diagnostic, is an estimate of logical KV payload, not allocated
+resident bytes. Keep both distinct from the configured KV `planning_target`.
+`runtime` reports SDK plan estimates and recurrent-state estimates, not
+exclusive runtime residency or a measured workspace peak. `aggregate` labels
+whole-device and worker allocator scopes separately: device totals include
+other processes, and allocator counters may overlap device usage. `limits`
+separates enforced profile and framing ceilings from model/trained context and
+the KV planning target. A planning target does not cap all runtime allocation;
+`strict_allocation_cap` is `unsupported` and `fit_status` remains
+`not_evaluated`.
+
+The record is emitted on inherited stderr, mixed with regular host, worker and
+SDK messages; keep that complete log and extract the structured JSON lines as
+shown above. A missing field or null-valued quantity is unavailable, not zero.
+The worker's `before_load` and `loaded_idle` records are out-of-band snapshots.
+The development-only `resource_diagnostic` example can additionally emit
+`diagnostic_prefill` and `diagnostic_end`; those records and callback-derived
+values are diagnostic fixtures, not production task telemetry or product
+architecture. For a bounded example of paired route measurements and their
+limitations, see [O-0017](../knowledge/observations/O-0017-paged-unpaged-resource-diagnostic.md).
+
+The 262,144-token trained model limit is distinct from the profile's enforced
+context/input/output ceilings and transport limits, and it does not establish
+physical fit. For the current all-GPU `Auto` paged route, the source-derived
+full-context KV lower bound alone rules out 262,144 tokens on a 6-GiB device
+before packed FFN weights; see [O-0015](../knowledge/observations/O-0015-native-coding-v10-and-context.md).
+The worker record reports `fit_status: not_evaluated`; it is observational,
+not a physical allocation cap or production qualification. The bounded
+`resource_diagnostic` worker example is development validation support. Its
+finite logits and source-derived route predicates do not establish numerical
+equivalence, direct per-forward chunk tracing, task acceptance or profile
+qualification.
+
 ## Public task entry and historical audit
 
 Use the `coding` commands documented in [bounded coding](coding.md) for new
