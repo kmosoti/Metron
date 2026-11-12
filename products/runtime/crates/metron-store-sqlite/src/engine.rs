@@ -1023,6 +1023,9 @@ fn commit_transition(
             "coding-agent/v3.3" | "coding-harness/v3.3" => {
                 metron_protocol::coding_runtime::coding_transition_focused
             }
+            "coding-agent/v3.4" | "coding-harness/v3.4" => {
+                metron_protocol::coding_runtime::coding_transition_native
+            }
             _ => return Err(StoreError::Integrity),
         };
         controller(coding, policy, &state, &item.input.event).as_ref() == Ok(transition)
@@ -3836,6 +3839,7 @@ mod authority_tests {
             input_digest: fixture_digest,
             content: BoundedText::new("{\"count\":3,\"sum\":22}").unwrap(),
             reasoning: None,
+            native_calls: None,
             prompt_tokens: 20,
             completion_tokens: 10,
             submission_cohort: SubmissionCohort {

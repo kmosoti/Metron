@@ -620,6 +620,9 @@ fn parse_journal(
                             "coding-agent/v3.3" | "coding-harness/v3.3" => {
                                 metron_protocol::coding_runtime::coding_transition_focused
                             }
+                            "coding-agent/v3.4" | "coding-harness/v3.4" => {
+                                metron_protocol::coding_runtime::coding_transition_native
+                            }
                             _ => return Ok(None),
                         };
                         if controller(task, policy, &state.state, &oldest.input.event).as_ref()

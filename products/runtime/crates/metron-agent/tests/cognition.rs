@@ -405,6 +405,7 @@ fn local_engine_replays_bound_observations_and_rejects_wrong_profile() {
         input_digest: input_digest.clone(),
         content: BoundedText::new("{\"count\":3,\"sum\":22}").unwrap(),
         reasoning: None,
+        native_calls: None,
         prompt_tokens: 12,
         completion_tokens: 8,
         submission_cohort: SubmissionCohort {

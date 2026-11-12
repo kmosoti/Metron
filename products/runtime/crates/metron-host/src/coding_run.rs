@@ -99,7 +99,7 @@ fn scope(settings: &Settings) -> Result<Option<Scope>, String> {
 }
 impl Settings {
     fn validate(&self, execution: bool) -> Result<(), String> {
-        if !matches!(self.context_version, 1..=4) {
+        if !matches!(self.context_version, 1..=5) {
             return Err("unsupported coding context version".into());
         }
         self.policy
@@ -172,6 +172,8 @@ impl Settings {
                 (EngineMode::Harness, 3) => "coding-harness/v3.2",
                 (EngineMode::Agent, 4) => "coding-agent/v3.3",
                 (EngineMode::Harness, 4) => "coding-harness/v3.3",
+                (EngineMode::Agent, 5) => "coding-agent/v3.4",
+                (EngineMode::Harness, 5) => "coding-harness/v3.4",
                 _ => return Err("unsupported coding context version".into()),
             })
             .map_err(|e| format!("engine: {e:?}"))?,
@@ -716,15 +718,23 @@ fn run(args: &[String]) -> Result<serde_json::Value, String> {
         if !args.iter().any(|a| a == "--experimental") {
             return Err("unqualified coding attempts require --experimental".into());
         }
+        let profile: Option<LocalProfile> = flag(args, "--profile")
+            .map(|p| read(Path::new(&p)))
+            .transpose()?;
+        let context_version = if profile.as_ref().is_some_and(|p| {
+            p.prompt_recipe_digest.as_str() == metron_protocol::LOCAL_CODING_V3_RECIPE_SHA
+        }) {
+            5
+        } else {
+            4
+        };
         Settings {
-            context_version: 4,
+            context_version,
             task: read(Path::new(&required(args, "--task")?))?,
             policy: read(Path::new(&required(args, "--policy")?))?,
             catalog: read(Path::new(&required(args, "--catalog")?))?,
             acceptance: read(Path::new(&required(args, "--acceptance")?))?,
-            profile: flag(args, "--profile")
-                .map(|p| read(Path::new(&p)))
-                .transpose()?,
+            profile,
             worker: flag(args, "--worker").map(PathBuf::from),
             artifact: flag(args, "--artifact").map(PathBuf::from),
             script: flag(args, "--script")
@@ -1004,7 +1014,7 @@ mod tests {
             max_processes: 16,
         };
         let settings = Settings {
-            context_version: 4,
+            context_version: 5,
             task,
             policy,
             catalog,

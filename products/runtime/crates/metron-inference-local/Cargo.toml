@@ -9,6 +9,7 @@ license.workspace = true
 metron-protocol = { path = "../metron-protocol" }
 metron-harness = { path = "../metron-harness" }
 sha2 = "=0.10.9"
+serde_json = "1"
 
 [lints]
 workspace = true
