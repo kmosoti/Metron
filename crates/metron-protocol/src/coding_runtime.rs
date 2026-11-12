@@ -124,7 +124,10 @@ pub fn validate_coding_receipt(
                     || output.status != ToolStatus::Succeeded
                     || !matches!(
                         genesis.engine_version.as_str(),
-                        "coding-agent/v3.8" | "coding-harness/v3.8"
+                        "coding-agent/v3.8"
+                            | "coding-harness/v3.8"
+                            | "coding-agent/v3.9"
+                            | "coding-harness/v3.9"
                     )
                 {
                     return Err(ValidationError::Binding);
@@ -147,7 +150,10 @@ pub fn validate_coding_receipt(
                 && output.status == ToolStatus::Succeeded
                 && matches!(
                     genesis.engine_version.as_str(),
-                    "coding-agent/v3.8" | "coding-harness/v3.8"
+                    "coding-agent/v3.8"
+                        | "coding-harness/v3.8"
+                        | "coding-agent/v3.9"
+                        | "coding-harness/v3.9"
                 )
             {
                 return Err(ValidationError::Binding);

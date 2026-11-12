@@ -1408,3 +1408,140 @@ fn memory_annotation_accepts_audited_selected_ordinary_tool_evidence() {
     assert!(annotate_memory(&args).is_err());
     fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn paired_memory_search_selected_receipt_is_bound_and_replays_in_both_modes() {
+    for mode in [EngineMode::Agent, EngineMode::Harness] {
+        let name = if mode == EngineMode::Agent {
+            "paired-memory-agent"
+        } else {
+            "paired-memory-harness"
+        };
+        let (root, mut settings, previous, scoped) =
+            scoped_memory_setup(name, vec![CodingTool::MemorySearch, CodingTool::Finish]);
+        drop(previous);
+        settings.context_version = 10;
+        settings.mode = mode;
+        let mut memory = MemoryStore::open_existing(settings.memory_db.as_ref().unwrap()).unwrap();
+        memory
+            .put(
+                &scoped,
+                &MemoryInput {
+                    dispatch: content_digest(b"prior-note"),
+                    source_task: TaskId::new("prior-task").unwrap(),
+                    source_evidence: None,
+                    body: "A violet note".into(),
+                },
+            )
+            .unwrap();
+        let mut store = SqliteStore::create(root.join("run/paired-memory.sqlite")).unwrap();
+        store
+            .apply(
+                command(StoreOperation::CreateTask {
+                    task: Task::new_coding(settings.task.clone()).unwrap(),
+                    genesis: settings.genesis().unwrap(),
+                })
+                .unwrap(),
+            )
+            .unwrap();
+        fs::write(root.join("workspace/README.md"), "controlled fixture\n").unwrap();
+        let mut worker = driver(
+            &root,
+            &settings,
+            &[
+                r#"{"tool":"plan","steps":["retrieve a note"]}"#,
+                r#"{"tool":"memory_search","query":"violet","limit":2}"#,
+                r#"{"tool":"finish","summary":"request verification"}"#,
+            ],
+        );
+        worker.store_path = root.join("run/paired-memory.sqlite");
+        worker.memory = Some((memory, scoped));
+        let task = Task::new_coding(settings.task.clone()).unwrap();
+        let genesis = settings.genesis().unwrap();
+        let engine = crate::cognition(&genesis, &task).unwrap();
+        assert_eq!(
+            orchestrator::drive_with_driver(
+                &mut store,
+                &settings.task.data().task_id,
+                engine.as_ref(),
+                &root.join("run"),
+                &mut NoObserver,
+                &mut worker
+            )
+            .unwrap(),
+            orchestrator::DriveStatus::Blocked
+        );
+        let mut snapshot = store.audit().unwrap();
+        let projection = snapshot.projection(&settings.task.data().task_id).unwrap();
+        assert_eq!(projection.state.phase, Phase::AwaitingVerification);
+        let intents = snapshot
+            .intents(&settings.task.data().task_id, None)
+            .unwrap();
+        let mut found = false;
+        for intent in intents.records {
+            if !matches!(&intent.intent.kind, IntentKind::Coding { step } if matches!(step.as_ref(), CodingStep::Tool { action: CodingAction::MemorySearch { .. }, .. }))
+            {
+                continue;
+            }
+            let prepared = intent.prepared.as_ref().unwrap();
+            for evidence in snapshot.evidence(&intent.intent_id, None).unwrap().records {
+                if let ReceiptOutput::Coding { observation } = &evidence.receipt.data().output
+                    && let CodingObservation::Tool {
+                        memory_selection: Some(selection),
+                        ..
+                    } = observation.as_ref()
+                {
+                    assert_eq!(selection.sources.len(), 1);
+                    metron_protocol::coding_runtime::validate_coding_receipt(
+                        &genesis,
+                        prepared,
+                        &evidence.receipt,
+                    )
+                    .unwrap();
+                    let mut missing = evidence.receipt.data().clone();
+                    let ReceiptOutput::Coding { observation } = &mut missing.output else {
+                        unreachable!()
+                    };
+                    let CodingObservation::Tool {
+                        memory_selection, ..
+                    } = observation.as_mut()
+                    else {
+                        unreachable!()
+                    };
+                    *memory_selection = None;
+                    assert!(
+                        metron_protocol::coding_runtime::validate_coding_receipt(
+                            &genesis,
+                            prepared,
+                            &Receipt::new(missing).unwrap()
+                        )
+                        .is_err()
+                    );
+                    let mut malformed = evidence.receipt.data().clone();
+                    let ReceiptOutput::Coding { observation } = &mut malformed.output else {
+                        unreachable!()
+                    };
+                    let CodingObservation::Tool { output, .. } = observation.as_mut() else {
+                        unreachable!()
+                    };
+                    output.body = BoundedText::new("{}").unwrap();
+                    assert!(
+                        metron_protocol::coding_runtime::validate_coding_receipt(
+                            &genesis,
+                            prepared,
+                            &Receipt::new(malformed).unwrap()
+                        )
+                        .is_err()
+                    );
+                    found = true;
+                }
+            }
+        }
+        assert!(found);
+        drop(snapshot);
+        assert_audits(&mut store, &settings);
+        drop(worker);
+        drop(store);
+        fs::remove_dir_all(root).unwrap();
+    }
+}
