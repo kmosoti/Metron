@@ -1035,6 +1035,9 @@ fn commit_transition(
             "coding-agent/v3.7" | "coding-harness/v3.7" => {
                 metron_protocol::coding_runtime::coding_transition_format_neutral
             }
+            "coding-agent/v3.9" | "coding-harness/v3.9" => {
+                metron_protocol::coding_runtime::coding_transition_paired
+            }
             "coding-agent/v3.8" | "coding-harness/v3.8" => {
                 metron_protocol::coding_runtime::coding_transition_memory
             }
