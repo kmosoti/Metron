@@ -75,7 +75,7 @@ probes. Product tests for these findings remain outstanding in the
 ## Relations
 
 - contextualizes [workflow adoption](../decisions/D-0001-development-workflow.md)
-- informed-by [laboratory invariants](../../docs/architecture/invariants.md)
+- informed-by [historical laboratory invariants](../archive/laboratory/docs/invariants.md)
 
 ## Revisit when
 
