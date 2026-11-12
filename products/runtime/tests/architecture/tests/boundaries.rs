@@ -77,7 +77,11 @@ fn workspaces_are_isolated_and_product_dependencies_follow_boundaries() {
             "metron-agent" | "metron-harness" => &["metron-protocol"],
             "metron-store-sqlite" => &["metron-protocol", "rusqlite"],
             "metron-testkit" => &["metron-protocol", "metron-harness"],
-            "metron-inference-local" => &["metron-protocol", "metron-harness", "sha2"],
+            // Verified model artifacts and the bounded compatibility tokenizer
+            // are effect-boundary data; the SDK remains in the worker.
+            "metron-inference-local" => {
+                &["metron-protocol", "metron-harness", "sha2", "serde_json"]
+            }
             "metron-inference-worker" => &[
                 "metron-protocol",
                 "metron-inference-local",

@@ -26,7 +26,8 @@ Plugins/MCP, computer use and adaptation follow separately in #30, #31 and #32.
 - Observed: O-0005 establishes one Q4 CUDA generation; all twelve operational
   profiles failed entry and no production profile was selected.
 - Observed: O-0006 records the calculator request mismatch.
-- Unknown: current queued GitHub Actions runs expose no job or queue cause.
+- Observed: combined PR #33 passed exact-HEAD CI and independent review and
+  landed in develop. Earlier queued runs did not establish a current blocker.
 - Hypothesis: the bounded toolkit and model loop can complete coding tasks.
   Source support and DTO compilation cannot establish this behavior.
 

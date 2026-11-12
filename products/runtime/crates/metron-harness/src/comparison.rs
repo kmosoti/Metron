@@ -550,6 +550,7 @@ mod tests {
             input_digest: request.input_digest.clone(),
             content: BoundedText::new("answer").unwrap(),
             reasoning: None,
+            native_calls: None,
             prompt_tokens: 1,
             completion_tokens: 1,
             submission_cohort: request.cohort.clone(),
