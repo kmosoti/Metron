@@ -57,13 +57,24 @@ and [schema coercion](https://github.com/EricLBuehler/mistral.rs/blob/fb4cdc3730
 are the implementation sources. Controlled tests establish normalization,
 omission and stale/CAS behavior,
 including live SQLite receipt validation and audit/reconciliation in both modes.
-Grammar and SDK-shaped values are separate from executing the actual SDK parser;
-the bounded real-parser probe and native V10 coding outcomes must be recorded
-before claiming those results.
+Three forced calls subsequently passed through the actual pinned SDK on CUDA:
+a Read path containing the string `null`; a Run argument array containing `null`
+and `a<z`, with a directory containing the string `null`; and Create content with
+quotes, backslash, Unicode, newlines and XML-close-tag-looking text. All three
+normalized to the exact expected existing actions. No tool effects ran.
+
+The first diagnostic incorrectly quoted SDK special tokens as ordinary grammar
+text and failed before producing parsed calls. Correcting only that diagnostic
+constraint passed all three fixtures in 65.39 seconds; both records are retained
+in the bounded evidence. The public SDK response does not expose generated XML
+before parsing, so the record distinguishes the fixed wire constraint from the
+actual parsed response. These forced fixtures establish limited parser
+compatibility, not model action selection or coding success. Native V10 coding
+outcomes require separate evidence.
 
 Relations: extends [O-0013](O-0013-native-coding-feedback.md); informs
 [coding interfaces and authority diagram](../../docs/coding.md), prior 64 and
-[alpha.1 gates](../decisions/D-0005-alpha1-delivery.md). Revisit after actual
-parser evidence and independently accepted calculator/repair artifacts in both
+[alpha.1 gates](../decisions/D-0005-alpha1-delivery.md). Revisit after
+independently accepted calculator/repair artifacts in both
 modes. Model, quantization, sampler, input configuration and evaluator identity
 must remain explicit.

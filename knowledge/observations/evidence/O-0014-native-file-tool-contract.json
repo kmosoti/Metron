@@ -404,7 +404,83 @@
     }
   ],
   "native_acceptance": false,
-  "v10_sdk_parser_executed": false,
-  "v10_native_coding_executed": false,
-  "focused_inputs_independent_audit_sha256": "d7747f5788072001bda6736e89fba730c7b20a6cbf0c3ba57e8517eed2192007"
+  "v10_sdk_parser_executed": true,
+  "focused_inputs_independent_audit_sha256": "d7747f5788072001bda6736e89fba730c7b20a6cbf0c3ba57e8517eed2192007",
+  "v10_native_coding_recorded": false,
+  "v10_sdk_parser": {
+    "source_commit": "2a90ed944c4e2274df85a1c10d348c686b595061",
+    "recipe_sha256": "7059e2174d8da680813d6b29bca75119290e4de509cb0a8f2d8649ea3a677e79",
+    "host_sha256": "7053b3d8ecb39af5541057b6b5a7664adc12309a2c50e0afe7d973d2b581a578",
+    "worker_sha256": "a582791485508bfd0a49f7778e7472a70f156a08b35db30c9fa214f24c65fe0f",
+    "helper_sha256": "3c8158904cd5bef3c66addcdfeaf423a4f2ea490c6ed420e5bba934717e142fc",
+    "probe_sha256": "a62bed758db1eae4f471f826fbf306b1955fa234a34772553d5acc8b9f402ba9",
+    "fixture_manifest_sha256": "8d6b847d8274d612c68e7e2c792803bc93385d2d731b9fb82a4b5540c8ee987b",
+    "requests": 3,
+    "tool_effects": 0,
+    "model_context_tokens": 2048,
+    "max_output_tokens": 512,
+    "thinking": false,
+    "temperature_milli": 100,
+    "top_k": 50,
+    "repeat_penalty_milli": 1100,
+    "prefix_cache": false,
+    "paged_attention": false,
+    "result": {
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 65.39368596905842,
+      "actual_cuda": true,
+      "three_cases_passed": true,
+      "raw_preparser_xml_available": false,
+      "interpretation": "forced wire fixtures only; no capability or acceptance claim",
+      "output_sha256": {
+        "read-null-production.lark": "0668e270fb154dfed9676b35f054a27dcb6fa43c054aae252e184f396c175cf5",
+        "run-null-production.lark": "869e365cbe796409eedaa90ab06fbbe6b037bcb759779d41585f06c6e1df8575",
+        "create-escaped-production.lark": "93caf2951a1c4ae210f4507ee946fa7d11b328740fcc98e4d7ca1368a85a99f7",
+        "read-null-schemas.json": "f76cac7afbdf1f4537ea02713d007b97fdbd1483614d9ab7caafd3f8e8b58243",
+        "run-null-schemas.json": "f6247f871f4b9c6ccbbe31efa333884b07d82a3f74d8995adf8ebc6450f5b0be",
+        "create-escaped-schemas.json": "84d13b8eeef9954a75a1104ee2b2bc90d2447814a26d7d39119fbca427d7374e",
+        "read-null-response.json": "f8ba48772846596f5e117f5e35162b631674a50066cdb792be8d48610e7bab27",
+        "run-null-response.json": "0a9d9c0372f11eacd592de07da5420dc2cc1f29423f235675117be6686e97c32",
+        "create-escaped-response.json": "0eb31c34963250013a449f89ccedb9b6965433ef60481234c2639e0538b644a3",
+        "read-null-normalized.json": "618c3c30688fb0ba13422006bb87737fb5b5d482314e5ec248ffeeb700ba3acc",
+        "run-null-normalized.json": "163cbea89c61f1d6ca2b52e59aea566bd439aa3fad74bf3625be13985dc2e37f",
+        "create-escaped-normalized.json": "59fcf6d7c120e75c6c96a4d1b767948be65449d1ab7e8a027f057e539befc512"
+      }
+    },
+    "artifact_sha256": {
+      "pins.json": "a85614826d9723c71a3676c42411aa8286d22a75451f4f504e09ba74373ccf86",
+      "run-metadata.json": "aa8cfd7ba7c59f0ba02add8854854a1abd266e1dddf6864ed5478a89306e1d15",
+      "result.json": "691b23b920c0db30bf50ee6b5cbb97bf5f1e499611a0bb349d61e176243a7323",
+      "stderr.log": "655dcea4a041708af394581d9297cc191a26c034c02a991671003f0548541360",
+      "fixtures.json": "8d6b847d8274d612c68e7e2c792803bc93385d2d731b9fb82a4b5540c8ee987b",
+      "probe.rs": "3c8158904cd5bef3c66addcdfeaf423a4f2ea490c6ed420e5bba934717e142fc",
+      "actual-build-command.json": "a758793e32645b07ad2fb3ab7e4a45c6126fabaee5301e7d50d31ab77578f53c"
+    },
+    "failed_diagnostic": {
+      "artifact_directory": "native-v10-string-parser-probe-01",
+      "result": {
+        "returncode": 1,
+        "timed_out": false,
+        "elapsed_seconds": 22.980935691972263,
+        "actual_cuda": true,
+        "three_cases_passed": false,
+        "raw_preparser_xml_available": false,
+        "interpretation": "forced wire fixtures only; no capability or acceptance claim",
+        "output_sha256": {
+          "read-null-production.lark": "0668e270fb154dfed9676b35f054a27dcb6fa43c054aae252e184f396c175cf5",
+          "run-null-production.lark": "869e365cbe796409eedaa90ab06fbbe6b037bcb759779d41585f06c6e1df8575",
+          "create-escaped-production.lark": "93caf2951a1c4ae210f4507ee946fa7d11b328740fcc98e4d7ca1368a85a99f7",
+          "read-null-schemas.json": "f76cac7afbdf1f4537ea02713d007b97fdbd1483614d9ab7caafd3f8e8b58243",
+          "run-null-schemas.json": "f6247f871f4b9c6ccbbe31efa333884b07d82a3f74d8995adf8ebc6450f5b0be",
+          "create-escaped-schemas.json": "84d13b8eeef9954a75a1104ee2b2bc90d2447814a26d7d39119fbca427d7374e"
+        }
+      },
+      "result_sha256": "e1e33a8b4512420bdaa7250938424f03b431e0174e1cb1956e3075742b11e8b9",
+      "stderr_sha256": "70c4624cd28467dff8214b59abad9567177ae311f9c22c0bbcddc7a4ffe559f8",
+      "cause": "Diagnostic quoted special-token terminals as ordinary text; failed before parsed calls. XML frames and production code/tokenizer unchanged in corrected diagnostic."
+    },
+    "scope": "Three fixed generic frames through actual SDK/CUDA and production normalizer; no tool effects, model action-selection quality, or coding acceptance claim. Pre-parser generated XML is not exposed by public SDK.",
+    "independent_audit_sha256": "46ab36100484cb2e8437342df049d51ffc1282507e60e6b460cec6c9cb6bc959"
+  }
 }
