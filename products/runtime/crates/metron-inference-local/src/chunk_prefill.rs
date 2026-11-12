@@ -5,6 +5,8 @@ use metron_protocol::{LocalDevice, LocalProfile};
 pub const CHUNK_PREFILL_CONTRACT: &str = "paged-chunk-prefill-v1";
 pub const MAX_PREFILL_CHUNK_TOKENS: usize = 256;
 pub const MAX_BATCHED_TOKENS: usize = 512;
+/// KV planning target, not a total memory cap.
+pub const MAX_KV_TARGET_BYTES: u64 = 256 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SchedulerLimits {
@@ -32,6 +34,9 @@ pub fn kv_target(profile: &LocalProfile) -> Result<Option<usize>, &'static str> 
         .cache_target_bytes
         .ok_or("missing KV planning target")?
         .get();
+    if bytes == 0 || bytes > MAX_KV_TARGET_BYTES {
+        return Err("KV planning target outside experimental bounds");
+    }
     usize::try_from(bytes)
         .map(Some)
         .map_err(|_| "KV planning target overflow")
