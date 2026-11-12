@@ -116,14 +116,15 @@ Use the `coding` commands documented in [bounded coding](coding.md) for new
 execution. Generic `run`, `resume`, `approval` and `reconcile` entry points
 reject before opening a database, loading a profile or starting a worker.
 `coding resume` performs a read-only audit first and rejects a legacy task
-before writable store or effect setup. `replay` and `verify` remain available
-for recognized noncoding history through the private FrozenSum reducer;
-verification inspects recorded legacy artifacts read-only. This does not mean
-all historical engine/profile variants are empirically replay-qualified. Seven
-of eight copied legacy/current databases in the Phase 2B receipt passed; the
-obsolete-profile `sum-local-agent/v2` sample rejects identically to the
-immutable prior host, and no persisted `sum-local-harness/v2` specimen was
-located. See the Phase 2B verification receipt for specimen scope and provenance.
+before writable store or effect setup. Generic `replay` and `verify` are
+read-only; replay uses the coding engine for recognized coding journals and the
+private FrozenSum reducer for recognized legacy sum journals. Legacy-sum
+verification inspects the recorded artifact read-only. This does not mean
+all historical engine/profile variants are empirically replay-qualified. The
+available copied-journal evidence covers eight databases: seven passed; the
+obsolete-profile `sum-local-agent/v2` sample rejects identically to the prior
+host, and no persisted `sum-local-harness/v2` specimen was located. The
+verification record retains the specimen scope and provenance.
 
 ### Pinned tool inventory
 
@@ -148,31 +149,77 @@ and Lean checks for development. The [experimental coding entry](coding.md) rout
 confined, admitted effects. [D-0005](../knowledge/decisions/D-0005-alpha1-delivery.md)
 tracks alpha.1's implementation and release evidence.
 
-If a run is blocked, `resume RUN` processes durable work without polling or
-advancing time. Its `pending_intent` field identifies the current intent.
-`reconcile RUN --intent ID` inspects a previously dispatched
-publication and records its outcome if the file matches the persisted plan;
-reconciliation does not drive cognition. Multiple distinct evidence records for a
-single dispatch, Unknown usage, and conflicting evidence remain unresolved for
-operator investigation; reconciliation does not replace them with inferred costs.
-To advance the logical clock explicitly,
-pass all three options to either command: `--advance-tick T --expected-tick E
---command-id C`. A lease or approval expires against that clock, not wall time.
+## Resume, operator decisions, and audit
 
-For an approval request shown in a command report, record the bound decision with:
+Continue a persisted coding task with `coding resume`; inspect its current
+durable state with `coding inspect`:
 
 ```sh
-metron-runtime approval RUN --request-id ID --action-digest DIGEST --decision approve --command-id COMMAND
+metron-runtime coding resume --run-dir /absolute/private/run
+metron-runtime coding inspect --run-dir /absolute/private/run
 ```
 
-Use `deny` to reject the request. Recording a decision does not dispatch an effect;
-run `resume` separately. Replay and verify open the existing database read-only.
-Verify additionally examines the artifact. Every command writes a versioned JSON
-report to stdout; diagnostics may also appear on stderr. The report distinguishes
-command success from verified task success and exposes current health, accounting
-and audit results. Exit codes are 0 for a successful command, 1 for semantic rejection, 2 for
-invalid input, 3 for policy or budget denial, 4 for blocked or uncertain work, 5
-for an integrity failure, and 6 for an operational failure.
+`coding inspect` opens the journal read-only, validates its chain, accounting,
+projection and behavior replay, and reports the logical tick, intent statuses,
+approval requests, evidence revisions and IDs, and reconciliation epochs or
+leases. It needs no coding settings, model, worker, or effect driver.
+`coding resume` reopens the persisted coding configuration and continues known
+work; it does not retry an uncertain effect. An unknown result retains its
+reservation until an operator selects an existing trusted receipt for
+reconciliation.
+
+Each coding operator command validates the single-task journal read-only before
+opening it for a requested write. The operator is scoped to the coding run and
+does not load its worker, model, or effect driver.
+
+Record a decision bound to the exact pending approval request and action digest:
+
+```sh
+metron-runtime coding approval --run-dir /absolute/private/run \
+  --request-id ID --action-digest DIGEST --decision approve --command-id COMMAND
+```
+
+Use `deny` instead of `approve` to reject the request. The decision command
+records the approval only; run `coding resume` separately to continue. Advance
+the logical clock explicitly with a checked expected value and command identity:
+
+```sh
+metron-runtime coding advance-tick --run-dir /absolute/private/run \
+  --expected-tick CURRENT --new-tick NEXT --command-id COMMAND
+```
+
+A lease or approval expires against that logical clock, not wall time.
+
+Reconciliation selects an already-recorded receipt for an eligible uncertain
+intent. The evidence ID, expected evidence revision and reconciliation epoch
+must match the read-only inspection; the store enforces frontier, lease and
+known-usage rules:
+
+```sh
+metron-runtime coding reconcile --run-dir /absolute/private/run \
+  --intent INTENT_ID --evidence EVIDENCE_ID \
+  --expected-evidence-revision REVISION --expected-epoch EPOCH \
+  --command-id COMMAND
+```
+
+This operation records selection and settlement from persisted evidence. It
+does not synthesize a receipt, dispatch an effect, or run cognition. Stale
+selection is rejected; conflicting evidence, unknown usage, and other
+ineligible states remain unresolved for investigation. Costs are never inferred.
+The generic `resume`, `approval` and `reconcile` commands are rejected before
+opening a database; use the coding-scoped commands above. Generic `replay` and
+`verify` remain read-only for recognized history and emit versioned CLI reports. For
+coding runs, use `coding audit` to check artifact and acceptance-report
+integrity; generic `verify` does not substitute for that coding-specific check.
+
+`coding audit` is also read-only. It checks the coding journal and behavior
+replay and validates retained coding artifact and acceptance-report integrity
+when present; it does not make an uncertain outcome known. Coding command
+responses report action outcomes in JSON. Their process status distinguishes
+completed/succeeded commands (0), other task outcomes such as blocked,
+rejected or integrity failure (4), and command input/setup errors (2).
+Generic replay/verify use versioned `CliReport` JSON and exit codes 0–6 as
+described by their command results.
 
 An alpha.0 audit supports up to 4,096 journal records and 8 MiB of cumulative
 canonical journal bytes. An audit above either limit returns operational exit 6;

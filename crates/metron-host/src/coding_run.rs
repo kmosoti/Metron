@@ -965,8 +965,244 @@ fn context_version_for_recipe(recipe: Option<&str>) -> u8 {
     }
 }
 
+/// Operator commands never initialize settings, model adapters or effect drivers.
+fn operator(args: &[String]) -> Result<serde_json::Value, String> {
+    let action = args[0].as_str();
+    let options: &[&str] = match action {
+        "inspect" => &["--run-dir"],
+        "approval" => &[
+            "--run-dir",
+            "--request-id",
+            "--action-digest",
+            "--decision",
+            "--command-id",
+        ],
+        "advance-tick" => &["--run-dir", "--expected-tick", "--new-tick", "--command-id"],
+        "reconcile" => &[
+            "--run-dir",
+            "--intent",
+            "--evidence",
+            "--expected-evidence-revision",
+            "--expected-epoch",
+            "--command-id",
+        ],
+        _ => return Err("unknown operator action".into()),
+    };
+    let mut seen = Vec::new();
+    for pair in args[1..].chunks(2) {
+        if pair.len() != 2
+            || !options.contains(&pair[0].as_str())
+            || seen.contains(&pair[0].as_str())
+            || pair[1].starts_with("--")
+        {
+            return Err("invalid operator arguments".into());
+        }
+        seen.push(pair[0].as_str());
+    }
+    if seen.len() != options.len() {
+        return Err("missing operator arguments".into());
+    }
+    let number = |name| -> Result<SqlU64, String> {
+        SqlU64::new(
+            required(args, name)?
+                .parse::<u64>()
+                .map_err(|_| "invalid logical value")?,
+        )
+        .map_err(|e| format!("{e:?}"))
+    };
+    let digest = |name| Digest::new(required(args, name)?).map_err(|e| format!("{e:?}"));
+    let path = PathBuf::from(required(args, "--run-dir")?).join("runtime.sqlite");
+    // Prove journal identity and integrity without writable access, even when
+    // settings are missing or contain unusable worker/model paths.
+    let mut readonly = SqliteStore::open_read_only(&path).map_err(|e| format!("{e:?}"))?;
+    let ids = readonly.task_ids().map_err(|e| format!("{e:?}"))?;
+    if ids.len() != 1 {
+        return Err("expected one coding task".into());
+    }
+    let task_id = &ids[0];
+    let mut snapshot = readonly.audit().map_err(|e| format!("{e:?}"))?;
+    let projection = snapshot.projection(task_id).map_err(|e| format!("{e:?}"))?;
+    if projection.task.coding().is_none() {
+        return Err("legacy execution removed; historical journals are read-only".into());
+    }
+    let engine =
+        crate::cognition(&projection.genesis, &projection.task).map_err(|(_, e)| e.to_string())?;
+    let checks =
+        metron_harness::audit::verify(&mut snapshot, task_id).map_err(|e| format!("{e:?}"))?;
+    if !checks.chain_valid
+        || !checks.accounting_valid
+        || !checks.projection_valid
+        || !metron_harness::replay::behavior(&mut snapshot, task_id, engine.as_ref())
+            .map_err(|e| format!("{e:?}"))?
+    {
+        return Err("coding journal integrity failure".into());
+    }
+    if action == "inspect" {
+        let mut intents = Vec::new();
+        let mut cursor = None;
+        loop {
+            let page = snapshot
+                .intents(task_id, cursor)
+                .map_err(|e| format!("{e:?}"))?;
+            for intent in page.records {
+                let mut evidence = Vec::new();
+                let mut evidence_cursor = None;
+                loop {
+                    let rows = snapshot
+                        .evidence(&intent.intent_id, evidence_cursor)
+                        .map_err(|e| format!("{e:?}"))?;
+                    evidence.extend(rows.records.into_iter().map(|row| row.evidence_id));
+                    evidence_cursor = rows.next;
+                    if evidence_cursor.is_none() {
+                        break;
+                    }
+                }
+                intents.push(serde_json::json!({"intent_id":intent.intent_id,"status":intent.status,"approval":intent.approval,"evidence_revision":intent.evidence_revision,"reconciliation_epoch":intent.reconciliation_epoch,"reconciliation_lease":intent.reconciliation_lease,"evidence":evidence}));
+            }
+            cursor = page.next;
+            if cursor.is_none() {
+                break;
+            }
+        }
+        return Ok(
+            serde_json::json!({"outcome":"succeeded","action":action,"task_id":task_id,"tick":projection.tick,"intents":intents}),
+        );
+    }
+    let command_id =
+        CommandId::new(required(args, "--command-id")?).map_err(|e| format!("{e:?}"))?;
+    let operation = match action {
+        "approval" => StoreOperation::RecordApproval {
+            request_id: ApprovalId::new(required(args, "--request-id")?)
+                .map_err(|e| format!("{e:?}"))?,
+            action_digest: digest("--action-digest")?,
+            decision: match required(args, "--decision")?.as_str() {
+                "approve" => ApprovalDecision::Approve,
+                "deny" => ApprovalDecision::Deny,
+                _ => return Err("invalid decision".into()),
+            },
+        },
+        "advance-tick" => StoreOperation::AdvanceTick {
+            expected_tick: number("--expected-tick")?,
+            new_tick: number("--new-tick")?,
+        },
+        "reconcile" => StoreOperation::ClaimReconciliation {
+            task_id: TaskId::new("operator-placeholder").map_err(|e| format!("{e:?}"))?,
+            intent_id: digest("--intent")?,
+            worker: WorkerId::new("coding-operator").map_err(|e| format!("{e:?}"))?,
+            expected_epoch: number("--expected-epoch")?,
+            expected_evidence_revision: number("--expected-evidence-revision")?,
+        },
+        _ => unreachable!(),
+    };
+    let operation = if let StoreOperation::ClaimReconciliation {
+        intent_id,
+        worker,
+        expected_epoch,
+        expected_evidence_revision,
+        ..
+    } = operation
+    {
+        let intent = snapshot
+            .intent(&intent_id)
+            .map_err(|e| format!("{e:?}"))?
+            .ok_or("missing intent")?;
+        if &intent.intent.task_id != task_id {
+            return Err("intent belongs to another task".into());
+        }
+        let selected = digest("--evidence")?;
+        let mut cursor = None;
+        let mut found = false;
+        loop {
+            let page = snapshot
+                .evidence(&intent_id, cursor)
+                .map_err(|e| format!("{e:?}"))?;
+            found |= page.records.iter().any(|row| row.evidence_id == selected);
+            cursor = page.next;
+            if cursor.is_none() {
+                break;
+            }
+        }
+        if !found {
+            return Err("selected receipt is absent".into());
+        }
+        StoreOperation::ClaimReconciliation {
+            task_id: task_id.clone(),
+            intent_id,
+            worker,
+            expected_epoch,
+            expected_evidence_revision,
+        }
+    } else {
+        operation
+    };
+    drop(snapshot);
+    drop(readonly);
+    let mut store = SqliteStore::open_existing(&path).map_err(|e| format!("{e:?}"))?;
+    let apply = |store: &mut SqliteStore, id, operation| {
+        store
+            .apply(
+                StoreCommand::new(CommandData {
+                    schema_version: projection.task.data().schema_version,
+                    command_id: id,
+                    operation,
+                })
+                .map_err(|e| format!("{e:?}"))?,
+            )
+            .map_err(|e| format!("{e:?}"))
+    };
+    let result = apply(&mut store, command_id.clone(), operation.clone())?;
+    let result = if let StoreOperation::ClaimReconciliation {
+        intent_id,
+        worker,
+        expected_evidence_revision,
+        ..
+    } = operation
+    {
+        match result {
+            WriteOutcome::Committed(reply) => {
+                let StoreResult::ReconciliationClaimed { lease_epoch, .. } = reply.result else {
+                    return Err("unexpected reconciliation result".into());
+                };
+                // Separate deterministic identity makes interrupted retries idempotent.
+                let settlement_id = content_digest(
+                    format!(
+                        "coding-reconciliation-settlement/v1:{}",
+                        command_id.as_str()
+                    )
+                    .as_bytes(),
+                );
+                apply(
+                    &mut store,
+                    CommandId::new(settlement_id.as_str()).map_err(|e| format!("{e:?}"))?,
+                    StoreOperation::SettleReconciliation {
+                        task_id: task_id.clone(),
+                        intent_id,
+                        worker,
+                        lease_epoch,
+                        expected_evidence_revision,
+                        evidence_id: digest("--evidence")?,
+                        reconciled_receipt: None,
+                    },
+                )?
+            }
+            other => other,
+        }
+    } else {
+        result
+    };
+    Ok(
+        serde_json::json!({"outcome": if matches!(result, WriteOutcome::Committed(_)) { "succeeded" } else { "blocked" }, "action": action, "result": result}),
+    )
+}
+
 fn run(args: &[String]) -> Result<serde_json::Value, String> {
     let action = args.first().map(String::as_str).unwrap_or("");
+    if matches!(
+        action,
+        "approval" | "advance-tick" | "reconcile" | "inspect"
+    ) {
+        return operator(args);
+    }
     if action == "memory-annotate" {
         return annotate_memory(args);
     }
