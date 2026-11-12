@@ -93,40 +93,41 @@ fn settle(
     task: &TaskId,
     intent: &IntentSnapshot,
     id: Digest,
-) -> WriteOutcome<StoreResult> {
-    let worker = WorkerId::new("controlled-reconciler").unwrap();
+) -> serde_json::Value {
     let current = store
         .audit()
         .unwrap()
         .intent(&intent.intent_id)
         .unwrap()
         .unwrap();
-    let out = store
-        .apply(command(StoreOperation::ClaimReconciliation {
-            task_id: task.clone(),
-            intent_id: intent.intent_id.clone(),
-            worker: worker.clone(),
-            expected_epoch: current.reconciliation_epoch,
-            expected_evidence_revision: current.evidence_revision,
-        }))
+    let epoch = current.reconciliation_epoch.get().to_string();
+    let revision = current.evidence_revision.get().to_string();
+    let root = std::env::temp_dir().join(format!(
+        "metron-coding-{}-{}",
+        task.as_str(),
+        std::process::id()
+    ));
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_metron-runtime"))
+        .args([
+            "coding",
+            "reconcile",
+            "--run-dir",
+            root.to_str().unwrap(),
+            "--intent",
+            intent.intent_id.as_str(),
+            "--evidence",
+            id.as_str(),
+            "--expected-evidence-revision",
+            &revision,
+            "--expected-epoch",
+            &epoch,
+            "--command-id",
+            "public-reconcile",
+        ])
+        .output()
         .unwrap();
-    let WriteOutcome::Committed(reply) = out else {
-        return out;
-    };
-    let StoreResult::ReconciliationClaimed { lease_epoch, .. } = reply.result else {
-        panic!("claim")
-    };
-    store
-        .apply(command(StoreOperation::SettleReconciliation {
-            task_id: task.clone(),
-            intent_id: intent.intent_id.clone(),
-            worker,
-            lease_epoch,
-            expected_evidence_revision: current.evidence_revision,
-            evidence_id: id,
-            reconciled_receipt: None,
-        }))
-        .unwrap()
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    value
 }
 #[test]
 fn existing_unknown_receipt_cannot_be_reconciled_as_known() {
@@ -142,7 +143,25 @@ fn existing_unknown_receipt_cannot_be_reconciled_as_known() {
         "unknown",
     );
     let replacement = record(&mut store, &intent, output, known("1"), "replacement");
-    let _ = settle(&mut store, &task, &intent, replacement);
+    let head = store
+        .audit()
+        .unwrap()
+        .projection(&task)
+        .unwrap()
+        .replay_head;
+    assert_ne!(
+        settle(&mut store, &task, &intent, replacement)["outcome"],
+        "succeeded"
+    );
+    assert_eq!(
+        store
+            .audit()
+            .unwrap()
+            .projection(&task)
+            .unwrap()
+            .replay_head,
+        head
+    );
     let mut driver = ModelReplies::default();
     assert_eq!(
         orchestrator::drive_with_driver(&mut store, &task, &engine, &mut NoObserver, &mut driver)
@@ -208,7 +227,86 @@ fn oversized_known_coding_usage_rejects_without_changing_hold() {
 fn stale_known_usage_reconciles_without_redispatch() {
     let (root, mut store, task, _, intent, output) = setup("overrun");
     let id = record(&mut store, &intent, output, known("1"), "stale");
-    let _ = settle(&mut store, &task, &intent, id);
+    let head = store
+        .audit()
+        .unwrap()
+        .projection(&task)
+        .unwrap()
+        .replay_head;
+    let stale = std::process::Command::new(env!("CARGO_BIN_EXE_metron-runtime"))
+        .args([
+            "coding",
+            "reconcile",
+            "--run-dir",
+            root.to_str().unwrap(),
+            "--intent",
+            intent.intent_id.as_str(),
+            "--evidence",
+            id.as_str(),
+            "--expected-evidence-revision",
+            "0",
+            "--expected-epoch",
+            "0",
+            "--command-id",
+            "stale-frontier",
+        ])
+        .output()
+        .unwrap();
+    let value: serde_json::Value = serde_json::from_slice(&stale.stdout).unwrap();
+    assert_eq!(value["outcome"], "blocked", "{value}");
+    assert_eq!(
+        store
+            .audit()
+            .unwrap()
+            .projection(&task)
+            .unwrap()
+            .replay_head,
+        head
+    );
+    assert_eq!(
+        settle(&mut store, &task, &intent, id.clone())["outcome"],
+        "succeeded"
+    );
+    let settled_head = store
+        .audit()
+        .unwrap()
+        .projection(&task)
+        .unwrap()
+        .replay_head;
+    // Repeating both durable operator writes must not settle/account twice.
+    let retry = std::process::Command::new(env!("CARGO_BIN_EXE_metron-runtime"))
+        .args([
+            "coding",
+            "reconcile",
+            "--run-dir",
+            root.to_str().unwrap(),
+            "--intent",
+            intent.intent_id.as_str(),
+            "--evidence",
+            id.as_str(),
+            "--expected-evidence-revision",
+            "1",
+            "--expected-epoch",
+            "0",
+            "--command-id",
+            "public-reconcile",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        retry.status.success(),
+        "{}",
+        String::from_utf8_lossy(&retry.stdout)
+    );
+    assert_eq!(
+        store
+            .audit()
+            .unwrap()
+            .projection(&task)
+            .unwrap()
+            .replay_head,
+        settled_head
+    );
     let mut snapshot = store.audit().unwrap();
     let p = snapshot.projection(&task).unwrap();
     assert_eq!(p.task_account.posted.model_requests.get(), 1);
