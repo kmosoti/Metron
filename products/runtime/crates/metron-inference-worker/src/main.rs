@@ -223,9 +223,11 @@ async fn load(request: &WorkerRequest, writer: &Writer) -> Result<Arc<Model>, St
         artifact::verify_auxiliary(&auxiliary.join(aux.filename), *aux)
             .map_err(|_| "auxiliary verification failed")?;
     }
-    let native_v3 =
-        profile.prompt_recipe_digest.as_str() == metron_protocol::LOCAL_CODING_V3_RECIPE_SHA;
-    let tokenizer_identity = if native_v3 {
+    let corrected_tokenizer = matches!(
+        profile.prompt_recipe_digest.as_str(),
+        metron_protocol::LOCAL_CODING_V3_RECIPE_SHA | metron_protocol::LOCAL_CODING_V4_RECIPE_SHA
+    );
+    let tokenizer_identity = if corrected_tokenizer {
         metron_protocol::gguf_lfm3_corrected_tokenizer_digest(&profile.artifact_digest)
     } else {
         metron_protocol::gguf_embedded_tokenizer_digest(&profile.artifact_digest)
@@ -245,7 +247,7 @@ async fn load(request: &WorkerRequest, writer: &Writer) -> Result<Arc<Model>, St
         .with_max_num_seqs(profile.max_sequences as usize)
         .with_prefix_cache_n(PrefixCacheCapacity::DISABLED)
         .without_paged_attn();
-    let mut tokenizer_guard = if native_v3 {
+    let mut tokenizer_guard = if corrected_tokenizer {
         Some(PreparedTokenizerGuard::create()?)
     } else {
         None
@@ -344,6 +346,23 @@ async fn generate(model: Arc<Model>, request: WorkerRequest, writer: Writer, in_
         .enable_thinking(false);
     let native_v3 =
         profile.prompt_recipe_digest.as_str() == metron_protocol::LOCAL_CODING_V3_RECIPE_SHA;
+    let json_v4 =
+        profile.prompt_recipe_digest.as_str() == metron_protocol::LOCAL_CODING_V4_RECIPE_SHA;
+    let filtered_schema = if json_v4 {
+        let Some(allowed) = native_tools.as_deref().map(Vec::as_slice) else {
+            reject(&writer, dispatch_id, "missing trusted coding catalog");
+            return;
+        };
+        match metron_protocol::filtered_coding_action_schema(allowed) {
+            Ok(schema) => Some(schema),
+            Err(_) => {
+                reject(&writer, dispatch_id, "invalid trusted coding catalog");
+                return;
+            }
+        }
+    } else {
+        None
+    };
     let sdk_tools: Option<Vec<Tool>> = if native_v3 {
         let Some(allowed) = native_tools.as_deref().map(Vec::as_slice) else {
             reject(&writer, dispatch_id, "missing trusted native tool catalog");
@@ -377,7 +396,7 @@ async fn generate(model: Arc<Model>, request: WorkerRequest, writer: Writer, in_
         {
             tokens
         }
-        Err(error) if native_v3 => {
+        Err(error) if native_v3 || json_v4 => {
             reject(
                 &writer,
                 dispatch_id,
@@ -385,7 +404,7 @@ async fn generate(model: Arc<Model>, request: WorkerRequest, writer: Writer, in_
             );
             return;
         }
-        Ok(tokens) if native_v3 => {
+        Ok(tokens) if native_v3 || json_v4 => {
             reject(
                 &writer,
                 dispatch_id,
@@ -451,6 +470,8 @@ async fn generate(model: Arc<Model>, request: WorkerRequest, writer: Writer, in_
         .set_sampling(sampling);
     let request = if let Some(tools) = sdk_tools {
         request.set_tools(tools).set_tool_choice(ToolChoice::Auto)
+    } else if let Some(schema) = filtered_schema {
+        request.set_constraint(Constraint::JsonSchema(schema))
     } else if let Some((_, schema)) = coding_recipe {
         request.set_constraint(Constraint::JsonSchema(schema))
     } else {
@@ -507,9 +528,36 @@ async fn generate(model: Arc<Model>, request: WorkerRequest, writer: Writer, in_
     let mut sequence = 0_u32;
     let mut terminal_usage = None;
     while let Some(response) = stream.next().await {
-        let Response::Chunk(chunk) = response else {
-            reject(&writer, dispatch_id, "unexpected SDK stream response");
-            return;
+        let chunk = match response {
+            Response::Chunk(chunk) => chunk,
+            Response::InternalError(error) if json_v4 => {
+                reject(
+                    &writer,
+                    dispatch_id,
+                    &format!("SDK stream internal error: {error}"),
+                );
+                return;
+            }
+            Response::ValidationError(error) if json_v4 => {
+                reject(
+                    &writer,
+                    dispatch_id,
+                    &format!("SDK stream validation error: {error}"),
+                );
+                return;
+            }
+            Response::ModelError(error, _) if json_v4 => {
+                reject(
+                    &writer,
+                    dispatch_id,
+                    &format!("SDK stream model error: {error}"),
+                );
+                return;
+            }
+            _ => {
+                reject(&writer, dispatch_id, "unexpected SDK stream response");
+                return;
+            }
         };
         if chunk
             .choices

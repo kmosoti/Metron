@@ -44,7 +44,9 @@ flowchart TB
     Feedback --> Caller
     Admission <--> Store[SQLite journal, reservations and durable outbox]
     Admission -->|fresh committed permit only| Effects[Host effect driver]
-    Effects --> Worker[Supervised mistral.rs CUDA worker]
+    Effects -->|typed phase/action catalog| Worker[Supervised mistral.rs CUDA worker]
+    Worker --> Codec[Versioned output encoding: native XML or constrained JSON]
+    Codec -->|bounded proposals only| Worker
     Worker -->|model observations only| Effects
     Effects --> Receipts[Host-issued bounded receipts]
     Effects --> Tools[Bubblewrap and cgroup tool process]

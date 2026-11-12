@@ -940,3 +940,37 @@ fn forbidden_valid_action_remains_a_policy_denied_intent() {
             .is_none()
     );
 }
+
+#[test]
+fn constrained_controller_leaves_output_encoding_to_the_pinned_recipe() {
+    let (task, policy, state) = fixtures();
+    let old =
+        coding_transition_recovering(&task, &policy, &state, &AgentEvent::TaskAccepted).unwrap();
+    let new =
+        coding_transition_constrained(&task, &policy, &state, &AgentEvent::TaskAccepted).unwrap();
+    let old_prompt: serde_json::Value = serde_json::from_str(prompt(&old).0).unwrap();
+    let new_prompt: serde_json::Value = serde_json::from_str(prompt(&new).0).unwrap();
+    assert!(
+        old_prompt["instruction"]
+            .as_str()
+            .unwrap()
+            .contains("plan function")
+    );
+    assert!(
+        new_prompt["instruction"]
+            .as_str()
+            .unwrap()
+            .contains("system's required output format")
+    );
+    assert!(
+        !new_prompt["instruction"]
+            .as_str()
+            .unwrap()
+            .contains("function")
+    );
+    assert_eq!(new_prompt["available_tools"], serde_json::json!(["plan"]));
+    assert!(
+        matches!(step(&new).1, CodingStep::Model { native_tools: Some(tools), .. } if tools == &[CodingTool::Plan])
+    );
+    assert_ne!(prompt(&old).1, prompt(&new).1);
+}
