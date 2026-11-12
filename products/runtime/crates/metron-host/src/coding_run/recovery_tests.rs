@@ -746,3 +746,21 @@ fn revoked_runtime_grant_prevents_an_approved_mutation() {
     drop(store);
     fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn relative_memory_database_is_rejected_before_open_or_persistence() {
+    let (root, mut settings, store, _) = scoped_memory_setup(
+        "memory-relative-path",
+        vec![CodingTool::MemorySearch, CodingTool::Finish],
+    );
+    settings.memory_db = Some(PathBuf::from("relative-memory.sqlite"));
+    for execution in [false, true] {
+        assert_eq!(
+            settings.validate(execution).unwrap_err(),
+            "memory database path must be absolute"
+        );
+    }
+    assert!(!root.join("relative-memory.sqlite").exists());
+    drop(store);
+    fs::remove_dir_all(root).unwrap();
+}

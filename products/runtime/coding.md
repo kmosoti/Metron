@@ -88,6 +88,10 @@ The disk reserve monitor is sampled and is not a filesystem quota.
 
 ## Scoped notes
 
+The memory database path must be absolute, so persisted settings reopen the same
+database independently of the caller's working directory.
+
+
 The host binds every query and append to the task's principal, project and
 collection. Model parameters cannot select a different scope. Grant a collection
 explicitly before using it in a task:
