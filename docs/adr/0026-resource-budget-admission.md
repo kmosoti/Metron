@@ -56,9 +56,14 @@ see [R-0012](../../knowledge/research/R-0012-context-and-resource-budget-admissi
    valid budget document is required on every later execution/resume. Revalidate
    the supplied document against profile and device each time; do not persist
    volatile capacity or the document in deterministic task/journal identity.
-   An unbudgeted run may opt in on resume. Preserve existing durable effect
-   admission and receipt semantics; adapter admission is an additional denial
-   gate, not an authority grant.
+   An unbudgeted run may opt in on resume. Publish the settings change durably
+   before dispatching effects. A command may fail after settings replacement
+   but before directory-sync confirmation; in that case the requirement may
+   already be persisted and the next resume must supply policy. Interrupted
+   attempts can retry because existing remnants do not override current
+   validated settings. Preserve existing durable effect admission and receipt
+   semantics; adapter admission is an additional denial gate, not an authority
+   grant.
 6. Scope the guarantee to participating drivers sharing this in-process
    coordinator and to an operationally exclusive device scope. Do not claim
    machine-wide exclusion, or a strict allocator/process cap. A sampled free

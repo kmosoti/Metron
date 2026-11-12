@@ -85,6 +85,53 @@ fn write_new(path: &Path, bytes: &[u8]) -> Result<(), String> {
         .and_then(|p| p.sync_all())
         .map_err(|e| e.to_string())
 }
+/// Replace only complete settings; stale temporary bytes never become authority.
+fn replace_budget_settings(run_dir: &Path, bytes: &[u8]) -> Result<(), String> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
+    struct OwnedTemp(PathBuf);
+    impl Drop for OwnedTemp {
+        fn drop(&mut self) {
+            let _ = fs::remove_file(&self.0);
+        }
+    }
+    let directory = File::open(run_dir).map_err(|e| e.to_string())?;
+    for _ in 0..32 {
+        let nonce = NEXT_TEMP
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
+            .map_err(|_| "budget settings temporary counter exhausted")?;
+        let path = run_dir.join(format!(
+            ".coding-settings-budget-{}-{nonce}.tmp",
+            std::process::id()
+        ));
+        let mut file = match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&path)
+        {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(format!("budget settings temporary file: {error}")),
+        };
+        let owned = OwnedTemp(path);
+        file.write_all(bytes)
+            .and_then(|()| file.sync_all())
+            .map_err(|e| format!("budget settings write: {e}"))?;
+        fs::rename(&owned.0, run_dir.join("coding-settings.json"))
+            .map_err(|e| format!("budget settings replace: {e}"))?;
+        // A failure here leaves the complete replacement visible but durability unknown.
+        // The caller returns before constructing any model driver or dispatching effects.
+        directory
+            .sync_all()
+            .map_err(|e| format!("budget settings directory sync: {e}"))?;
+        return Ok(());
+    }
+    Err(
+        "budget settings temporary name collisions; existing files preserved, retry required"
+            .into(),
+    )
+}
 fn scope(settings: &Settings) -> Result<Option<Scope>, String> {
     settings
         .task
@@ -1426,15 +1473,10 @@ fn run(args: &[String]) -> Result<serde_json::Value, String> {
         )?;
     }
     if require_budget_update && action != "audit" {
-        let pending = run_dir.join("coding-settings-budget-pending.json");
-        write_new(
-            &pending,
+        replace_budget_settings(
+            &run_dir,
             &canonical_bytes(&settings, MAX_INTERNAL).map_err(|e| format!("settings: {e:?}"))?,
         )?;
-        fs::rename(&pending, run_dir.join("coding-settings.json")).map_err(|e| e.to_string())?;
-        File::open(&run_dir)
-            .and_then(|dir| dir.sync_all())
-            .map_err(|e| e.to_string())?;
     }
     let store_path = run_dir.join("runtime.sqlite");
     let mut store = if fresh {
@@ -2434,6 +2476,80 @@ mod tests {
         malformed.push("--resource-budget".into());
         assert!(run(&malformed).unwrap_err().contains("requires FILE"));
         assert_eq!(fs::read(&db).unwrap(), before);
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn budget_settings_retry_ignores_untrusted_crash_remnants_and_cleans_owned_temps() {
+        let root = std::env::temp_dir().join(format!(
+            "metron-budget-settings-retry-{}",
+            std::process::id()
+        ));
+        fs::create_dir(&root).unwrap();
+        let settings = root.join("coding-settings.json");
+        let stale = root.join("coding-settings-budget-pending.json");
+        let replacement = br#"{"resource_budget_required":true}"#;
+        let crashed_unique = root.join(format!(
+            ".coding-settings-budget-{}-0.tmp",
+            std::process::id()
+        ));
+        fs::write(&crashed_unique, b"partial crashed unique attempt").unwrap();
+        for remnant in [
+            replacement.as_slice(),
+            br#"{"resource_budget_required":"#.as_slice(),
+            br#"{"unrelated_config":"must never replace settings"}"#.as_slice(),
+        ] {
+            fs::write(&settings, br#"{"resource_budget_required":false}"#).unwrap();
+            fs::write(&stale, remnant).unwrap();
+            replace_budget_settings(&root, replacement).unwrap();
+            assert_eq!(fs::read(&settings).unwrap(), replacement);
+            assert_eq!(fs::read(&stale).unwrap(), remnant);
+            assert_eq!(fs::read_dir(&root).unwrap().count(), 3);
+            assert_eq!(
+                fs::read(&crashed_unique).unwrap(),
+                b"partial crashed unique attempt"
+            );
+        }
+        // A stale symlink is not followed, overwritten or removed by a retry.
+        fs::remove_file(&stale).unwrap();
+        let sentinel = root.join("operator-config.json");
+        fs::write(&sentinel, b"untouched operator configuration").unwrap();
+        std::os::unix::fs::symlink(&sentinel, &stale).unwrap();
+        replace_budget_settings(&root, replacement).unwrap();
+        assert_eq!(
+            fs::read(&sentinel).unwrap(),
+            b"untouched operator configuration"
+        );
+        assert!(
+            fs::symlink_metadata(&stale)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        fs::remove_file(&crashed_unique).unwrap();
+        // A rename failure cleans only this attempt's temporary file and permits retry.
+        fs::remove_file(&settings).unwrap();
+        fs::create_dir(&settings).unwrap();
+        fs::write(settings.join("preserved"), b"original state").unwrap();
+        assert!(
+            replace_budget_settings(&root, replacement)
+                .unwrap_err()
+                .contains("replace")
+        );
+        assert_eq!(
+            fs::read(settings.join("preserved")).unwrap(),
+            b"original state"
+        );
+        assert!(!fs::read_dir(&root).unwrap().any(|entry| {
+            entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".coding-settings-budget-")
+        }));
+        fs::remove_file(settings.join("preserved")).unwrap();
+        fs::remove_dir(&settings).unwrap();
+        replace_budget_settings(&root, replacement).unwrap();
+        assert_eq!(fs::read(&settings).unwrap(), replacement);
         fs::remove_dir_all(root).unwrap();
     }
     #[test]
