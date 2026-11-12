@@ -1,12 +1,6 @@
 [workspace]
 resolver = "3"
 members = [
-    "crates/metron-core",
-    "crates/metron-app",
-    "crates/metron-lab",
-    "crates/metron-operators",
-    "crates/metron-adapters",
-    "crates/metron-cli",
     "crates/metron-protocol",
     "crates/metron-agent",
     "crates/metron-harness",
@@ -27,17 +21,8 @@ repository = "https://github.com/kmosoti/Metron"
 authors = ["Metron contributors"]
 
 [workspace.dependencies]
-metron-core = { path = "crates/metron-core", version = "0.1.0" }
-metron-app = { path = "crates/metron-app", version = "0.1.0" }
-metron-lab = { path = "crates/metron-lab", version = "0.1.0" }
-metron-operators = { path = "crates/metron-operators", version = "0.1.0" }
-metron-adapters = { path = "crates/metron-adapters", version = "0.1.0" }
-metron-cli = { path = "crates/metron-cli", version = "0.1.0" }
 
-serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-sha2 = "0.10"
-thiserror = "2.0"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
@@ -45,9 +30,3 @@ missing_docs = "warn"
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
-
-# The laboratory's NPN canonicalisation and counting dominate test time at
-# arity 8; optimise that one crate in dev and test builds. Behaviour is
-# unchanged; only speed.
-[profile.dev.package.metron-lab]
-opt-level = 2

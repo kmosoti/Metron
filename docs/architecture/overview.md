@@ -22,13 +22,20 @@ flowchart TD
     Worker[metron-inference-worker: isolated model process] --> Local
     Worker --> Protocol
     Worker --> SDK[Pinned mistral.rs SDK]
+    subgraph Support[Development and documentation only]
+        Testkit[metron-testkit and fixtures]
+        Archive[Archived laboratory findings]
+    end
 ```
+
+The support/documentation subgraph is outside runtime dependency and authority
+flows.
 
 Arrows represent Rust dependencies. The supervisor communicates with the worker
 through bounded framed requests; it does not link the SDK. Agent/protocol code
-does not perform I/O. The retained laboratory and agent/harness crates have no
-normal dependencies on each other. Their shared workspace does not grant access
-to sealed fixtures or evaluator state.
+does not perform I/O. Test fixtures and development support remain outside
+runtime authority. Archived research records and report data are documentation,
+not executable product components.
 
 ## Execution and authority
 
@@ -63,15 +70,16 @@ separate from the model's completion claim.
 | --- | --- |
 | `crates/metron-agent`, `crates/metron-harness` | Primary agent and harness APIs |
 | Other supporting crates under `crates/` | Protocol, storage, host and local inference |
-| `tests/architecture` | Dependency, purity and sealed-data boundaries |
-| `crates/metron-testkit`, crate-local tests | Controlled fixtures and adapters |
+| `tests/architecture` | Product dependency and authority boundaries |
+| `crates/metron-testkit`, crate-local tests | Development-only controlled fixtures and adapters |
 | `knowledge/` | Research, decisions and dated evidence |
 | `docs/` | Architecture, setup and interface documentation |
-| `experiments/` | Retained laboratory manifests, fixtures and reports |
+| `knowledge/archive/laboratory/` | Historical Boolean-laboratory reports and research evidence |
 
 The root owns the single `Cargo.toml`, `Cargo.lock` and dated Rust toolchain pin.
-The [laboratory reference](laboratory.md) documents its existing algorithms and
-episode lifecycle. [ADR 0023](../adr/0023-first-class-agent-and-harness.md)
+The [product scope decision](../adr/0024-product-scope-and-laboratory-archive.md)
+records why the Boolean laboratory is archived rather than included in the
+current executable product. [ADR 0023](../adr/0023-first-class-agent-and-harness.md)
 records the workspace consolidation and compatibility obligations.
 
 ## Development status

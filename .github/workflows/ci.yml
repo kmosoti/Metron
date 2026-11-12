@@ -35,11 +35,9 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Tests (unit + architecture invariants)
-        run: cargo test --workspace
-      - name: Smoke run
+        run: cargo test --workspace --locked
+      - name: Coding, CAS and replay smoke (agent and standalone harness)
         run: |
-          cargo run -p metron-cli -- run experiments/manifests/smoke-majority3.json --results target/results
-          cargo run -p metron-cli -- run experiments/manifests/smoke-majority3-capped.json --results target/results
-          for journal in target/results/*/episode.jsonl; do
-            cargo run -p metron-cli -- verify "$journal"
-          done
+          cargo test --locked -p metron-host both_modes_record_plan_edit_finish_without_self_certifying_success
+          cargo test --locked -p metron-host paired_both_modes_replay_controlled_compiler_feedback_and_correction
+          cargo test --locked -p metron-host contextual_file_tools_admit_reconcile_and_replay_both_modes

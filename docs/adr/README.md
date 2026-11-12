@@ -28,3 +28,4 @@ mark them superseded. Template: context, decision, consequences.
 | 0021 | Bounded native local inference | accepted; human ratification pending |
 | 0022 | Explicit coding contracts and scoped cross-task memory | proposed |
 | 0023 | First-class agent and harness crates | proposed; supersedes ADR 0019 workspace layout |
+| 0024 | Product scope and historical laboratory archive | proposed; supersedes executable laboratory scope in prior decisions |
