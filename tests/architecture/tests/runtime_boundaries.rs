@@ -35,14 +35,13 @@ const RUNTIME_CRATES: [&str; 8] = [
     "metron-inference-local",
     "metron-inference-worker",
 ];
-const LAB_PACKAGES: [&str; 7] = [
+const RETIRED_CRATES: [&str; 6] = [
     "metron-core",
     "metron-app",
     "metron-lab",
     "metron-operators",
     "metron-adapters",
     "metron-cli",
-    "metron-architecture-tests",
 ];
 
 fn root() -> PathBuf {
@@ -54,7 +53,6 @@ fn root_workspace_members_and_dependency_boundaries() {
     let root = root().canonicalize().unwrap();
     let workspace = metadata(root.join("Cargo.toml"));
     let product_names: BTreeSet<_> = RUNTIME_CRATES.into_iter().collect();
-    let lab_names: BTreeSet<_> = LAB_PACKAGES.into_iter().collect();
     let packages = workspace["packages"].as_array().unwrap();
     let workspace_ids: BTreeSet<_> = workspace["workspace_members"]
         .as_array()
@@ -72,12 +70,13 @@ fn root_workspace_members_and_dependency_boundaries() {
         .collect();
     assert_eq!(
         member_names,
-        product_names.union(&lab_names).copied().collect()
+        product_names
+            .iter()
+            .copied()
+            .chain(["metron-architecture-tests"])
+            .collect()
     );
-    assert_eq!(
-        workspace_ids.len(),
-        RUNTIME_CRATES.len() + LAB_PACKAGES.len()
-    );
+    assert_eq!(workspace_ids.len(), RUNTIME_CRATES.len() + 1);
     assert_eq!(
         workspace["workspace_root"].as_str().unwrap(),
         root.to_str().unwrap()
@@ -86,6 +85,12 @@ fn root_workspace_members_and_dependency_boundaries() {
         !root.join("products/runtime/Cargo.toml").exists(),
         "old nested runtime workspace exists"
     );
+    for name in RETIRED_CRATES {
+        assert!(
+            !root.join("crates").join(name).exists(),
+            "retired laboratory crate {name} exists"
+        );
+    }
     for name in RUNTIME_CRATES {
         let old_directory = root.join("products/runtime/crates").join(name);
         assert!(
@@ -118,18 +123,14 @@ fn root_workspace_members_and_dependency_boundaries() {
         for dependency in package["dependencies"].as_array().unwrap() {
             let dep = dependency["name"].as_str().unwrap();
             let normal = dependency["kind"].is_null();
-            if normal && product_names.contains(name) {
-                assert!(
-                    !lab_names.contains(dep),
-                    "runtime package {name} has normal lab dependency {dep}"
-                );
-            }
-            if normal && lab_names.contains(name) {
-                assert!(
-                    !product_names.contains(dep),
-                    "lab package {name} has normal runtime dependency {dep}"
-                );
-            }
+            assert!(
+                !RETIRED_CRATES.contains(&dep),
+                "package {name} depends on retired laboratory crate {dep}"
+            );
+            assert!(
+                !normal || dep != "metron-testkit",
+                "test support must not be a normal dependency of {name}"
+            );
             assert!(
                 !matches!(dep, "mistralrs" | "mistralrs-core") || name == "metron-inference-worker",
                 "SDK dependency in {name}"

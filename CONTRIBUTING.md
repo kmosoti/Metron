@@ -2,12 +2,13 @@
 
 ## Development loop
 
-1. Read [AGENTS.md](AGENTS.md), the [architecture overview](docs/architecture/overview.md),
-   [invariants](docs/architecture/invariants.md) and [knowledge index](knowledge/README.md).
+1. Read [AGENTS.md](AGENTS.md), the [architecture overview](docs/architecture/overview.md)
+   and [knowledge index](knowledge/README.md).
    Inspect the working tree, issues and PR stack against the actual revision.
-2. Choose a focused, independently verifiable change. Preserve the four laboratory
-   invariants and existing accepted ADRs. Agent and harness crates share the root workspace; preserve their dependency
-   boundaries and the retained laboratory's evaluation contracts.
+2. Choose a focused, independently verifiable change. Preserve product authority,
+   persistence, replay and compatibility contracts, along with accepted ADRs.
+   Agent and harness crates share the root workspace; keep their boundaries
+   explicit and `metron-testkit` development-only.
 3. Implement and verify each affected layer. Run the commands below and record
    their actual results, including failures and checks that could not run.
 4. Update reader-facing contracts in `docs/`, architectural decisions through
@@ -116,17 +117,13 @@ root workspace before pushing.
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
-cargo run -p metron-cli -- run experiments/manifests/smoke-majority3.json --results target/results
-cargo run -p metron-cli -- run experiments/manifests/smoke-majority3-capped.json --results target/results
-for journal in target/results/*/episode.jsonl; do
-  cargo run -p metron-cli -- verify "$journal"
-done
 ```
 
-One workspace, lockfile and toolchain cover agent, harness, adapters and the
-retained laboratory. CI runs the commands above once for the full workspace.
-Build the CUDA worker explicitly when needed; ordinary host builds do not select
-CUDA. Reproducible outcomes control the [milestones](docs/architecture/milestones.md).
+One workspace, lockfile and toolchain cover the product and development-only
+testkit. CI runs the commands above for the full workspace. Physical sandbox and
+CUDA checks are environment-specific evidence; do not present portable tests as
+passing those gates. Alpha.1 remains incomplete until its independent coding and
+resource acceptance criteria pass; see [D-0005](knowledge/decisions/D-0005-alpha1-delivery.md).
 
 ## Commits and knowledge
 

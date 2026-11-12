@@ -51,18 +51,28 @@ observations and priors when measurements contradict assumptions. Never revise
 a frozen evaluator after seeing holdout results without a new evaluation identity.
 
 The [current workspace layout](../../docs/adr/0023-first-class-agent-and-harness.md)
-places agent/harness and supporting crates directly under `crates/`. The single
-workspace retains explicit laboratory and runtime trust boundaries.
+places agent/harness and supporting crates directly under `crates/`. The
+Boolean laboratory is archived under
+[`knowledge/archive/laboratory`](../archive/laboratory/README.md) by the
+proposed [ADR 0024](../../docs/adr/0024-product-scope-and-laboratory-archive.md);
+it is not part of alpha.1 product gates. Historical laboratory findings remain
+scoped to their original workloads and source revision.
 
 ## Defaults and implementation constraints
 
 - First-party product code remains Rust 1.100; Z3/Lean are external toolchains.
 - LFM3 Q4_K_M is fixed for local iteration. No paid inference fallback or model
   search is required for this program. Missing coding evidence blocks release.
-- Start at 2,048 total context/512 output tokens; qualify 4K then 8K only when
-  smaller profiles fail the frozen workload. Keep per-request grants/receipts.
-- Treat 2 GiB device memory as a measured target, distinct from the 4 GiB
-  operational envelope; neither sampled monitoring nor KV limits prove a cap.
+- Keep per-request input/output grants and receipts. Do not impose the earlier
+  2K/4K/8K progression as a product ceiling; allow context up to the model's
+  trained limit when the chosen runtime path, reserved output and observed
+  physical VRAM headroom support it.
+- Prior 2 GiB device target and 4 GiB operational envelope are superseded as
+  acceptance defaults. They do not establish a cap or justify rejecting a
+  physically fitting context. Keep weight artifact size, KV/cache allocations,
+  runtime workspace and measured device pressure separate. O-0015 records the
+  source-derived non-flash full-prefill mask blocker; actual full-context fit
+  remains unmeasured.
 - New coding DTOs do not add file/process/model dependencies to pure crates.
 - Lexical paths do not establish containment. Expose mutation only after the
   selected sandbox passes adversarial fixtures on its declared environment.
@@ -82,7 +92,8 @@ Also complete one separately frozen Rust repair task. Exercise agent and
 standalone harness modes. Run all D-0003 alpha.1 requirements, the unified workspace
 checks, unchanged laboratory smoke/journal verification and old runtime replay.
 Full release is REACHED only when required gates pass; partial, negative or
-deferred results never imply issue #7 is complete.
+deferred results never imply issue #7 is complete. Archived Boolean-laboratory
+checks and reports do not substitute for the native coding and resource gates.
 
 **Relations:** extends D-0003 alpha.1 scope; implements ADR 0022; informed by
 R-0003–R-0011 and O-0004–O-0006. Revisit on failed coding, isolation, resource or

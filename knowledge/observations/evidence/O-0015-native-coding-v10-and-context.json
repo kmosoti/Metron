@@ -1,0 +1,108 @@
+{
+  "schema_version": 1,
+  "source_metadata": "coding-cuda-v10-build/immutable-binaries.json",
+  "source_metadata_sha256": "dc6d69801cf0252241430df326664b15c39b09115c659c84a2285a7829375b8f",
+  "source_commit": "2a90ed944c4e2274df85a1c10d348c686b595061",
+  "merged_source": "898bae3d868fce6db3454a556a2afd91d246d7e1",
+  "sdk_commit": "fb4cdc3730dc64b366724e7637a205a8b7747499",
+  "host_sha256": "7053b3d8ecb39af5541057b6b5a7664adc12309a2c50e0afe7d973d2b581a578",
+  "worker_sha256": "a582791485508bfd0a49f7778e7472a70f156a08b35db30c9fa214f24c65fe0f",
+  "recipe_sha256": "7059e2174d8da680813d6b29bca75119290e4de509cb0a8f2d8649ea3a677e79",
+  "controller_version": 10,
+  "context_version": 11,
+  "model": "LiquidAI/LFM3-1.7B-GGUF",
+  "model_sha256": "3793e1e6e2266919d6e015287221b41100175a98eddaba92e111aed3b05c93c4",
+  "quantization": "Q4_K_M",
+  "device": "CUDA RTX3060Laptop 6 GiB",
+  "shared_configuration": {
+    "context_input_output_caps": [4096, 3584, 512],
+    "thinking": false,
+    "temperature": 0.1,
+    "top_k": 50,
+    "repetition_penalty": 1.1,
+    "budgets_model_tool_other": [12, 24, 48],
+    "elapsed_seconds_in_comparison": null,
+    "private_feedback": false,
+    "coordinator_app_templates": false
+  },
+  "cases": [
+    {
+      "case": "native-repair-v10-agent-01",
+      "elapsed_seconds": 1123.189410078,
+      "outcome": "rejected",
+      "exit_code": 4,
+      "usage": {"model_requests": 12, "tools": 11},
+      "tool_counts": {"reads": 5, "successful_read_derived_cas_edits": 4, "cargo_exit_101": 2},
+      "generated_source_failures": ["literal LF character", "HTML entities"],
+      "last_edit_compiled": false,
+      "finish_freeze_evaluator": false,
+      "journal_head": "46c310a5d371b15253e175e46522b6f5ba014dde82b88a1820bdb131207711a4",
+      "independent_audit": {
+        "path": "native-repair-v10-agent-01-independent-audit.json",
+        "sha256": "06051be9e71352e2d88bd57de30a4bb352ceb8fc976740cf34dd253b0e10a52f",
+        "preflight_counts_verified": "12/12",
+        "edit_cas_references_verified": 4,
+        "first_sdk_scalar_decoded_once_to_canonical_exact_value": true,
+        "decoder_corruption_evidence": false
+      },
+      "journal_checks": {"chain": true, "accounting": true, "projection": true, "behavior_replay": true, "reservations": 0, "holds": 0, "unposted": 0}
+    },
+    {
+      "case": "native-calculator-v10-agent-01",
+      "elapsed_seconds": 253.708496405,
+      "outcome": "rejected",
+      "exit_code": 4,
+      "usage": {"model_requests": 4, "tools": 0},
+      "first_plan_step_bytes": 280,
+      "first_plan_step_limit_bytes": 256,
+      "later_plan_bytes": 130,
+      "later_step_bytes": 36,
+      "later_plan_valid": true,
+      "run_proposals": 2,
+      "run_proposals_path_issue": "absolute/workspace invalid paths",
+      "argument_issues": ["Unicode em dash flags", "missing values"],
+      "workspace_empty_after_run": true,
+      "application_effect_finish_freeze_evaluator": false,
+      "journal_head": "4e5cf4ca7f493cb1e9e7d494a8ca3f3c8cb500fd987b0cbfd71ba1e712919e4b",
+      "independent_audit": {
+        "path": "native-calculator-v10-agent-01-independent-audit.json",
+        "sha256": "f1147d25b37ed7a91333c072df39ced0da83bf3df5d773e742f467d45e2a43bd"
+      },
+      "journal_checks": {"chain": true, "accounting": true, "projection": true, "behavior_replay": true, "reservations": 0, "holds": 0, "unposted": 0}
+    }
+  ],
+  "context_sources": {
+    "trained_position_limit": {
+      "url": "https://huggingface.co/LiquidAI/LFM3-1.7B/blob/main/config.json",
+      "max_position_embeddings": 262144,
+      "note": "publisher model configuration; not runtime-fit evidence"
+    },
+    "publisher_kv_claim": {
+      "url": "https://www.liquid.ai/blog/lfm3",
+      "context_tokens": 131072,
+      "kv_cache_gb": 1.6,
+      "note": "published 128K figure; not a 262K measurement"
+    },
+    "conditional_full_attention_estimate": {
+      "context_tokens": 262144,
+      "global_layers": 6,
+      "sliding_layers": 5,
+      "sliding_window": 256,
+      "kv_heads": 4,
+      "head_dimension": 128,
+      "bytes_per_value": 2,
+      "key_and_value": true,
+      "estimated_gib": 3.00244140625,
+      "scope": "logical retained K/V for six global layers and five 256-token rotating caches; excludes convolution state, allocation slack and runtime workspace"
+    },
+    "source_derived_prefill_workspace": {
+      "path": "pinned non-flash CUDA path",
+      "mask": "square f32 sliding-attention prefill mask",
+      "tokens": 262144,
+      "host_mask_gib": 256,
+      "bf16_gpu_mask_gib": 128,
+      "status": "source-derived arithmetic, not measured runtime allocation or launch",
+      "source_revision": "fb4cdc3730dc64b366724e7637a205a8b7747499"
+    }
+  }
+}

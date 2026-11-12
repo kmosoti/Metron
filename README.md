@@ -37,10 +37,10 @@ The scripted `sum-v1` fixture is compatibility evidence, not general usage.
 ## Research and contribution
 
 The [knowledge index](knowledge/README.md) holds research and dated observations.
-The retained Boolean-function [laboratory](docs/architecture/laboratory.md)
-keeps its sealed evaluator, experiments and existing commands. Its
-[results snapshot](knowledge/observations/O-0002-laboratory-results-snapshot.md)
-records findings separately from agent/harness capability claims.
+Historical Boolean-laboratory findings remain in the
+[knowledge archive](knowledge/archive/laboratory/README.md), tied to their
+source revision; the laboratory is not part of the current product or its
+development commands.
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) for development, review and human release
 procedures. Architecture diagrams accompany human review.
