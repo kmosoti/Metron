@@ -96,6 +96,38 @@ Local requests permit up to 64 KiB of decoded context and a 512 KiB framed reque
 
 The fixed comparisons test short and near-8K inputs across three repetitions. An operational candidate must meet correctness, both roles' p95 usable-output latency below one second, a process GPU memory peak at most 4 GiB and at least 1 GiB free GPU memory; concurrency 1 is a baseline rather than a selectable candidate. There may be no acceptable candidate. The staggered case records whether the reasoner SDK stream is still awaiting its terminal response when the selector reaches the worker; actual backend batch membership remains unknown. These results do not automatically promote a profile: production selection retains the separate frozen-corpus qualification gate. See [ADR 0021](../../docs/adr/0021-local-inference.md) and [R-0010](../../knowledge/research/R-0010-lfm3-native-inference.md).
 
+The separate V6 coding comparison exercises native read and edit proposals against
+four public synthetic cases. It does not execute those proposals or select a
+production profile. Use the pinned Q4 artifact and a fresh output directory:
+
+```sh
+metron-runtime model compare-coding-v6 --worker /absolute/path/to/metron-inference-worker \
+  --artifacts /absolute/path/to/artifacts --output /absolute/path/to/output \
+  --concurrency 2
+```
+
+Omit `--concurrency` to run 1, 2 and 4. To opt in to the unqualified paged
+chunked-prefill plumbing, add `--chunk-kv-bytes 268435456`; use a separate
+output directory for each configuration. The value is a KV planning target,
+not a process or GPU memory cap. Prefix reuse remains disabled. Reports include
+case and corpus identities, receipts, exact-action verdicts, missing cases and
+optional measurements. Native calls arrive at completion, so the recorded first
+visible time is not first generated token latency. Missing measurements remain
+unknown. This small corpus detects some input/action swaps and malformed output;
+it does not establish coding capability, batch membership, cache hits, numerical
+equivalence or production qualification.
+
+```mermaid
+flowchart LR
+    Inputs["Frozen synthetic V6 cases + read/edit catalog"] --> Session["Model-only comparison session"]
+    Session -->|"one-shot scoped permits"| Driver["Inference driver"]
+    Driver -->|"native tool definitions; no tool execution"| Worker["Bounded local worker"]
+    Worker -->|"native proposal + usage"| Driver
+    Driver -->|"ordered settlement"| Session
+    Session -->|"receipts + observations"| Report["Nonselecting comparison report"]
+    Inputs -->|"expected typed action"| Report
+```
+
 A minimal task file is:
 
 ```json

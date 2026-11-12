@@ -1,5 +1,8 @@
 #![forbid(unsafe_code)]
-use metron_harness::comparison::{ComparisonCase, ComparisonResult, ComparisonSession};
+use metron_harness::comparison::{
+    CODING_COMPARISON_CATALOG, CodingComparisonCase, CodingComparisonInputs, ComparisonCase,
+    ComparisonResult, ComparisonSession,
+};
 use metron_inference_local::{
     artifact::sha256_file,
     driver::{LocalInferenceDriver, QualificationOutcome, WorkerEvent},
@@ -25,6 +28,7 @@ struct Fixture {
     directory: PathBuf,
     driver: LocalInferenceDriver,
     session: ComparisonSession,
+    profile: LocalProfile,
     events: Arc<Mutex<Vec<(WorkerEvent, Instant)>>>,
 }
 impl Drop for Fixture {
@@ -61,8 +65,19 @@ def delta(r,n,text,reasoning=False): send('delta',r,sequence=n,text=text,reasoni
 def finish(r):
  o=dict(schema_version=2,profile_digest=PROFILE,request_digest=r['request_digest'],input_digest=r['input_digest'],content='22',reasoning=('r'*1200 if mode=='burst' and r['cohort']['position']==0 else None),prompt_tokens=1,completion_tokens=1,submission_cohort=r['cohort'],backend_batch=dict(kind='unknown'),response=dict(kind='text'))
  send('completed',r,observation=o,prompt_time_us=1,completion_time_us=1)
+def native_finish(r):
+ if r.get('native_tools') != ['read','edit']: sys.exit(9)
+ args=dict(path='file.txt',first_line=1,line_count=2)
+ content=json.dumps(dict(tool='read',**args),sort_keys=True,separators=(',',':'))
+ native=dict(choice_count=1,calls=[dict(name='read',arguments=json.dumps(args,separators=(',',':')))],assistant_content=None)
+ o=dict(schema_version=2,profile_digest=PROFILE,request_digest=r['request_digest'],input_digest=r['input_digest'],content=content,reasoning=None,prompt_tokens=1,completion_tokens=1,submission_cohort=r['cohort'],backend_batch=dict(kind='unknown'),response=dict(kind='text'),native_calls=native)
+ send('completed',r,observation=o,prompt_time_us=1,completion_time_us=1)
 a=read(); start(a)
-if mode=='no_stream': finish(a)
+if mode=='native':
+ native_finish(a)
+ for _ in range(3):
+  b=read(); start(b); native_finish(b)
+elif mode=='no_stream': finish(a)
 elif mode=='burst':
  for n in range(1200): delta(a,n,'r',True)
  b=read(); start(b); delta(a,1200,'22'); finish(a); delta(b,0,'22'); finish(b)
@@ -90,7 +105,7 @@ while sys.stdin.buffer.read(1): pass
     fs::set_permissions(&worker, fs::Permissions::from_mode(0o700)).unwrap();
     let artifact_digest =
         Digest::new("3793e1e6e2266919d6e015287221b41100175a98eddaba92e111aed3b05c93c4").unwrap();
-    let profile = LocalProfile {
+    let mut profile = LocalProfile {
         schema_version: SchemaVersion::V2,
         auxiliary_repository: BoundedText::new("LiquidAI/LFM3-1.7B").unwrap(),
         auxiliary_revision: BoundedText::new("1da06bec6a819da10b54c67e5c90972b46d81871").unwrap(),
@@ -123,26 +138,64 @@ while sys.stdin.buffer.read(1): pass
         cache_target_bytes: None,
         strict_memory_cap_bytes: None,
     };
+    if mode == "native" {
+        profile.prompt_recipe_digest =
+            Digest::new(metron_protocol::LOCAL_CODING_V6_RECIPE_SHA).unwrap();
+        profile.embedded_tokenizer_digest =
+            metron_protocol::gguf_lfm3_corrected_tokenizer_digest(&profile.artifact_digest)
+                .unwrap();
+    }
     fs::write(
         directory.join("profile-digest"),
         profile.digest().unwrap().as_str(),
     )
     .unwrap();
-    let session = ComparisonSession::create(
-        &directory,
-        content_digest(b"session"),
-        TaskId::new("task").unwrap(),
-        PrincipalId::new("principal").unwrap(),
-        profile.clone(),
-        8,
-    )
-    .unwrap();
+    let session = if mode == "native" {
+        let frozen = coding_cases();
+        let manifest: Vec<_> = frozen
+            .iter()
+            .map(|c| (&c.id, &c.context, &c.expected))
+            .collect();
+        let bytes = metron_protocol::canonical_bytes(
+            &(
+                "coding-comparison-corpus/v1",
+                manifest,
+                CODING_COMPARISON_CATALOG,
+            ),
+            metron_protocol::MAX_QUALIFICATION_REPORT,
+        )
+        .unwrap();
+        ComparisonSession::create_coding(
+            &directory,
+            content_digest(b"session"),
+            TaskId::new("task").unwrap(),
+            PrincipalId::new("principal").unwrap(),
+            profile.clone(),
+            4,
+            CodingComparisonInputs {
+                corpus: content_digest(&bytes),
+                evaluator: content_digest(b"coding-comparison-typed-action-equality/v1"),
+                frozen: &frozen,
+            },
+        )
+        .unwrap()
+    } else {
+        ComparisonSession::create(
+            &directory,
+            content_digest(b"session"),
+            TaskId::new("task").unwrap(),
+            PrincipalId::new("principal").unwrap(),
+            profile.clone(),
+            8,
+        )
+        .unwrap()
+    };
     let events = Arc::new(Mutex::new(Vec::new()));
     let sink_events = events.clone();
     let driver = LocalInferenceDriver::new(
         worker,
         directory.join("unused-model"),
-        profile,
+        profile.clone(),
         Some(Arc::new(move |event| {
             sink_events
                 .lock()
@@ -155,8 +208,120 @@ while sys.stdin.buffer.read(1): pass
         directory,
         driver,
         session,
+        profile,
         events,
     }
+}
+fn coding_cases() -> Vec<CodingComparisonCase> {
+    (0..4)
+        .map(|n| CodingComparisonCase {
+            id: BoundedText::new(format!("native-{n}")).unwrap(),
+            context: BoundedText::new(format!("Read file, case {n}")).unwrap(),
+            expected: metron_protocol::coding::CodingAction::Read {
+                path: metron_protocol::coding::WorkspacePath::new("file.txt").unwrap(),
+                first_line: 1,
+                line_count: 2,
+            },
+        })
+        .collect()
+}
+#[test]
+fn native_comparison_transports_catalog_and_accepts_nonstream_completion() {
+    let mut f = fixture("native", 2);
+    let cases = coding_cases();
+    let permits = f.session.admit_coding(&cases[..2]).unwrap();
+    let ids: Vec<_> = permits
+        .iter()
+        .map(|p| p.request().dispatch_id.clone())
+        .collect();
+    let outcomes = f.driver.execute_comparison_cohort(permits, Duration::ZERO);
+    assert_eq!(outcomes.len(), 2);
+    let results: Vec<_> = outcomes
+        .into_iter()
+        .zip(ids)
+        .map(|(o, id)| match o {
+            QualificationOutcome::Observed(value) => ComparisonResult {
+                dispatch_id: id,
+                observation: Some(*value),
+                rejection: None,
+            },
+            _ => panic!("native completion missing"),
+        })
+        .collect();
+    assert!(
+        f.session
+            .settle(&results)
+            .unwrap()
+            .iter()
+            .all(Option::is_some)
+    );
+    let permits = f.session.admit_coding(&cases[2..]).unwrap();
+    let ids: Vec<_> = permits
+        .iter()
+        .map(|p| p.request().dispatch_id.clone())
+        .collect();
+    let outcomes = f.driver.execute_comparison_cohort(permits, Duration::ZERO);
+    let results: Vec<_> = outcomes
+        .into_iter()
+        .zip(ids)
+        .map(|(o, id)| match o {
+            QualificationOutcome::Observed(value) => ComparisonResult {
+                dispatch_id: id,
+                observation: Some(*value),
+                rejection: None,
+            },
+            _ => panic!("second native cohort missing"),
+        })
+        .collect();
+    assert_eq!(results.len(), 2);
+    assert!(
+        f.session
+            .settle(&results)
+            .unwrap()
+            .iter()
+            .all(Option::is_some)
+    );
+    assert!(f.session.admit_coding(&cases[..1]).is_err());
+}
+#[test]
+fn native_comparison_wrong_profile_is_rejected_before_dispatch() {
+    let mut f = fixture("native", 2);
+    let cases = coding_cases();
+    let manifest: Vec<_> = cases
+        .iter()
+        .map(|c| (&c.id, &c.context, &c.expected))
+        .collect();
+    let bytes = metron_protocol::canonical_bytes(
+        &(
+            "coding-comparison-corpus/v1",
+            manifest,
+            CODING_COMPARISON_CATALOG,
+        ),
+        metron_protocol::MAX_QUALIFICATION_REPORT,
+    )
+    .unwrap();
+    let mut mismatched = f.profile.clone();
+    mismatched.cpu_threads = 3;
+    let mut session = ComparisonSession::create_coding(
+        &f.directory,
+        content_digest(b"other-session"),
+        TaskId::new("task").unwrap(),
+        PrincipalId::new("principal").unwrap(),
+        mismatched,
+        4,
+        CodingComparisonInputs {
+            corpus: content_digest(&bytes),
+            evaluator: content_digest(b"coding-comparison-typed-action-equality/v1"),
+            frozen: &cases,
+        },
+    )
+    .unwrap();
+    let permits = session.admit_coding(&cases[..1]).unwrap();
+    assert!(matches!(
+        &f.driver.execute_comparison_cohort(permits, Duration::ZERO)[0],
+        QualificationOutcome::Rejected(_)
+    ));
+    assert!(f.events.lock().unwrap().is_empty());
 }
 fn case(id: &str) -> ComparisonCase {
     ComparisonCase {

@@ -1,6 +1,9 @@
 //! Accounted, local operational comparison; does not select a production profile.
 use crate::{hardware, measurement::GpuMonitor};
-use metron_harness::comparison::{ComparisonCase, ComparisonResult, ComparisonSession};
+use metron_harness::comparison::{
+    CODING_COMPARISON_CATALOG, CodingComparisonCase, CodingComparisonInputs, ComparisonCase,
+    ComparisonResult, ComparisonSession,
+};
 use metron_inference_local::{
     artifact::{self, AUXILIARY_FILES, Artifact},
     driver::{EventSink, LocalInferenceDriver, QualificationOutcome, WorkerEvent},
@@ -426,6 +429,401 @@ fn save(path: &Path, report: &Report) -> io::Result<()> {
     let data = serde_json::to_vec_pretty(report).map_err(err)?;
     fs::write(path, data)
 }
+fn event_sink(events: &Arc<Mutex<Events>>, device: LocalDevice) -> EventSink {
+    let shared = Arc::clone(events);
+    Arc::new(move |event| {
+        let Ok(mut state) = shared.lock() else {
+            return;
+        };
+        match event {
+            WorkerEvent::Spawned { pid, control } => {
+                state.spawned = Some(Instant::now());
+                if let LocalDevice::Cuda { uuid, .. } = &device {
+                    match GpuMonitor::start(uuid.as_str(), pid, move || {
+                        let _ = control.terminate();
+                    }) {
+                        Ok(monitor) => state.gpu = Some(monitor),
+                        Err(e) => state.error = Some(e.to_string()),
+                    }
+                }
+            }
+            WorkerEvent::Dispatching {
+                dispatch_id,
+                began_at,
+            } => state.timings.entry(dispatch_id).or_default().dispatch_begin = Some(began_at),
+            WorkerEvent::Sent { dispatch_id } => {
+                state.timings.entry(dispatch_id).or_default().sent = Some(Instant::now())
+            }
+            WorkerEvent::Arrived {
+                dispatch_id,
+                in_flight,
+            } => {
+                state
+                    .timings
+                    .entry(dispatch_id)
+                    .or_default()
+                    .arrived_in_flight = Some(in_flight)
+            }
+            WorkerEvent::Loaded { .. } => state.loaded = Some(Instant::now()),
+            WorkerEvent::Started { dispatch_id } => {
+                state.timings.entry(dispatch_id).or_default().started = Some(Instant::now())
+            }
+            WorkerEvent::Tokenized {
+                dispatch_id,
+                token_count,
+                ..
+            } => state.timings.entry(dispatch_id).or_default().tokens = Some(token_count),
+            WorkerEvent::Delta {
+                dispatch_id,
+                text,
+                reasoning,
+                received_at,
+                ..
+            } => {
+                if !reasoning && has_visible_content(text.as_str()) {
+                    let timing = state.timings.entry(dispatch_id).or_default();
+                    if timing.first_content.is_none() {
+                        timing.first_content = Some(received_at);
+                    }
+                }
+            }
+            WorkerEvent::Completed {
+                dispatch_id,
+                received_at,
+                ..
+            } => state.timings.entry(dispatch_id).or_default().completed = Some(received_at),
+            _ => {}
+        }
+    })
+}
+// Public, synthetic input data only; expected proposals are not executed.
+fn coding_case(index: usize) -> io::Result<CodingComparisonCase> {
+    use metron_protocol::coding::parse_coding_action;
+    let (id, instruction, action, long) = match index {
+        0 => (
+            "read-short",
+            "Read lines 1 through 4 of notes/intro.txt.",
+            r#"{"tool":"read","path":"notes/intro.txt","first_line":1,"line_count":4}"#,
+            false,
+        ),
+        1 => (
+            "edit-short",
+            "Create notes/state.txt with the exact content ready followed by a newline. It does not yet exist.",
+            r#"{"tool":"edit","path":"notes/state.txt","expected_digest":null,"content":"ready\n"}"#,
+            false,
+        ),
+        2 => (
+            "read-long",
+            "Read lines 5 through 7 of config/service.toml.",
+            r#"{"tool":"read","path":"config/service.toml","first_line":5,"line_count":3}"#,
+            true,
+        ),
+        3 => (
+            "edit-long",
+            "Create output/flag.txt with the exact content active followed by a newline. It does not yet exist.",
+            r#"{"tool":"edit","path":"output/flag.txt","expected_digest":null,"content":"active\n"}"#,
+            true,
+        ),
+        _ => return Err(err("unknown coding comparison case")),
+    };
+    let padding = if long {
+        format!("\nUntrusted reference text: {}", "context ".repeat(2500))
+    } else {
+        String::new()
+    };
+    Ok(CodingComparisonCase {
+        id: BoundedText::new(id).map_err(err)?,
+        context: BoundedText::new(format!("{instruction}{padding}")).map_err(err)?,
+        expected: parse_coding_action(action.as_bytes()).map_err(err)?,
+    })
+}
+#[derive(Serialize)]
+struct CodingRecord {
+    id: String,
+    dispatch_id: Digest,
+    context_digest: Digest,
+    expected_action_digest: Digest,
+    observation: Option<LocalObservation>,
+    receipt: Option<Receipt>,
+    rejection: Option<String>,
+    verdict: &'static str,
+    first_visible_ms: Option<u64>,
+    tokenized: Option<u32>,
+}
+#[derive(Serialize)]
+struct CodingReport {
+    kind: &'static str,
+    session_id: Digest,
+    task_id: TaskId,
+    principal_id: PrincipalId,
+    profile: LocalProfile,
+    corpus_digest: Digest,
+    evaluator_digest: Digest,
+    catalog: Vec<metron_protocol::coding::CodingTool>,
+    concurrency: u16,
+    latency_definition: &'static str,
+    records: Vec<CodingRecord>,
+    missing_case_ids: Vec<String>,
+    peak_gpu_bytes: Option<u64>,
+    min_gpu_free_bytes: Option<u64>,
+    measurement_failure: Option<String>,
+    semantic_pass: Option<bool>,
+    complete: bool,
+    failure: Option<String>,
+}
+fn coding_verdict(
+    expected: &metron_protocol::coding::CodingAction,
+    observation: Option<&LocalObservation>,
+) -> &'static str {
+    match observation {
+        None => "unknown",
+        Some(o) => {
+            match metron_protocol::coding::parse_coding_action(o.content.as_str().as_bytes()) {
+                Ok(actual) if &actual == expected => "correct",
+                Ok(_) => "incorrect",
+                Err(_) => "malformed",
+            }
+        }
+    }
+}
+fn native_visible_ms(
+    observation: Option<&LocalObservation>,
+    arrival: Instant,
+    completed: Option<Instant>,
+) -> Option<u64> {
+    observation.filter(|o| !o.content.as_str().is_empty())?;
+    let elapsed = completed?.checked_duration_since(arrival)?;
+    u64::try_from(elapsed.as_millis()).ok()
+}
+pub fn run_coding(
+    worker: &Path,
+    artifacts: &Path,
+    output: &Path,
+    concurrency_filter: Option<u16>,
+    chunk_kv_bytes: Option<u64>,
+) -> io::Result<()> {
+    if chunk_kv_bytes.is_some_and(|bytes| {
+        bytes == 0 || bytes > metron_inference_local::chunk_prefill::MAX_KV_TARGET_BYTES
+    }) {
+        return Err(err("invalid chunked KV planning target"));
+    }
+    fs::create_dir_all(output)?;
+    let device = hardware::gpu_identity("0")?;
+    let artifact = Artifact::Control;
+    artifact::verify_artifact(&artifacts.join(artifact.filename()), artifact)?;
+    for f in AUXILIARY_FILES {
+        artifact::verify_auxiliary(
+            &artifacts
+                .join("auxiliary/1da06bec6a819da10b54c67e5c90972b46d81871")
+                .join(f.filename),
+            *f,
+        )?;
+    }
+    let frozen = (0..4).map(coding_case).collect::<io::Result<Vec<_>>>()?;
+    let manifest: Vec<_> = frozen
+        .iter()
+        .map(|c| (&c.id, &c.context, &c.expected))
+        .collect();
+    let bytes = metron_protocol::canonical_bytes(
+        &(
+            "coding-comparison-corpus/v1",
+            manifest,
+            CODING_COMPARISON_CATALOG,
+        ),
+        metron_protocol::MAX_QUALIFICATION_REPORT,
+    )
+    .map_err(err)?;
+    let corpus_digest = metron_protocol::content_digest(&bytes);
+    let evaluator_digest =
+        metron_protocol::content_digest(b"coding-comparison-typed-action-equality/v1");
+    let mut incomplete_or_incorrect = false;
+    for concurrency in [1, 2, 4] {
+        if concurrency_filter.is_some_and(|n| n != concurrency) {
+            continue;
+        }
+        let mut p = profile(artifact, worker, device.clone(), concurrency)?;
+        p.prompt_recipe_digest =
+            Digest::new(metron_protocol::LOCAL_CODING_V6_RECIPE_SHA).map_err(err)?;
+        if let Some(bytes) = chunk_kv_bytes {
+            p.chunked_prefill = true;
+            p.cache_target_bytes = Some(SqlU64::new(bytes).map_err(err)?);
+        }
+        p.embedded_tokenizer_digest =
+            metron_protocol::gguf_lfm3_corrected_tokenizer_digest(&p.artifact_digest)
+                .map_err(err)?;
+        p.validate().map_err(err)?;
+        let session_id = crate::session_identity::session_id(
+            output,
+            &p,
+            "coding-comparison/v1",
+            &[&bytes, &evaluator_digest.bytes()],
+        )?;
+        let task_id = TaskId::new(format!("coding-compare-{concurrency}")).map_err(err)?;
+        let principal_id = PrincipalId::new("comparison").map_err(err)?;
+        let mut session = ComparisonSession::create_coding(
+            output,
+            session_id.clone(),
+            task_id.clone(),
+            principal_id.clone(),
+            p.clone(),
+            4,
+            CodingComparisonInputs {
+                corpus: corpus_digest.clone(),
+                evaluator: evaluator_digest.clone(),
+                frozen: &frozen,
+            },
+        )?;
+        let events = Arc::new(Mutex::new(Events::default()));
+        let sink = event_sink(&events, device.clone());
+        let mut driver = LocalInferenceDriver::new(
+            worker.to_owned(),
+            artifacts.join(artifact.filename()),
+            p.clone(),
+            Some(sink),
+        )?;
+        let mut report = CodingReport {
+            kind: "coding-comparison/v1",
+            session_id,
+            task_id,
+            principal_id,
+            profile: p,
+            corpus_digest: corpus_digest.clone(),
+            evaluator_digest: evaluator_digest.clone(),
+            catalog: CODING_COMPARISON_CATALOG.to_vec(),
+            concurrency,
+            latency_definition: "Host admission to received native completion; SDK native responses do not stream, so this is not first generated token latency.",
+            records: Vec::new(),
+            missing_case_ids: frozen
+                .iter()
+                .map(|case| case.id.as_str().to_owned())
+                .collect(),
+            peak_gpu_bytes: None,
+            min_gpu_free_bytes: None,
+            measurement_failure: None,
+            semantic_pass: None,
+            complete: false,
+            failure: None,
+        };
+        let path = output.join(format!("coding-comparison-q4-{concurrency}.json"));
+        fs::write(&path, serde_json::to_vec_pretty(&report).map_err(err)?)?;
+        for start in (0..4).step_by(usize::from(concurrency)) {
+            let end = (start + usize::from(concurrency)).min(4);
+            let cases = (start..end)
+                .map(coding_case)
+                .collect::<io::Result<Vec<_>>>()?;
+            let arrival = Instant::now();
+            let permits = session.admit_coding(&cases)?;
+            let ids: Vec<_> = permits
+                .iter()
+                .map(|p| p.request().dispatch_id.clone())
+                .collect();
+            let outcomes = driver.execute_comparison_cohort(permits, Duration::ZERO);
+            if outcomes.len() != cases.len() {
+                report.failure = Some("wrong comparison outcome count".into());
+                break;
+            }
+            let results: Vec<_> = outcomes
+                .iter()
+                .zip(&ids)
+                .map(|(outcome, id)| {
+                    let (observation, rejection) = match outcome {
+                        QualificationOutcome::Observed(o) => (Some((**o).clone()), None),
+                        QualificationOutcome::Rejected(r) => (None, Some(r.clone())),
+                        QualificationOutcome::Uncertain => (None, None),
+                    };
+                    ComparisonResult {
+                        dispatch_id: id.clone(),
+                        observation,
+                        rejection,
+                    }
+                })
+                .collect();
+            let receipts = match session.settle(&results) {
+                Ok(receipts) => receipts,
+                Err(error) => {
+                    report.failure = Some(format!("settlement failed: {error}"));
+                    break;
+                }
+            };
+            let mut state = events.lock().map_err(err)?;
+            if let Some(error) = &state.error {
+                report.failure = Some(error.clone());
+            }
+            for ((case, result), receipt) in cases.into_iter().zip(results).zip(receipts) {
+                let timing = state
+                    .timings
+                    .remove(&result.dispatch_id)
+                    .unwrap_or_default();
+                let verdict = coding_verdict(&case.expected, result.observation.as_ref());
+                let first_visible_ms =
+                    native_visible_ms(result.observation.as_ref(), arrival, timing.completed);
+                report.missing_case_ids.retain(|id| id != case.id.as_str());
+                report.records.push(CodingRecord {
+                    id: case.id.as_str().into(),
+                    dispatch_id: result.dispatch_id,
+                    context_digest: metron_protocol::content_digest(
+                        case.context.as_str().as_bytes(),
+                    ),
+                    expected_action_digest: case.expected.digest().map_err(err)?,
+                    observation: result.observation,
+                    receipt,
+                    rejection: result.rejection.map(|r| r.as_str().to_owned()),
+                    verdict,
+                    first_visible_ms,
+                    tokenized: timing.tokens,
+                });
+            }
+            if let Some(gpu) = state.gpu.as_ref() {
+                if let Err(error) = gpu.sample_now() {
+                    report.measurement_failure = Some(error.to_string());
+                }
+                match gpu.take_window() {
+                    Ok(sample) => {
+                        report.peak_gpu_bytes =
+                            report.peak_gpu_bytes.max(sample.maximum_process_bytes);
+                        report.min_gpu_free_bytes =
+                            match (report.min_gpu_free_bytes, sample.minimum_free_bytes) {
+                                (Some(a), Some(b)) => Some(a.min(b)),
+                                (a, b) => a.or(b),
+                            };
+                        if let Some(error) = sample.failure {
+                            report.measurement_failure = Some(error);
+                        }
+                    }
+                    Err(error) => report.measurement_failure = Some(error.to_string()),
+                }
+            } else {
+                report.measurement_failure = Some("GPU measurement unavailable".into());
+            }
+            drop(state);
+            fs::write(&path, serde_json::to_vec_pretty(&report).map_err(err)?)?;
+            if report.failure.is_some() || report.records.iter().any(|r| r.verdict == "unknown") {
+                break;
+            }
+        }
+        driver.shutdown();
+        report.complete = report.failure.is_none()
+            && report.records.len() == 4
+            && report
+                .records
+                .iter()
+                .all(|r| r.observation.is_some() && r.receipt.is_some());
+        report.semantic_pass = report.complete.then(|| {
+            report
+                .records
+                .iter()
+                .all(|record| record.verdict == "correct")
+        });
+        incomplete_or_incorrect |= report.semantic_pass != Some(true);
+        fs::write(&path, serde_json::to_vec_pretty(&report).map_err(err)?)?;
+    }
+    if incomplete_or_incorrect {
+        return Err(err(
+            "coding comparison incomplete or semantically incorrect; see reports",
+        ));
+    }
+    Ok(())
+}
 fn run_profile(
     worker: &Path,
     artifacts: &Path,
@@ -473,72 +871,7 @@ fn run_profile(
         1024,
     )?;
     let events = Arc::new(Mutex::new(Events::default()));
-    let shared = Arc::clone(&events);
-    let sink: EventSink = Arc::new(move |event| {
-        let Ok(mut state) = shared.lock() else {
-            return;
-        };
-        match event {
-            WorkerEvent::Spawned { pid, control } => {
-                state.spawned = Some(Instant::now());
-                if let LocalDevice::Cuda { uuid, .. } = &device {
-                    match GpuMonitor::start(uuid.as_str(), pid, move || {
-                        let _ = control.terminate();
-                    }) {
-                        Ok(monitor) => state.gpu = Some(monitor),
-                        Err(e) => state.error = Some(e.to_string()),
-                    }
-                }
-            }
-
-            WorkerEvent::Dispatching {
-                dispatch_id,
-                began_at,
-            } => state.timings.entry(dispatch_id).or_default().dispatch_begin = Some(began_at),
-            WorkerEvent::Sent { dispatch_id } => {
-                state.timings.entry(dispatch_id).or_default().sent = Some(Instant::now())
-            }
-            WorkerEvent::Arrived {
-                dispatch_id,
-                in_flight,
-            } => {
-                state
-                    .timings
-                    .entry(dispatch_id)
-                    .or_default()
-                    .arrived_in_flight = Some(in_flight);
-            }
-            WorkerEvent::Loaded { .. } => state.loaded = Some(Instant::now()),
-            WorkerEvent::Started { dispatch_id } => {
-                state.timings.entry(dispatch_id).or_default().started = Some(Instant::now())
-            }
-            WorkerEvent::Tokenized {
-                dispatch_id,
-                token_count,
-                ..
-            } => state.timings.entry(dispatch_id).or_default().tokens = Some(token_count),
-            WorkerEvent::Delta {
-                dispatch_id,
-                text,
-                reasoning,
-                received_at,
-                ..
-            } => {
-                if !reasoning && has_visible_content(text.as_str()) {
-                    let t = state.timings.entry(dispatch_id).or_default();
-                    if t.first_content.is_none() {
-                        t.first_content = Some(received_at);
-                    }
-                }
-            }
-            WorkerEvent::Completed {
-                dispatch_id,
-                received_at,
-                ..
-            } => state.timings.entry(dispatch_id).or_default().completed = Some(received_at),
-            _ => {}
-        }
-    });
+    let sink = event_sink(&events, device);
     let mut driver = LocalInferenceDriver::new(
         worker.to_owned(),
         artifacts.join(artifact.filename()),
@@ -959,5 +1292,75 @@ mod tests {
     fn percentile_uses_nearest_rank_and_handles_empty() {
         assert_eq!(percentile(vec![]), None);
         assert_eq!(percentile((1..=20).collect()), Some(19));
+    }
+    #[test]
+    fn coding_corpus_is_distinct_and_semantics_require_exact_action() {
+        let cases: Vec<_> = (0..4).map(|i| super::coding_case(i).unwrap()).collect();
+        assert_eq!(
+            cases
+                .iter()
+                .map(|c| c.id.as_str())
+                .collect::<std::collections::BTreeSet<_>>()
+                .len(),
+            4
+        );
+        assert!(cases[2].context.as_str().len() > cases[0].context.as_str().len());
+        assert!(cases[3].context.as_str().len() > cases[1].context.as_str().len());
+        let d = content_digest(b"x");
+        let content = String::from_utf8(
+            metron_protocol::canonical_bytes(&cases[0].expected, metron_protocol::MAX_ENVELOPE)
+                .unwrap(),
+        )
+        .unwrap();
+        let mut observation = LocalObservation {
+            schema_version: SchemaVersion::V2,
+            profile_digest: d.clone(),
+            request_digest: d.clone(),
+            input_digest: d,
+            content: BoundedText::new(content).unwrap(),
+            reasoning: None,
+            native_calls: None,
+            prompt_tokens: 1,
+            completion_tokens: 1,
+            submission_cohort: SubmissionCohort {
+                id: BoundedText::new("test").unwrap(),
+                size: 1,
+                position: 0,
+            },
+            backend_batch: BatchProvenance::Unknown,
+            response: Some(LocalResponse::Text),
+        };
+        assert_eq!(
+            super::coding_verdict(&cases[0].expected, Some(&observation)),
+            "correct"
+        );
+        assert_eq!(
+            super::coding_verdict(&cases[2].expected, Some(&observation)),
+            "incorrect"
+        );
+        let now = Instant::now();
+        assert_eq!(
+            super::native_visible_ms(Some(&observation), now, None),
+            None
+        );
+        assert_eq!(
+            super::native_visible_ms(
+                Some(&observation),
+                now,
+                Some(now + Duration::from_millis(7))
+            ),
+            Some(7)
+        );
+        observation.content = BoundedText::new("not an action").unwrap();
+        assert_eq!(
+            super::coding_verdict(&cases[0].expected, Some(&observation)),
+            "malformed"
+        );
+        observation.content = BoundedText::new("").unwrap();
+        assert_eq!(
+            super::native_visible_ms(Some(&observation), now, Some(now)),
+            None
+        );
+        assert_eq!(super::coding_verdict(&cases[0].expected, None), "unknown");
     }
 }

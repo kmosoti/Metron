@@ -1,4 +1,5 @@
 //! One-shot authority for bounded operational model comparisons, without qualification authority.
+use metron_protocol::coding::{CodingAction, CodingTool};
 use metron_protocol::{
     ActualUsage, BoundedText, DecimalUsage, Digest, LOCAL_TEAM_RECIPE_SHA, LocalObservation,
     LocalOutputSchema, LocalProfile, LocalRole, MAX_LOCAL_CONTEXT, MAX_QUALIFICATION_REPORT,
@@ -19,6 +20,18 @@ pub struct ComparisonCase {
     pub output_schema: LocalOutputSchema,
     pub context: BoundedText<MAX_LOCAL_CONTEXT>,
 }
+/// Frozen model-only V6 test input and its expected typed proposal.
+pub struct CodingComparisonCase {
+    pub id: BoundedText<128>,
+    pub context: BoundedText<MAX_LOCAL_CONTEXT>,
+    pub expected: CodingAction,
+}
+pub const CODING_COMPARISON_CATALOG: &[CodingTool] = &[CodingTool::Read, CodingTool::Edit];
+pub struct CodingComparisonInputs<'a> {
+    pub corpus: Digest,
+    pub evaluator: Digest,
+    pub frozen: &'a [CodingComparisonCase],
+}
 pub struct ComparisonRequest {
     pub dispatch_id: Digest,
     pub request_digest: Digest,
@@ -31,6 +44,7 @@ pub struct ComparisonRequest {
     pub context: BoundedText<MAX_LOCAL_CONTEXT>,
     pub profile_digest: Digest,
     pub cohort: SubmissionCohort,
+    pub native_tools: Option<Vec<CodingTool>>,
 }
 /// A one-shot authority, neither clonable nor deserializable.
 ///
@@ -67,6 +81,8 @@ pub struct ComparisonSession {
     issued: u32,
     outstanding: Vec<ComparisonRequest>,
     blocked: bool,
+    coding_binding: Option<(Digest, Digest)>,
+    coding_cases: Vec<(String, Digest, Digest)>,
 }
 fn invalid(message: &'static str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
@@ -129,9 +145,96 @@ impl ComparisonSession {
             issued: 0,
             outstanding: Vec::new(),
             blocked: false,
+            coding_binding: None,
+            coding_cases: Vec::new(),
         })
     }
+    pub fn create_coding(
+        directory: &Path,
+        session_id: Digest,
+        task_id: TaskId,
+        principal_id: PrincipalId,
+        profile: LocalProfile,
+        max_requests: u32,
+        inputs: CodingComparisonInputs<'_>,
+    ) -> io::Result<Self> {
+        let CodingComparisonInputs {
+            corpus,
+            evaluator,
+            frozen,
+        } = inputs;
+        if profile.prompt_recipe_digest.as_str() != metron_protocol::LOCAL_CODING_V6_RECIPE_SHA {
+            return Err(invalid("coding comparison requires V6 recipe"));
+        }
+        metron_protocol::native_xml_coding_grammar(CODING_COMPARISON_CATALOG)
+            .map_err(|_| invalid("invalid coding comparison catalog"))?;
+        if frozen.len() != 4
+            || max_requests != 4
+            || evaluator != content_digest(b"coding-comparison-typed-action-equality/v1")
+        {
+            return Err(invalid("invalid frozen coding evaluator"));
+        }
+        let manifest: Vec<_> = frozen
+            .iter()
+            .map(|c| (&c.id, &c.context, &c.expected))
+            .collect();
+        let encoded = canonical_bytes(
+            &(
+                "coding-comparison-corpus/v1",
+                manifest,
+                CODING_COMPARISON_CATALOG,
+            ),
+            MAX_QUALIFICATION_REPORT,
+        )
+        .map_err(|_| invalid("invalid coding corpus"))?;
+        if content_digest(&encoded) != corpus {
+            return Err(invalid("coding corpus mismatch"));
+        }
+        let mut seen = std::collections::BTreeSet::new();
+        let mut bindings = Vec::with_capacity(frozen.len());
+        for c in frozen {
+            if c.id.as_str().is_empty()
+                || !seen.insert(c.id.as_str())
+                || !CODING_COMPARISON_CATALOG.contains(&c.expected.tool())
+            {
+                return Err(invalid("invalid frozen coding case"));
+            }
+            c.expected
+                .validate()
+                .map_err(|_| invalid("invalid expected action"))?;
+            bindings.push((
+                c.id.as_str().to_owned(),
+                content_digest(c.context.as_str().as_bytes()),
+                c.expected
+                    .digest()
+                    .map_err(|_| invalid("invalid expected action"))?,
+            ));
+        }
+        let mut session = Self::create(
+            directory,
+            session_id,
+            task_id,
+            principal_id,
+            profile,
+            max_requests,
+        )?;
+        record!(
+            &mut session.journal,
+            (
+                "coding-comparison/v1",
+                &corpus,
+                &evaluator,
+                CODING_COMPARISON_CATALOG
+            )
+        )?;
+        session.coding_binding = Some((corpus, evaluator));
+        session.coding_cases = bindings;
+        Ok(session)
+    }
     pub fn admit(&mut self, cases: &[ComparisonCase]) -> io::Result<Vec<ComparisonPermit>> {
+        if self.coding_binding.is_some() {
+            return Err(invalid("coding session requires coding cases"));
+        }
         let count = u32::try_from(cases.len()).map_err(|_| invalid("invalid cohort"))?;
         if self.blocked
             || !self.outstanding.is_empty()
@@ -198,6 +301,7 @@ impl ComparisonSession {
                 output_schema: case.output_schema,
                 context: case.context.clone(),
                 profile_digest: self.profile_digest.clone(),
+                native_tools: None,
                 cohort: SubmissionCohort {
                     id: BoundedText::new("pending").map_err(|_| invalid("invalid cohort"))?,
                     size: count as u16,
@@ -245,6 +349,143 @@ impl ComparisonSession {
         }
         self.issued += count;
         // Requests in the session are independent copies; the permits themselves remain non-clonable.
+        let permits = requests
+            .iter()
+            .map(|r| ComparisonPermit {
+                request: copy_request(r),
+            })
+            .collect();
+        self.outstanding = requests;
+        Ok(permits)
+    }
+    pub fn admit_coding(
+        &mut self,
+        cases: &[CodingComparisonCase],
+    ) -> io::Result<Vec<ComparisonPermit>> {
+        let (corpus, evaluator) = self
+            .coding_binding
+            .as_ref()
+            .ok_or_else(|| invalid("legacy session cannot admit coding cases"))?;
+        let count = u32::try_from(cases.len()).map_err(|_| invalid("invalid cohort"))?;
+        if self.blocked
+            || !self.outstanding.is_empty()
+            || count == 0
+            || count > u32::from(self.profile.max_sequences)
+            || self
+                .issued
+                .checked_add(count)
+                .is_none_or(|n| n > self.max_requests)
+        {
+            return Err(invalid("comparison session unavailable"));
+        }
+        let mut requests = Vec::with_capacity(cases.len());
+        let catalog = canonical_bytes(&CODING_COMPARISON_CATALOG, 1024)
+            .map_err(|_| invalid("invalid catalog"))?;
+        for (position, case) in cases.iter().enumerate() {
+            if case.id.as_str().is_empty()
+                || !CODING_COMPARISON_CATALOG.contains(&case.expected.tool())
+            {
+                return Err(invalid("invalid coding comparison case"));
+            }
+            case.expected
+                .validate()
+                .map_err(|_| invalid("invalid expected coding action"))?;
+            let ordinal = (self.issued + position as u32).to_be_bytes();
+            let input_digest = content_digest(case.context.as_str().as_bytes());
+            let expected = case
+                .expected
+                .digest()
+                .map_err(|_| invalid("invalid expected action"))?;
+            if self.coding_cases.get(self.issued as usize + position)
+                != Some(&(
+                    case.id.as_str().to_owned(),
+                    input_digest.clone(),
+                    expected.clone(),
+                ))
+            {
+                return Err(invalid("coding case does not match frozen order"));
+            }
+            let request_digest = digest(
+                "coding-comparison-request/v1",
+                &[
+                    &self.session_id.bytes(),
+                    &ordinal,
+                    case.id.as_str().as_bytes(),
+                    &self.profile_digest.bytes(),
+                    &input_digest.bytes(),
+                    &expected.bytes(),
+                    &corpus.bytes(),
+                    &evaluator.bytes(),
+                    &catalog,
+                ],
+            )?;
+            let dispatch_id = digest(
+                "coding-comparison-dispatch/v1",
+                &[&self.session_id.bytes(), &ordinal, &request_digest.bytes()],
+            )?;
+            let action_digest = digest(
+                "coding-comparison-action/v1",
+                &[
+                    &dispatch_id.bytes(),
+                    &request_digest.bytes(),
+                    self.task_id.as_str().as_bytes(),
+                    self.principal_id.as_str().as_bytes(),
+                ],
+            )?;
+            requests.push(ComparisonRequest {
+                dispatch_id,
+                request_digest,
+                task_id: self.task_id.clone(),
+                principal_id: self.principal_id.clone(),
+                action_digest,
+                input_digest,
+                role: LocalRole::Reasoner,
+                output_schema: LocalOutputSchema::Text,
+                context: case.context.clone(),
+                profile_digest: self.profile_digest.clone(),
+                native_tools: Some(CODING_COMPARISON_CATALOG.to_vec()),
+                cohort: SubmissionCohort {
+                    id: BoundedText::new("pending").map_err(|_| invalid("invalid cohort"))?,
+                    size: count as u16,
+                    position: position as u16,
+                },
+            });
+        }
+        let cohort = digest(
+            "coding-comparison-cohort/v1",
+            &[
+                &self.session_id.bytes(),
+                &self.issued.to_be_bytes(),
+                &count.to_be_bytes(),
+                &corpus.bytes(),
+                &evaluator.bytes(),
+            ],
+        )?;
+        for request in &mut requests {
+            request.cohort.id =
+                BoundedText::new(cohort.as_str()).map_err(|_| invalid("invalid cohort"))?;
+        }
+        let evidence: Vec<_> = requests
+            .iter()
+            .zip(cases)
+            .map(|(r, c)| {
+                (
+                    &r.dispatch_id,
+                    &r.request_digest,
+                    &r.action_digest,
+                    &r.input_digest,
+                    &r.context,
+                    &r.cohort,
+                    &r.native_tools,
+                    &c.expected,
+                )
+            })
+            .collect();
+        if let Err(error) = record!(&mut self.journal, ("coding-admitted/v1", evidence)) {
+            self.blocked = true;
+            return Err(error);
+        }
+        self.issued += count;
         let permits = requests
             .iter()
             .map(|r| ComparisonPermit {
@@ -356,6 +597,7 @@ fn copy_request(r: &ComparisonRequest) -> ComparisonRequest {
         context: r.context.clone(),
         profile_digest: r.profile_digest.clone(),
         cohort: r.cohort.clone(),
+        native_tools: r.native_tools.clone(),
     }
 }
 
@@ -591,6 +833,171 @@ mod tests {
         };
         assert!(session.settle(&[result]).is_err());
         assert!(session.admit(&[case()]).is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn coding_permits_bind_frozen_catalog_order_and_uncertainty() {
+        use metron_protocol::coding::WorkspacePath;
+        let dir =
+            std::env::temp_dir().join(format!("coding-comparison-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir(&dir).unwrap();
+        let frozen: Vec<_> = (0..4)
+            .map(|n| CodingComparisonCase {
+                id: BoundedText::new(format!("case-{n}")).unwrap(),
+                context: BoundedText::new(format!("read file {n}")).unwrap(),
+                expected: CodingAction::Read {
+                    path: WorkspacePath::new(format!("file-{n}.txt")).unwrap(),
+                    first_line: 1,
+                    line_count: 2,
+                },
+            })
+            .collect();
+        let manifest: Vec<_> = frozen
+            .iter()
+            .map(|c| (&c.id, &c.context, &c.expected))
+            .collect();
+        let bytes = canonical_bytes(
+            &(
+                "coding-comparison-corpus/v1",
+                manifest,
+                CODING_COMPARISON_CATALOG,
+            ),
+            MAX_QUALIFICATION_REPORT,
+        )
+        .unwrap();
+        let corpus = content_digest(&bytes);
+        let evaluator = content_digest(b"coding-comparison-typed-action-equality/v1");
+        let mut profile = local_profile();
+        profile.prompt_recipe_digest =
+            Digest::new(metron_protocol::LOCAL_CODING_V6_RECIPE_SHA).unwrap();
+        profile.embedded_tokenizer_digest =
+            metron_protocol::gguf_lfm3_corrected_tokenizer_digest(&profile.artifact_digest)
+                .unwrap();
+        profile.max_sequences = 2;
+        let make = |id: &[u8], p: LocalProfile, c: Digest, e: Digest| {
+            ComparisonSession::create_coding(
+                &dir,
+                content_digest(id),
+                TaskId::new("task").unwrap(),
+                PrincipalId::new("principal").unwrap(),
+                p,
+                4,
+                CodingComparisonInputs {
+                    corpus: c,
+                    evaluator: e,
+                    frozen: &frozen,
+                },
+            )
+        };
+        let mut wrong = profile.clone();
+        wrong.prompt_recipe_digest = content_digest(b"wrong recipe");
+        assert!(make(b"wrong", wrong, corpus.clone(), evaluator.clone()).is_err());
+        assert!(
+            make(
+                b"wrong-corpus",
+                profile.clone(),
+                content_digest(b"wrong"),
+                evaluator.clone()
+            )
+            .is_err()
+        );
+        assert!(
+            make(
+                b"wrong-eval",
+                profile.clone(),
+                corpus.clone(),
+                content_digest(b"wrong")
+            )
+            .is_err()
+        );
+        let altered_manifest: Vec<_> = frozen
+            .iter()
+            .map(|c| (&c.id, &c.context, &c.expected))
+            .collect();
+        let altered_catalog = [CodingTool::Read];
+        let altered = canonical_bytes(
+            &(
+                "coding-comparison-corpus/v1",
+                altered_manifest,
+                altered_catalog,
+            ),
+            MAX_QUALIFICATION_REPORT,
+        )
+        .unwrap();
+        assert!(
+            make(
+                b"wrong-catalog",
+                profile.clone(),
+                content_digest(&altered),
+                evaluator.clone()
+            )
+            .is_err()
+        );
+        let mut reordered = make(
+            b"reordered",
+            profile.clone(),
+            corpus.clone(),
+            evaluator.clone(),
+        )
+        .unwrap();
+        let permits = reordered.admit_coding(&frozen[..2]).unwrap();
+        let results: Vec<_> = permits
+            .iter()
+            .rev()
+            .map(|p| ComparisonResult {
+                dispatch_id: p.request().dispatch_id.clone(),
+                observation: None,
+                rejection: Some(BoundedText::new("rejected").unwrap()),
+            })
+            .collect();
+        assert!(reordered.settle(&results).is_err());
+        assert!(reordered.admit_coding(&frozen[2..]).is_err());
+        let mut session = make(b"good", profile, corpus, evaluator).unwrap();
+        assert!(session.admit_coding(&frozen[1..2]).is_err());
+        let mut changed = CodingComparisonCase {
+            id: frozen[0].id.clone(),
+            context: BoundedText::new("changed").unwrap(),
+            expected: frozen[0].expected.clone(),
+        };
+        assert!(
+            session
+                .admit_coding(std::slice::from_ref(&changed))
+                .is_err()
+        );
+        changed.context = frozen[0].context.clone();
+        changed.expected = frozen[1].expected.clone();
+        assert!(
+            session
+                .admit_coding(std::slice::from_ref(&changed))
+                .is_err()
+        );
+        let permits = session.admit_coding(&frozen[..2]).unwrap();
+        assert_eq!(
+            permits[0].request().native_tools.as_deref(),
+            Some(CODING_COMPARISON_CATALOG)
+        );
+        assert_ne!(
+            permits[0].request().dispatch_id,
+            permits[1].request().dispatch_id
+        );
+        assert!(session.admit_coding(&frozen[2..]).is_err());
+        let results: Vec<_> = permits
+            .iter()
+            .map(|p| ComparisonResult {
+                dispatch_id: p.request().dispatch_id.clone(),
+                observation: None,
+                rejection: None,
+            })
+            .collect();
+        assert!(
+            session
+                .settle(&results)
+                .unwrap()
+                .iter()
+                .all(Option::is_none)
+        );
+        assert!(session.admit_coding(&frozen[2..]).is_err());
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

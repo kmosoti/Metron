@@ -102,7 +102,11 @@ fn write_new(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     result
 }
 pub fn execute(args: &[String]) -> ExitCode {
-    if args.first().is_some_and(|arg| arg == "compare") {
+    if args
+        .first()
+        .is_some_and(|arg| arg == "compare" || arg == "compare-coding-v6")
+    {
+        let coding = args[0] == "compare-coding-v6";
         let args = &args[1..];
         let mut opts = std::collections::BTreeMap::new();
         let (pairs, remainder) = args.as_chunks::<2>();
@@ -114,6 +118,7 @@ pub fn execute(args: &[String]) -> ExitCode {
                     "--output",
                     "--quant",
                     "--concurrency",
+                    "--chunk-kv-bytes",
                 ]
                 .contains(&p[0].as_str())
                     || p[1].starts_with("--")
@@ -141,13 +146,47 @@ pub fn execute(args: &[String]) -> ExitCode {
                 }
             },
         };
-        return match crate::comparison_runner::run(
-            Path::new(worker),
-            Path::new(artifacts),
-            Path::new(output),
-            opts.get("--quant").map_or("all", String::as_str),
-            concurrency,
-        ) {
+        let result = if coding {
+            if opts.get("--quant").is_some_and(|q| q != "q4") || concurrency == Some(8) {
+                eprintln!("coding comparison supports q4 and concurrency 1, 2 or 4");
+                return ExitCode::FAILURE;
+            }
+            let chunk_kv_bytes = match opts.get("--chunk-kv-bytes") {
+                Some(value) => match value.parse::<u64>() {
+                    Ok(n)
+                        if (1..=metron_inference_local::chunk_prefill::MAX_KV_TARGET_BYTES)
+                            .contains(&n) =>
+                    {
+                        Some(n)
+                    }
+                    _ => {
+                        eprintln!("invalid chunked KV planning target");
+                        return ExitCode::FAILURE;
+                    }
+                },
+                None => None,
+            };
+            crate::comparison_runner::run_coding(
+                Path::new(worker),
+                Path::new(artifacts),
+                Path::new(output),
+                concurrency,
+                chunk_kv_bytes,
+            )
+        } else {
+            if opts.contains_key("--chunk-kv-bytes") {
+                eprintln!("chunked KV target requires coding comparison");
+                return ExitCode::FAILURE;
+            }
+            crate::comparison_runner::run(
+                Path::new(worker),
+                Path::new(artifacts),
+                Path::new(output),
+                opts.get("--quant").map_or("all", String::as_str),
+                concurrency,
+            )
+        };
+        return match result {
             Ok(()) => ExitCode::SUCCESS,
             Err(error) => {
                 eprintln!("model comparison failed: {error}");

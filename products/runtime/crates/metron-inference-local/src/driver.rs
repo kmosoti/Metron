@@ -464,9 +464,9 @@ impl LocalInferenceDriver {
                     output_schema: request.output_schema,
                     context: request.context.clone(),
                     profile_digest: request.profile_digest.clone(),
-                    native_tools: None,
+                    native_tools: request.native_tools.clone(),
                     cohort: Some(request.cohort.clone()),
-                    require_stream: true,
+                    require_stream: request.native_tools.is_none(),
                 }
             })
             .collect();
