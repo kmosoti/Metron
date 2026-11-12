@@ -188,3 +188,12 @@ the same accepted-work and latency targets at lower cost.
 At the pinned source revision, LFM3's [forward path](https://github.com/EricLBuehler/mistral.rs/blob/fb4cdc3730dc64b366724e7637a205a8b7747499/mistralrs-core/src/models/lfm3.rs#L1177-L1311) uses sequence-indexed recurrent slots alongside attention state. The lower-level [scheduler configuration](https://github.com/EricLBuehler/mistral.rs/blob/fb4cdc3730dc64b366724e7637a205a8b7747499/mistralrs-core/src/scheduler/mod.rs#L56-L65) exposes a prefill-chunk limit; the [prefix manager](https://github.com/EricLBuehler/mistral.rs/blob/fb4cdc3730dc64b366724e7637a205a8b7747499/mistralrs-core/src/prefix_cacher.rs#L520-L535) can associate recurrent checkpoints with block-hash keys. Those keys do not themselves encode a Metron principal or task. Metron's worker binds requests to a task and principal, but currently rejects chunked prefill and scoped prefix caching and disables prefix caching. That binding alone is not evidence that SDK cache reuse is scope-isolated.
 
 Qualification records can report dispatch-began to the first received nonempty non-reasoning output frame, with the number of scored cases for which it was observed. This is a host visibility boundary: transport or SDK buffering can delay it, and an absent frame is unknown. It is not first generated token latency. The existing completion latency starts at the host Sent callback; if that callback is absent or follows frame receipt, the completion latency is unknown rather than zero. Fixed-model batching, chunking, cache isolation, hybrid-state equivalence and resource behavior still require the controlled qualification described above; this observation does not complete that work.
+
+The opt-in `paged-chunk-prefill-v1` worker experiment requires CUDA, disabled
+prefix reuse and a nonzero KV planning target of at most 256 MiB. It retains
+the realized paged cache configuration and limits prefill chunks to at most
+256 tokens and scheduler batches to at most 512 tokens; smaller realized limits
+remain smaller. The target is a KV planning input, not a hard VRAM or process
+memory cap. A missing paged scheduler is rejected. This plumbing is
+unqualified: actual chunk execution, model equivalence, resource use and
+cancellation with concurrent requests still require fixed-model tests.

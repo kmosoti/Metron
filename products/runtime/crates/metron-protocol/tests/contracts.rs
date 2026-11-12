@@ -582,6 +582,41 @@ fn local_profile() -> LocalProfile {
     }
 }
 #[test]
+fn chunked_prefill_is_explicit_cuda_bounded_and_identity_stable() {
+    let baseline = local_profile();
+    let encoded = canonical_bytes(&baseline, MAX_ENVELOPE).unwrap();
+    let old_digest = baseline.digest().unwrap();
+    assert_eq!(
+        old_digest.as_str(),
+        "2761d57441d634ef82de93752c959020765a0573a52a7668c74f4e0a99862942"
+    );
+    let decoded: LocalProfile = serde_json::from_slice(&encoded).unwrap();
+    assert_eq!(canonical_bytes(&decoded, MAX_ENVELOPE).unwrap(), encoded);
+    assert_eq!(decoded.digest().unwrap(), old_digest);
+    let mut trial = baseline.clone();
+    trial.chunked_prefill = true;
+    assert!(trial.validate().is_err());
+    trial.device = LocalDevice::Cuda {
+        uuid: BoundedText::new("GPU-test").unwrap(),
+        model: BoundedText::new("test").unwrap(),
+        memory_bytes: SqlU64::new(1024 * 1024 * 1024).unwrap(),
+        driver: BoundedText::new("test").unwrap(),
+    };
+    assert!(trial.validate().is_err());
+    trial.cache_target_bytes = Some(SqlU64::new(0).unwrap());
+    assert!(trial.validate().is_err());
+    trial.cache_target_bytes = Some(SqlU64::new(CHUNKED_PREFILL_MAX_KV_BYTES + 1).unwrap());
+    assert!(trial.validate().is_err());
+    trial.cache_target_bytes = Some(SqlU64::new(CHUNKED_PREFILL_MAX_KV_BYTES).unwrap());
+    assert!(trial.validate().is_ok());
+    assert_ne!(trial.digest().unwrap(), old_digest);
+    trial.scoped_prefix_cache = true;
+    assert!(trial.validate().is_err());
+    trial.scoped_prefix_cache = false;
+    trial.strict_memory_cap_bytes = Some(SqlU64::new(1).unwrap());
+    assert!(trial.validate().is_err());
+}
+#[test]
 fn local_profiles_and_outputs_are_bound_and_closed() {
     let profile = local_profile();
     assert!(profile.validate().is_ok());

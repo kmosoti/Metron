@@ -302,3 +302,27 @@ fn different_profile_is_rejected_before_worker_start() {
     drop(session);
     fs::remove_dir_all(path).unwrap();
 }
+
+#[test]
+fn chunk_prefill_configuration_is_opt_in_and_bounded() {
+    use metron_inference_local::chunk_prefill::kv_target;
+    use metron_protocol::CHUNKED_PREFILL_MAX_KV_BYTES;
+    let mut p = profile(&std::env::current_exe().unwrap(), 2);
+    assert_eq!(kv_target(&p), Ok(None));
+    p.cache_target_bytes = Some(SqlU64::new(1).unwrap());
+    assert!(kv_target(&p).is_err());
+    p.chunked_prefill = true;
+    assert!(kv_target(&p).is_err());
+    p.device = LocalDevice::Cuda {
+        uuid: BoundedText::new("GPU-test").unwrap(),
+        model: BoundedText::new("test").unwrap(),
+        memory_bytes: SqlU64::new(1024 * 1024 * 1024).unwrap(),
+        driver: BoundedText::new("test").unwrap(),
+    };
+    assert_eq!(kv_target(&p), Ok(Some(1)));
+    p.cache_target_bytes = Some(SqlU64::new(CHUNKED_PREFILL_MAX_KV_BYTES + 1).unwrap());
+    assert!(kv_target(&p).is_err());
+    p.cache_target_bytes = Some(SqlU64::new(256).unwrap());
+    p.scoped_prefix_cache = true;
+    assert!(kv_target(&p).is_err());
+}
