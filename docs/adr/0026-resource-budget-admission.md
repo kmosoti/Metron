@@ -41,10 +41,16 @@ see [R-0012](../../knowledge/research/R-0012-context-and-resource-budget-admissi
    physical budget document.
 3. Before reading policy contents or changing persistent run settings,
    canonicalize the existing mutable workspace and supplied budget path. Fail
-   closed if the workspace is missing/not a directory or the policy path
-   resolves inside the model-writable workspace. Read the policy from its
-   resolved canonical external path. This keeps operator-supplied budget
-   policy outside files that the coding model may modify.
+   closed if the workspace is missing/not a directory, if the supplied
+   absolute policy path differs from its canonical form, or if the canonical
+   policy path is inside the model-writable workspace. This rejects symlink
+   aliases in any path component and noncanonical spellings such as `..`,
+   including aliases whose target is external. Ordinary relative paths are
+   accepted when their absolute form is canonical. Read the policy from the
+   canonical external path once per invocation; an operator may update the
+   external regular file between invocations. This prevents workspace files
+   from selecting operator policy on resume. It does not provide a general
+   filesystem sandbox or replace the existing workspace sandbox and grants.
 4. Admit by atomically reserving the full resident-worker envelope across
    drivers sharing a coordinator in one host process. Validate each cohort's
    policy identity, task/principal/profile scope, sequence and token capacity

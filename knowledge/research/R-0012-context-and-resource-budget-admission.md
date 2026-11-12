@@ -90,7 +90,12 @@ the current profile.
 * Coordinator scope is one host process. External budget documents do not
   become durable task or journal identity. Reapply policy on resume. Legacy
   unbudgeted execution retains compatibility but carries no resource-fit
-  guarantee. Strict allocator/process memory caps remain unsupported.
+  guarantee. Require the supplied policy path itself to be canonical and
+  symlink-free outside the workspace, so a workspace-controlled alias cannot
+  select a different external policy on a later resume. The host resolves and
+  reads the path once per invocation; an operator may update the external
+  regular file between invocations. This path rule does not create a general
+  filesystem sandbox. Strict allocator/process memory caps remain unsupported.
 * Select context size and concurrency using frozen, representative coding tasks
   and matched total resource limits. Compare one executor, four bounded
   executors, and phased versus simultaneous planning. Report accepted artifact

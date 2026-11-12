@@ -79,13 +79,18 @@ dispatch, but the persisted run may already require the budget file on the next
 resume. Existing incomplete remnants from an interrupted update do not override
 the current validated settings or block a retry.
 
-The budget file must resolve to a canonical path outside the model-writable
-workspace. The workspace must already exist and resolve to a directory.
-Symlink aliases are resolved before policy contents are read; a file that
-resolves inside the workspace is rejected. The host reads the resolved
-canonical external path. This preserves the distinction between operator
-policy and files the coding model can modify; it does not replace the existing
-workspace sandbox and grants.
+The budget file must be an existing regular file named by a canonical,
+symlink-free path outside the model-writable workspace. The workspace must
+already exist and resolve to a directory. The host compares the supplied
+absolute path with its canonical form before reading policy contents, and
+rejects aliases such as `..` path spellings or symlinks in any path component,
+even when the final target is outside the workspace. Ordinary relative paths
+are accepted when their absolute form is canonical. This prevents workspace
+files from selecting operator policy again on resume; it does not provide a
+general filesystem sandbox or replace the existing workspace sandbox and
+grants. The host resolves and reads the path once per process invocation, so an
+operator may update the external regular policy file between invocations and
+the new contents are revalidated on resume.
 
 Schema version 1 has these fields (unknown fields are rejected):
 
