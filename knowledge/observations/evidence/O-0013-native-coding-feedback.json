@@ -178,5 +178,205 @@
       "final_source_sha256": "6fa4b5166fd15cbf1ea7ed05aefcf36d8410f44a7ffaedc3e587124667ab2893"
     }
   ],
-  "acceptance": "No task reached artifact freeze or independent evaluator; no accepted application"
+  "acceptance": "No task reached artifact freeze or independent evaluator; no accepted application",
+  "additional_cases": [
+    {
+      "case": "native-calculator-v8-agent-01",
+      "source_commit": "6ebfa346bb5845c01c41592f0ca641973bd1cb8d",
+      "worker_sha256": "7d29a4f183cf1143057e0b118053ad26b718741960b23b384d7da0084c6e6237",
+      "mode": "agent",
+      "recipe_digest": "22a07d679e478bf52e4c997f2ba4aff849c510fcaa8c5fea93976fb50386d27d",
+      "elapsed_seconds": 494.3347102450207,
+      "result": {
+        "outcome": "rejected",
+        "phase": "rejected",
+        "accounting": {
+          "limit": {
+            "model_requests": 12,
+            "tool_calls": 24,
+            "spend_micros_usd": 0
+          },
+          "posted": {
+            "model_requests": 8,
+            "tool_calls": 4,
+            "spend_micros_usd": 0
+          },
+          "reserved": {
+            "model_requests": 0,
+            "tool_calls": 0,
+            "spend_micros_usd": 0
+          },
+          "breached": false,
+          "incomplete": false,
+          "integrity_hold": false
+        },
+        "audit": {
+          "chain_valid": true,
+          "accounting_valid": true,
+          "projection_valid": true
+        },
+        "behavior_replay": true,
+        "replay_head": "5ff37ed3c3cb44dab7d7f80bb65c8dea33087ca86dca65fc516f6f9df52b2ac2",
+        "artifact_valid": null,
+        "acceptance_report_valid": null
+      },
+      "source_record_sha256": {
+        "preregistered.json": "e8497b6b975b9203e657aa8cc086cca0ed61c0ac144b2be5cc7ef3cc08608cbc",
+        "stdout.jsonl": "836051573d761972b13e99ab1f1d7eec7147dd983ad404b40970cc50dd1a7825",
+        "result.json": "f4fd0ff24b7dd1e75da19f6ee4dcce45846b9d7800218e4856b33b0aa39dde8f"
+      },
+      "independent_audit_sha256": "55492dd537d47344ba5e8e10f9d68e8773747b67757b1117228a3e90c6ea1d11"
+    },
+    {
+      "case": "native-repair-v8-agent-02",
+      "source_commit": "6ebfa346bb5845c01c41592f0ca641973bd1cb8d",
+      "worker_sha256": "7d29a4f183cf1143057e0b118053ad26b718741960b23b384d7da0084c6e6237",
+      "mode": "agent",
+      "recipe_digest": "22a07d679e478bf52e4c997f2ba4aff849c510fcaa8c5fea93976fb50386d27d",
+      "public_objective_clarified": true,
+      "original_fixture_unchanged": true,
+      "elapsed_seconds": 578.2097110779723,
+      "result": {
+        "outcome": "blocked",
+        "phase": "waiting_model",
+        "accounting": {
+          "limit": {
+            "model_requests": 12,
+            "tool_calls": 24,
+            "spend_micros_usd": 0
+          },
+          "posted": {
+            "model_requests": 4,
+            "tool_calls": 1,
+            "spend_micros_usd": 0
+          },
+          "reserved": {
+            "model_requests": 1,
+            "tool_calls": 0,
+            "spend_micros_usd": 0
+          },
+          "breached": false,
+          "incomplete": false,
+          "integrity_hold": false
+        },
+        "audit": {
+          "chain_valid": true,
+          "accounting_valid": true,
+          "projection_valid": true
+        },
+        "behavior_replay": true,
+        "replay_head": "300d770af4cf4fe0e020aca0b6d8c2adeedeb7946bd68a1887d75fa6bde3369d",
+        "artifact_valid": null,
+        "acceptance_report_valid": null
+      },
+      "final_request": {
+        "tokenized_input_tokens": 1400,
+        "configured_deadline_ms": 300000,
+        "started_worker_elapsed_ms": 272278,
+        "exited_worker_elapsed_ms": 572415,
+        "completed_observation": false
+      },
+      "source_record_sha256": {
+        "preregistered.json": "692c2a5b4762f9ec5972fdedaa2bbaaebd3b7bf18b88b2f88995546547d47e1d",
+        "stdout.jsonl": "6ac6847a8764a0323aad1cdccc0f18cf47ac7f397234b6becb6745bfcc856546",
+        "result.json": "9458f8aa27f92524df0861e8646bb5c0f747cb810ba9902e7a3e7a01609e0f0e",
+        "run/worker-events-revision-0.jsonl": "6f2a94f7c555c3805de1f229a58cf68da91e41942d24e0d4d009648f691fb6d5"
+      },
+      "final_source_sha256": "3855474da8f13007366defab5f1d44b85c2a00ac415bb216e8e3c6657342056a"
+    }
+  ],
+  "model_only_diagnostics": [
+    {
+      "case": "native-thinking-paired-probe-01",
+      "sdk_commit": "fb4cdc3730dc64b366724e7637a205a8b7747499",
+      "model": "LiquidAI/LFM3-1.7B-GGUF",
+      "quantization": "Q4_K_M",
+      "device": "CUDA RTX3060Laptop",
+      "constraint": "none initially; SDK automatic tool choice",
+      "prefix_cache": false,
+      "context_output_caps": [
+        4096,
+        1024
+      ],
+      "fixed_order": [
+        "off",
+        "on"
+      ],
+      "rng_seed_controlled": false,
+      "warmup": false,
+      "actual_device_line": "actual_device=Cuda(CudaDevice(DeviceId(1)))",
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 836.4608749259496,
+      "arms": {
+        "off": {
+          "thinking": false,
+          "input_tokens": 1419,
+          "token_ids_be_sha256": "a81f2f7b96656136ff9f808dcaa4245ea87c1c7fe1d41dbb5679b81cbee5eb4d",
+          "rendered_sha256": "e558254e47bb5669693cf9e1b63e6af9771aa57998de438bc970051904fd06f3",
+          "response_sha256": "6d96ba01ac73779cdded17826b82daea1bf413e2779ffb647912b18a3e8aa6fc",
+          "choice_count": 1,
+          "token_count_matches_usage": true,
+          "usage": {
+            "completion_tokens": 308,
+            "prompt_tokens": 1419,
+            "total_tokens": 1727,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0
+            },
+            "avg_tok_per_sec": 9.16336,
+            "avg_prompt_tok_per_sec": 28.704939,
+            "avg_compl_tok_per_sec": 2.2152855,
+            "total_time_sec": 188.468,
+            "total_prompt_time_sec": 49.434,
+            "total_completion_time_sec": 139.034
+          },
+          "tool_call_count": 1,
+          "has_content": false,
+          "reasoning_characters": 0,
+          "finish_reasons": [
+            "tool_calls"
+          ]
+        },
+        "on": {
+          "thinking": true,
+          "input_tokens": 1418,
+          "token_ids_be_sha256": "afff4918a3726ad7cd43adbed3e99758570c30e58ff700b694570399ddf8259e",
+          "rendered_sha256": "2730c5b6bb1fa77864ddd2c033568bd3b5358d9e88ecf2ee13b1b24e738c3ad1",
+          "response_sha256": "1d6f5f4be97310321f706d9e9066afad364f2ee0f0a8a2bc15b8bef5ef4cf4f1",
+          "choice_count": 1,
+          "token_count_matches_usage": true,
+          "usage": {
+            "completion_tokens": 1024,
+            "prompt_tokens": 1418,
+            "total_tokens": 2442,
+            "completion_tokens_details": {
+              "reasoning_tokens": 1024
+            },
+            "avg_tok_per_sec": 3.786857,
+            "avg_prompt_tok_per_sec": 23.229908,
+            "avg_compl_tok_per_sec": 1.7539653,
+            "total_time_sec": 644.862,
+            "total_prompt_time_sec": 61.042,
+            "total_completion_time_sec": 583.82
+          },
+          "tool_call_count": 0,
+          "has_content": false,
+          "reasoning_characters": 4155,
+          "finish_reasons": [
+            "length"
+          ]
+        }
+      },
+      "tools_executed": 0,
+      "independent_acceptance": false,
+      "source_record_sha256": {
+        "probe.rs": "34d4f5f672e9a188ac1dd8f792417d34227c722e5c3f13848a31e44dd4484388",
+        "build.py": "58bfe2dc0a1094258987231712028e6b9cfce26c33ad312d33213d3e68f5725d",
+        "run.py": "3a906e120f3d47bfd8adfa1c0a09d54341d9ef609851f9c2fc1b20cc1b56fd13",
+        "run-metadata.json": "8210b80dcd3ea60f96644d942f9ebe33204c040fa6cade3d53a5df1f77f9fdef",
+        "result.json": "f5bdbc136494ed920bb6d79dce5e77059d7bc0192948b7a040709bfec01fe617"
+      }
+    }
+  ]
 }

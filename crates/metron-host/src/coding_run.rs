@@ -946,6 +946,24 @@ fn annotate_memory(args: &[String]) -> Result<serde_json::Value, String> {
     Ok(serde_json::json!({"outcome":"succeeded","dispatch":input.dispatch}))
 }
 
+fn context_version_for_recipe(recipe: Option<&str>) -> u8 {
+    match recipe {
+        Some(
+            metron_protocol::LOCAL_CODING_V8_RECIPE_SHA
+            | metron_protocol::LOCAL_CODING_V9_RECIPE_SHA,
+        ) => 11,
+        Some(metron_protocol::LOCAL_CODING_V7_RECIPE_SHA) => 10,
+        Some(
+            metron_protocol::LOCAL_CODING_V4_RECIPE_SHA
+            | metron_protocol::LOCAL_CODING_V5_RECIPE_SHA
+            | metron_protocol::LOCAL_CODING_V6_RECIPE_SHA,
+        )
+        | None => 9,
+        Some(metron_protocol::LOCAL_CODING_V3_RECIPE_SHA) => 6,
+        Some(_) => 4,
+    }
+}
+
 fn run(args: &[String]) -> Result<serde_json::Value, String> {
     let action = args.first().map(String::as_str).unwrap_or("");
     if action == "memory-annotate" {
@@ -995,18 +1013,8 @@ fn run(args: &[String]) -> Result<serde_json::Value, String> {
         let profile: Option<LocalProfile> = flag(args, "--profile")
             .map(|p| read(Path::new(&p)))
             .transpose()?;
-        let context_version = match profile.as_ref().map(|p| p.prompt_recipe_digest.as_str()) {
-            Some(metron_protocol::LOCAL_CODING_V8_RECIPE_SHA) => 11,
-            Some(metron_protocol::LOCAL_CODING_V7_RECIPE_SHA) => 10,
-            Some(
-                metron_protocol::LOCAL_CODING_V4_RECIPE_SHA
-                | metron_protocol::LOCAL_CODING_V5_RECIPE_SHA
-                | metron_protocol::LOCAL_CODING_V6_RECIPE_SHA,
-            )
-            | None => 9,
-            Some(metron_protocol::LOCAL_CODING_V3_RECIPE_SHA) => 6,
-            Some(_) => 4,
-        };
+        let context_version =
+            context_version_for_recipe(profile.as_ref().map(|p| p.prompt_recipe_digest.as_str()));
         Settings {
             context_version,
             task: read(Path::new(&required(args, "--task")?))?,
@@ -1354,6 +1362,259 @@ mod tests {
             )
             .unwrap()
         );
+    }
+    #[test]
+    fn recipe_routes_preserve_legacy_context_versions() {
+        assert_eq!(
+            context_version_for_recipe(Some(LOCAL_CODING_V9_RECIPE_SHA)),
+            11
+        );
+        assert_eq!(
+            context_version_for_recipe(Some(LOCAL_CODING_V8_RECIPE_SHA)),
+            11
+        );
+        assert_eq!(
+            context_version_for_recipe(Some(LOCAL_CODING_V7_RECIPE_SHA)),
+            10
+        );
+        for recipe in [
+            LOCAL_CODING_V4_RECIPE_SHA,
+            LOCAL_CODING_V5_RECIPE_SHA,
+            LOCAL_CODING_V6_RECIPE_SHA,
+        ] {
+            assert_eq!(context_version_for_recipe(Some(recipe)), 9);
+        }
+        assert_eq!(context_version_for_recipe(None), 9);
+        assert_eq!(
+            context_version_for_recipe(Some(LOCAL_CODING_V3_RECIPE_SHA)),
+            6
+        );
+        assert_eq!(
+            context_version_for_recipe(Some(LOCAL_CODING_V2_RECIPE_SHA)),
+            4
+        );
+        assert_eq!(context_version_for_recipe(Some(LOCAL_CODING_RECIPE_SHA)), 4);
+    }
+
+    #[test]
+    fn native_v9_root_aliases_are_admitted_and_audited_in_both_modes() {
+        fn profile() -> LocalProfile {
+            let artifact =
+                Digest::new("3793e1e6e2266919d6e015287221b41100175a98eddaba92e111aed3b05c93c4")
+                    .unwrap();
+            LocalProfile {
+                schema_version: SchemaVersion::V2,
+                auxiliary_repository: BoundedText::new("LiquidAI/LFM3-1.7B").unwrap(),
+                auxiliary_revision: BoundedText::new("1da06bec6a819da10b54c67e5c90972b46d81871")
+                    .unwrap(),
+                artifact_repository: BoundedText::new("LiquidAI/LFM3-1.7B-GGUF").unwrap(),
+                artifact_revision: BoundedText::new("cd0c74c575b5c416f3011b5b4c298077f26ca8c2")
+                    .unwrap(),
+                artifact_name: BoundedText::new("LFM3-1.7B-Q4_K_M.gguf").unwrap(),
+                embedded_tokenizer_digest: gguf_lfm3_corrected_tokenizer_digest(&artifact).unwrap(),
+                artifact_digest: artifact,
+                artifact_bytes: SqlU64::new(1099627808).unwrap(),
+                template_digest: content_digest(b"template"),
+                prompt_recipe_digest: Digest::new(LOCAL_CODING_V9_RECIPE_SHA).unwrap(),
+                backend_revision: BoundedText::new("fb4cdc3730dc64b366724e7637a205a8b7747499")
+                    .unwrap(),
+                backend_build_digest: content_digest(b"build"),
+                cpu_identity: BoundedText::new("test-cpu").unwrap(),
+                cpu_features_digest: content_digest(b"cpu-features"),
+                device: LocalDevice::Cpu,
+                cpu_threads: 2,
+                context_tokens: 2048,
+                max_input_tokens: 1536,
+                max_output_tokens: 512,
+                temperature_milli: 100,
+                top_k: 50,
+                repeat_penalty_milli: 1100,
+                max_sequences: 1,
+                queue_capacity: 8,
+                queue_wait_ms: 5000,
+                deadline_ms: 60000,
+                chunked_prefill: false,
+                scoped_prefix_cache: false,
+                cache_target_bytes: None,
+                strict_memory_cap_bytes: None,
+            }
+        }
+        struct RecordedCalls {
+            inner: Driver,
+            profile: LocalProfile,
+            calls: VecDeque<(&'static str, &'static str)>,
+        }
+        impl EffectDriver for RecordedCalls {
+            type Outcome = DriverOutcome;
+            fn execute(&mut self, effect: AuthorizedEffect) -> DriverOutcome {
+                if let ApprovedRequest::Coding { step, .. } = &effect.request().request
+                    && let CodingStep::Model { input_digest, .. } = step.as_ref()
+                {
+                    let (name, args) = self.calls.pop_front().expect("recorded call");
+                    let native = NativeCallEvidence::capture(
+                        1,
+                        vec![(name.to_owned(), args.to_owned())],
+                        None,
+                    )
+                    .unwrap();
+                    let content = native
+                        .action_content_for_recipe(&self.profile.prompt_recipe_digest)
+                        .unwrap();
+                    let observed = LocalObservation {
+                        schema_version: SchemaVersion::V2,
+                        profile_digest: self.profile.digest().unwrap(),
+                        request_digest: effect.request().request_digest.clone(),
+                        input_digest: input_digest.clone(),
+                        content: BoundedText::new(content).unwrap(),
+                        reasoning: None,
+                        native_calls: Some(native),
+                        prompt_tokens: 1,
+                        completion_tokens: 1,
+                        submission_cohort: SubmissionCohort {
+                            id: BoundedText::new(effect.request().action.dispatch_id.as_str())
+                                .unwrap(),
+                            size: 1,
+                            position: 0,
+                        },
+                        backend_batch: BatchProvenance::Unknown,
+                        response: Some(LocalResponse::Text),
+                    };
+                    return self.inner.known(
+                        &effect,
+                        ReceiptOutput::LocalModel {
+                            observation: Box::new(observed),
+                        },
+                        1,
+                        0,
+                    );
+                }
+                self.inner.execute(effect)
+            }
+        }
+        for mode in [EngineMode::Agent, EngineMode::Harness] {
+            let name = if mode == EngineMode::Agent {
+                "root-v9-agent"
+            } else {
+                "root-v9-harness"
+            };
+            let (root, mut settings, original) = setup(
+                name,
+                mode,
+                vec![CodingTool::List, CodingTool::Run, CodingTool::Finish],
+                false,
+            );
+            drop(original);
+            let profile = profile();
+            profile.validate().unwrap();
+            settings.context_version = 11;
+            settings.policy.allowed_programs = vec![RustProgram::Cargo];
+            settings.profile = Some(profile.clone());
+            settings.script = None;
+            let mut data = settings.task.data().clone();
+            data.model_profile_digest = profile.digest().unwrap();
+            settings.task = CodingTask::new(data).unwrap();
+            fs::write(root.join("workspace/note.txt"), "fixture\n").unwrap();
+            let mut store = SqliteStore::create(root.join("run/root-v9.sqlite")).unwrap();
+            store
+                .apply(
+                    command(StoreOperation::CreateTask {
+                        task: Task::new_coding(settings.task.clone()).unwrap(),
+                        genesis: settings.genesis().unwrap(),
+                    })
+                    .unwrap(),
+                )
+                .unwrap();
+            let mut driver = RecordedCalls {
+                inner: driver(&root, &settings, &[]),
+                profile,
+                calls: VecDeque::from([
+                    ("plan", r#"{"steps":["inspect"]}"#),
+                    ("list", r#"{"directory":"."}"#),
+                    (
+                        "run",
+                        r#"{"program":"cargo","args":["--version"],"directory":"."}"#,
+                    ),
+                    ("finish", r#"{"summary":"request verification"}"#),
+                ]),
+            };
+            driver.inner.store_path = root.join("run/root-v9.sqlite");
+            let genesis = settings.genesis().unwrap();
+            let task = Task::new_coding(settings.task.clone()).unwrap();
+            let engine = crate::cognition(&genesis, &task).unwrap();
+            assert_eq!(
+                orchestrator::drive_with_driver(
+                    &mut store,
+                    &settings.task.data().task_id,
+                    engine.as_ref(),
+                    &root.join("run"),
+                    &mut NoObserver,
+                    &mut driver
+                )
+                .unwrap(),
+                orchestrator::DriveStatus::Blocked
+            );
+            let mut snapshot = store.audit().unwrap();
+            let projection = snapshot.projection(&settings.task.data().task_id).unwrap();
+            assert_eq!(projection.state.phase, Phase::AwaitingVerification);
+            let mut list = 0;
+            let mut run = 0;
+            let mut raw_dot = 0;
+            let mut tool_receipts = Vec::new();
+            for intent in snapshot
+                .intents(&settings.task.data().task_id, None)
+                .unwrap()
+                .records
+            {
+                if let IntentKind::Coding { step } = &intent.intent.kind {
+                    match step.as_ref() {
+                        CodingStep::Tool {
+                            action: CodingAction::List { directory },
+                            ..
+                        } => {
+                            assert_eq!(directory, &None);
+                            list += 1;
+                        }
+                        CodingStep::Tool {
+                            action: CodingAction::Run { directory, .. },
+                            ..
+                        } => {
+                            assert_eq!(directory, &None);
+                            run += 1;
+                        }
+                        _ => {}
+                    }
+                }
+                for evidence in snapshot.evidence(&intent.intent_id, None).unwrap().records {
+                    if let ReceiptOutput::LocalModel { observation } =
+                        &evidence.receipt.data().output
+                    {
+                        let native = observation.native_calls.as_ref().unwrap();
+                        if native.calls[0]
+                            .arguments
+                            .as_str()
+                            .contains(r#""directory":".""#)
+                        {
+                            raw_dot += 1;
+                        }
+                    }
+                    if let ReceiptOutput::Coding { observation } = &evidence.receipt.data().output
+                        && let CodingObservation::Tool { output, .. } = observation.as_ref()
+                    {
+                        tool_receipts.push((output.tool, output.status.clone()));
+                    }
+                }
+            }
+            assert_eq!((list, run, raw_dot), (1, 1, 2));
+            assert!(tool_receipts.contains(&(CodingTool::List, ToolStatus::Succeeded)));
+            // The portable fixture deliberately has no executable image; this is a real
+            // denied receipt, not a successful process execution or an SDK inference.
+            assert!(tool_receipts.contains(&(CodingTool::Run, ToolStatus::Denied)));
+            drop(snapshot);
+            assert_audits(&mut store, &settings);
+            drop(driver);
+            drop(store);
+            fs::remove_dir_all(root).unwrap();
+        }
     }
     #[test]
     fn detailed_feedback_invalid_then_valid_read_audits_in_both_modes() {

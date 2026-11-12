@@ -275,6 +275,7 @@ async fn load(request: &WorkerRequest, writer: &Writer) -> Result<Arc<Model>, St
             | metron_protocol::LOCAL_CODING_V6_RECIPE_SHA
             | metron_protocol::LOCAL_CODING_V7_RECIPE_SHA
             | metron_protocol::LOCAL_CODING_V8_RECIPE_SHA
+            | metron_protocol::LOCAL_CODING_V9_RECIPE_SHA
     );
     let tokenizer_identity = if corrected_tokenizer {
         metron_protocol::gguf_lfm3_corrected_tokenizer_digest(&profile.artifact_digest)
@@ -448,14 +449,17 @@ async fn generate(model: Arc<Model>, request: WorkerRequest, writer: Writer, in_
         profile.prompt_recipe_digest.as_str() == metron_protocol::LOCAL_CODING_V7_RECIPE_SHA;
     let native_v8 =
         profile.prompt_recipe_digest.as_str() == metron_protocol::LOCAL_CODING_V8_RECIPE_SHA;
-    let paired = native_v7 || native_v8;
+    let native_v9 =
+        profile.prompt_recipe_digest.as_str() == metron_protocol::LOCAL_CODING_V9_RECIPE_SHA;
+    let native_v8_or_v9 = native_v8 || native_v9;
+    let paired = native_v7 || native_v8_or_v9;
     let native = native_v3 || native_v6 || paired;
     let xml_grammar = if native_v6 || paired {
         let Some(allowed) = native_tools.as_deref().map(Vec::as_slice) else {
             reject(&writer, dispatch_id, "missing trusted coding catalog");
             return;
         };
-        let grammar = if native_v8 {
+        let grammar = if native_v8_or_v9 {
             metron_protocol::native_xml_coding_v8_grammar(allowed)
         } else {
             metron_protocol::native_xml_coding_grammar(allowed)
@@ -516,7 +520,7 @@ async fn generate(model: Arc<Model>, request: WorkerRequest, writer: Writer, in_
             reject(&writer, dispatch_id, "missing trusted native tool catalog");
             return;
         };
-        let schemas = if native_v8 {
+        let schemas = if native_v8_or_v9 {
             metron_protocol::native_coding_v8_tool_schemas(allowed)
         } else {
             metron_protocol::native_coding_tool_schemas(allowed)
@@ -533,7 +537,7 @@ async fn generate(model: Arc<Model>, request: WorkerRequest, writer: Writer, in_
         None
     };
     let projection = if paired {
-        let result = if native_v8 {
+        let result = if native_v8_or_v9 {
             metron_inference_local::paired_history::project_v8(
                 context.as_str(),
                 previous_tool_turn.as_deref(),
@@ -978,7 +982,10 @@ async fn generate_native(
     else {
         return;
     };
-    let mut content = match evidence.action_content().and_then(BoundedText::new) {
+    let mut content = match evidence
+        .action_content_for_recipe(&profile.prompt_recipe_digest)
+        .and_then(BoundedText::new)
+    {
         Ok(content) => content,
         Err(_) => return,
     };
