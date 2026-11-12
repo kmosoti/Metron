@@ -1,0 +1,17 @@
+start: <tool_call> "\n"? call "\n"? </tool_call>
+call: call_plan
+call_plan: "<function=plan>" "\n"? state_plan_0 </function>
+state_plan_0: arg_plan_0 state_plan_1
+state_plan_1: 
+arg_plan_0: "<parameter=steps>" "\n"? steps "\n"? </parameter> "\n"?
+steps: %json {"type":"array","minItems":1,"maxItems":12,"items":{"type":"string","minLength":1,"maxLength":256}}
+args: %json {"type":"array","maxItems":32,"items":{"type":"string"}}
+path: /[^\/\\\x00\r\n]+(\/[^\/\\\x00\r\n]+)*/
+directory: path | "null"
+digest: /[0-9a-f]{64}/ | "null"
+program: "cargo" | "rustc" | "rustfmt" | "clippy"
+firstline: /[1-9][0-9]{0,9}/
+linecount: /([1-9]|[1-9][0-9]|1[0-9][0-9]|200)/
+content: (xml_text | xml_lt)*
+xml_text: /[^<]+/
+xml_lt: "<" /[^\/]/ | "</" /[^p]/ | "</p" /[^a]/ | "</pa" /[^r]/ | "</par" /[^a]/ | "</para" /[^m]/ | "</param" /[^e]/ | "</parame" /[^t]/ | "</paramet" /[^e]/ | "</paramete" /[^r]/ | "</parameter" /[^>]/
