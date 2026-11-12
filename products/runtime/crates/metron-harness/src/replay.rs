@@ -14,6 +14,7 @@ pub fn behavior<S: RuntimeSnapshot>(
 ) -> Result<bool, StoreError> {
     let projection = snapshot.projection(task)?;
     let mut state = AgentState {
+        coding_context: None,
         task_id: task.clone(),
         genesis_digest: projection.state.genesis_digest.clone(),
         max_decision_steps: projection.task.data().max_decision_steps,

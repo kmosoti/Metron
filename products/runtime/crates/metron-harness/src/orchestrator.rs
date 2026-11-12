@@ -92,7 +92,7 @@ pub fn drive<S: StorePort>(
     run_dir: &Path,
     observer: &mut dyn Observer,
 ) -> Result<DriveStatus, DriveError> {
-    drive_inner(store, task, engine, run_dir, observer, None)
+    drive_inner(store, task, engine, run_dir, observer, None, None)
 }
 
 /// Drive with a local inference port; the port is called only after fresh admission.
@@ -104,7 +104,36 @@ pub fn drive_with_driver<S: StorePort>(
     observer: &mut dyn Observer,
     driver: &mut dyn EffectDriver<Outcome = DriverOutcome>,
 ) -> Result<DriveStatus, DriveError> {
-    drive_inner(store, task, engine, run_dir, observer, Some(driver))
+    drive_inner(store, task, engine, run_dir, observer, Some(driver), None)
+}
+
+/// Independent host verifier; it receives only a coherent persisted projection.
+/// A model finish proposal never supplies this result.
+pub trait CodingVerifier {
+    fn verify(
+        &mut self,
+        projection: &metron_protocol::Projection,
+    ) -> Result<(metron_protocol::CodingVerificationSelection, bool), DriveError>;
+}
+#[allow(clippy::too_many_arguments)]
+pub fn drive_coding_with_driver<S: StorePort>(
+    store: &mut S,
+    task: &TaskId,
+    engine: &dyn Cognition,
+    run_dir: &Path,
+    observer: &mut dyn Observer,
+    driver: &mut dyn EffectDriver<Outcome = DriverOutcome>,
+    verifier: &mut dyn CodingVerifier,
+) -> Result<DriveStatus, DriveError> {
+    drive_inner(
+        store,
+        task,
+        engine,
+        run_dir,
+        observer,
+        Some(driver),
+        Some(verifier),
+    )
 }
 
 fn drive_inner<S: StorePort>(
@@ -114,13 +143,19 @@ fn drive_inner<S: StorePort>(
     run_dir: &Path,
     observer: &mut dyn Observer,
     mut local_driver: Option<&mut dyn EffectDriver<Outcome = DriverOutcome>>,
+    mut coding_verifier: Option<&mut dyn CodingVerifier>,
 ) -> Result<DriveStatus, DriveError> {
     let version = {
         let mut snapshot = store.audit()?;
         snapshot.projection(task)?.task.data().schema_version
     };
     let worker = WorkerId::new("host").map_err(|_| DriveError::Invalid)?;
-    for _ in 0..128 {
+    let max_turns = if version == SchemaVersion::V3 {
+        528
+    } else {
+        128
+    };
+    for _ in 0..max_turns {
         let (projection, pending, intents) = {
             let mut snapshot = store.audit()?;
             let projection = snapshot.projection(task)?;
@@ -165,6 +200,35 @@ fn drive_inner<S: StorePort>(
             if is_decision {
                 observer.checkpoint(Checkpoint::OutboxCommitted);
             }
+            continue;
+        }
+        if projection.state.phase == Phase::AwaitingVerification
+            && projection.task.coding().is_some()
+        {
+            let Some(verifier) = coding_verifier.as_mut() else {
+                return Ok(DriveStatus::Blocked);
+            };
+            let (selection, accepted) = verifier.verify(&projection)?;
+            if commit(
+                store,
+                version,
+                StoreOperation::RecordCodingVerification {
+                    task_id: task.clone(),
+                    selection,
+                    accepted,
+                    reason: BoundedText::new(if accepted {
+                        "independent coding acceptance passed"
+                    } else {
+                        "independent coding acceptance failed"
+                    })
+                    .map_err(|_| DriveError::Invalid)?,
+                },
+            )?
+            .is_none()
+            {
+                return Ok(DriveStatus::Blocked);
+            }
+            observer.checkpoint(Checkpoint::VerificationCommitted);
             continue;
         }
         if projection.state.phase == Phase::AwaitingVerification {
@@ -272,18 +336,26 @@ fn drive_inner<S: StorePort>(
         if matches!(
             prepared.request,
             metron_protocol::ApprovedRequest::RequestLocalModel { .. }
+                | metron_protocol::ApprovedRequest::Coding { .. }
         ) && local_driver.is_none()
         {
             return Ok(DriveStatus::Blocked);
         }
-        if projection.genesis.require_publication_approval
+        let needs_approval = match &prepared.request {
+            metron_protocol::ApprovedRequest::Coding { step, .. } => projection
+                .genesis
+                .coding_policy
+                .as_ref()
+                .is_some_and(|p| step.permitted(p) && step.requires_approval(p)),
+            metron_protocol::ApprovedRequest::PublishArtifact { .. } => {
+                projection.genesis.require_publication_approval
+            }
+            _ => false,
+        };
+        if needs_approval
             && !matches!(
                 intent.status,
                 DispatchStatus::Dispatched | DispatchStatus::Uncertain
-            )
-            && matches!(
-                &prepared.request,
-                metron_protocol::domain::ApprovedRequest::PublishArtifact { .. }
             )
         {
             match &intent.approval {
@@ -402,6 +474,7 @@ fn drive_inner<S: StorePort>(
         let outcome = if matches!(
             effect.request().request,
             metron_protocol::ApprovedRequest::RequestLocalModel { .. }
+                | metron_protocol::ApprovedRequest::Coding { .. }
         ) {
             local_driver
                 .as_deref_mut()

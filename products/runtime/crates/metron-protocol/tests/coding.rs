@@ -50,8 +50,15 @@ fn task_identity_binds_acceptance_tools_model_and_memory_without_legacy_changes(
     let mut value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     value["family"] = serde_json::json!("sum-v1");
     assert!(parse_envelope::<CodingTask>(&serde_json::to_vec(&value).unwrap()).is_err());
-    // The legacy envelope version remains exactly its original domain.
-    assert!(serde_json::from_str::<SchemaVersion>("3").is_err());
+    // A coding envelope retains all contract fields through the common durable
+    // task API. It cannot be reconstructed from a lossy legacy-only header.
+    let durable = Task::new_coding(original.clone()).unwrap();
+    let durable_bytes = canonical_bytes(&durable, MAX_ENVELOPE).unwrap();
+    assert_eq!(durable_bytes, bytes);
+    let restored: Task = parse_envelope(&durable_bytes).unwrap();
+    assert_eq!(restored.coding(), Some(&original));
+    assert_eq!(restored.data().schema_version, SchemaVersion::V3);
+    assert!(Task::new(restored.data().clone()).is_err());
 }
 
 #[test]

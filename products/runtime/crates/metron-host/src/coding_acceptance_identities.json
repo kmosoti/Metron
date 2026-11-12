@@ -1,0 +1,10 @@
+{
+  "calculator-v1": {
+    "spec": "bf190b50e0cc65d7aa8c0d896366352d28f6c0c2271eabe2421bad0a647552d9",
+    "evaluator": "cd834e5bf635c63a605b184461dddc6854e86321ef5b2e4d37c0e1864cf51ab4"
+  },
+  "line-count-repair-v1": {
+    "spec": "a3501388f110d988b6a95534ee6d564a7322a582b292f59f1b023922a30c927f",
+    "evaluator": "88b1868178cca4ba0fe9a895f61c56fcf8cfc98fcc4ae0bf9ad37739084a0b62"
+  }
+}

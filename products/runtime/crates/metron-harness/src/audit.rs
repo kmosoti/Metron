@@ -198,6 +198,7 @@ fn parse_journal(
                         return Ok(None);
                     };
                     let state = AgentState {
+                        coding_context: None,
                         task_id: task_id.clone(),
                         genesis_digest: genesis_digest.clone(),
                         max_decision_steps: task.data().max_decision_steps,
@@ -280,7 +281,8 @@ fn parse_journal(
                     | StoreOperation::RecordUncertainty { task_id, .. }
                     | StoreOperation::ClaimReconciliation { task_id, .. }
                     | StoreOperation::SettleReconciliation { task_id, .. }
-                    | StoreOperation::RecordVerification { task_id, .. } => Some(task_id),
+                    | StoreOperation::RecordVerification { task_id, .. }
+                    | StoreOperation::RecordCodingVerification { task_id, .. } => Some(task_id),
                     StoreOperation::Admit { check } => Some(&check.prepared.action.task_id),
                     StoreOperation::RecordReceipt { receipt, .. } => Some(&receipt.data().task_id),
                     StoreOperation::RecordApproval { request_id, .. }
@@ -532,6 +534,12 @@ fn parse_journal(
                             accepted,
                             reason,
                             ..
+                        }
+                        | StoreOperation::RecordCodingVerification {
+                            task_id: id,
+                            accepted,
+                            reason,
+                            ..
                         },
                         StoreResult::VerificationRecorded,
                     ) if id == task_id => Some((
@@ -594,6 +602,31 @@ fn parse_journal(
                     };
                     if &oldest.input.id != id_input || &oldest.input.digest != digest {
                         return Ok(None);
+                    }
+                    if let Some(task) = state.task.coding() {
+                        let Some(policy) = state.genesis.coding_policy.as_deref() else {
+                            return Ok(None);
+                        };
+                        let controller = match state.genesis.engine_version.as_str() {
+                            "coding-agent/v3" | "coding-harness/v3" => {
+                                metron_protocol::coding_runtime::coding_transition
+                            }
+                            "coding-agent/v3.1" | "coding-harness/v3.1" => {
+                                metron_protocol::coding_runtime::coding_transition_phased
+                            }
+                            "coding-agent/v3.2" | "coding-harness/v3.2" => {
+                                metron_protocol::coding_runtime::coding_transition_catalog
+                            }
+                            "coding-agent/v3.3" | "coding-harness/v3.3" => {
+                                metron_protocol::coding_runtime::coding_transition_focused
+                            }
+                            _ => return Ok(None),
+                        };
+                        if controller(task, policy, &state.state, &oldest.input.event).as_ref()
+                            != Ok(transition)
+                        {
+                            return Ok(None);
+                        }
                     }
                     let (next_state, intent) = match transition {
                         Transition::Decision { next, intent } => (next, Some(intent)),
@@ -724,7 +757,8 @@ fn compatible(operation: &StoreOperation, result: &StoreResult) -> bool {
                 StoreResult::ReconciliationSettled { .. } | StoreResult::ReceiptRecorded { .. }
             )
             | (
-                StoreOperation::RecordVerification { .. },
+                StoreOperation::RecordVerification { .. }
+                    | StoreOperation::RecordCodingVerification { .. },
                 StoreResult::VerificationRecorded
             )
     )
@@ -783,7 +817,8 @@ fn tariff(request: &ApprovedRequest) -> Counters {
     let value = match request {
         ApprovedRequest::ReadFixture { tariff, .. }
         | ApprovedRequest::RequestModel { tariff, .. }
-        | ApprovedRequest::RequestLocalModel { tariff, .. } => tariff,
+        | ApprovedRequest::RequestLocalModel { tariff, .. }
+        | ApprovedRequest::Coding { tariff, .. } => tariff,
         ApprovedRequest::PublishArtifact { plan } => &plan.tariff,
     };
     Counters {
@@ -794,6 +829,24 @@ fn tariff(request: &ApprovedRequest) -> Counters {
 }
 
 fn receipt_shape_matches(request: &ApprovedRequest, output: &ReceiptOutput) -> bool {
+    if let ApprovedRequest::Coding { step, .. } = request {
+        use metron_protocol::coding_runtime::{CodingObservation, CodingStep};
+        return match (step.as_ref(), output) {
+            (_, ReceiptOutput::Failure { .. })
+            | (CodingStep::Model { .. }, ReceiptOutput::LocalModel { .. }) => true,
+            (CodingStep::Model { .. }, ReceiptOutput::Coding { observation }) => matches!(
+                observation.as_ref(),
+                CodingObservation::ScriptedModel { .. }
+            ),
+            (CodingStep::Tool { .. }, ReceiptOutput::Coding { observation }) => {
+                matches!(observation.as_ref(), CodingObservation::Tool { .. })
+            }
+            (CodingStep::Freeze { .. }, ReceiptOutput::Coding { observation }) => {
+                matches!(observation.as_ref(), CodingObservation::Artifact { .. })
+            }
+            _ => false,
+        };
+    }
     matches!(
         (request, output),
         (
@@ -824,6 +877,7 @@ struct Accounts {
     tasks: BTreeMap<TaskId, AccountSnapshot>,
     principals: BTreeMap<PrincipalId, AccountSnapshot>,
     owners: BTreeMap<TaskId, PrincipalId>,
+    coding_policies: BTreeMap<TaskId, metron_protocol::coding::CodingPolicy>,
     reservations: BTreeMap<Digest, Reservation>,
     retired_reservations: BTreeMap<Digest, Reservation>,
     reservation_ids: BTreeMap<Digest, Digest>,
@@ -843,10 +897,18 @@ struct Accounts {
     verification_consumed: BTreeSet<TaskId>,
 }
 impl Accounts {
-    fn create(&mut self, task: &Task) -> bool {
+    fn create(
+        &mut self,
+        task: &Task,
+        policy: Option<&metron_protocol::coding::CodingPolicy>,
+    ) -> bool {
         let data = task.data();
         if self.tasks.contains_key(&data.task_id) {
             return false;
+        }
+        if let Some(policy) = policy {
+            self.coding_policies
+                .insert(data.task_id.clone(), policy.clone());
         }
         self.tasks
             .insert(data.task_id.clone(), empty_account(budget(task)));
@@ -859,6 +921,14 @@ impl Accounts {
     }
     fn reserve(&mut self, check: &AdmissionCheck) -> bool {
         let task = &check.prepared.action.task_id;
+        if let ApprovedRequest::Coding { step, .. } = &check.prepared.request
+            && self
+                .coding_policies
+                .get(task)
+                .is_none_or(|p| !step.permitted(p))
+        {
+            return false;
+        }
         let principal = &check.prepared.action.principal_id;
         if self.owners.get(task) != Some(principal) {
             return false;
@@ -1184,7 +1254,8 @@ fn reconstruct_accounts(
             }
             let valid = match (&command.data().operation, result) {
                 (
-                    StoreOperation::RecordVerification { task_id, .. },
+                    StoreOperation::RecordVerification { task_id, .. }
+                    | StoreOperation::RecordCodingVerification { task_id, .. },
                     StoreResult::VerificationRecorded,
                 ) => {
                     let Some(principal) = state.owners.get(task_id) else {
@@ -1231,8 +1302,8 @@ fn reconstruct_accounts(
                     state.uncertain.insert(intent_id.clone());
                     true
                 }
-                (StoreOperation::CreateTask { task, .. }, StoreResult::TaskCreated { .. }) => {
-                    state.create(task)
+                (StoreOperation::CreateTask { task, genesis }, StoreResult::TaskCreated { .. }) => {
+                    state.create(task, genesis.coding_policy.as_deref())
                 }
                 (
                     StoreOperation::AdvanceTick { new_tick, .. },
@@ -1277,6 +1348,9 @@ fn reconstruct_accounts(
                     };
                     let reason = if state.revoked.contains(&check.prepared.action.principal_id) {
                         "grant revoked"
+                    } else if matches!(&check.prepared.request,ApprovedRequest::Coding { step,.. } if state.coding_policies.get(&check.prepared.action.task_id).is_none_or(|p|!step.permitted(p)))
+                    {
+                        "coding action outside grant"
                     } else if task.breached
                         || task.incomplete
                         || task.integrity_hold
@@ -1648,12 +1722,21 @@ fn apply_lifecycle(state: &mut Reconstruction, op: &StoreOperation, result: &Sto
             {
                 return false;
             }
-            if state.genesis.require_publication_approval
-                && matches!(
-                    check.prepared.request,
-                    ApprovedRequest::PublishArtifact { .. }
-                )
+            if matches!(&check.prepared.request,ApprovedRequest::Coding { step,.. } if state.genesis.coding_policy.as_ref().is_none_or(|p|!step.permitted(p)))
             {
+                return false;
+            }
+            if match &check.prepared.request {
+                ApprovedRequest::Coding { step, .. } => state
+                    .genesis
+                    .coding_policy
+                    .as_ref()
+                    .is_some_and(|p| step.requires_approval(p)),
+                ApprovedRequest::PublishArtifact { .. } => {
+                    state.genesis.require_publication_approval
+                }
+                _ => false,
+            } {
                 let Some(approval) = &item.approval else {
                     return false;
                 };
@@ -1794,6 +1877,16 @@ fn apply_lifecycle(state: &mut Reconstruction, op: &StoreOperation, result: &Sto
             {
                 return false;
             }
+            if matches!(prepared.request, ApprovedRequest::Coding { .. })
+                && metron_protocol::coding_runtime::validate_coding_receipt(
+                    &state.genesis,
+                    prepared,
+                    receipt,
+                )
+                .is_err()
+            {
+                return false;
+            }
             if let (
                 ApprovedRequest::RequestLocalModel {
                     input_digest,
@@ -1909,6 +2002,17 @@ fn apply_lifecycle(state: &mut Reconstruction, op: &StoreOperation, result: &Sto
                     return false;
                 }
                 if let Some(prepared) = &item.prepared
+                    && matches!(prepared.request, ApprovedRequest::Coding { .. })
+                    && metron_protocol::coding_runtime::validate_coding_receipt(
+                        &state.genesis,
+                        prepared,
+                        receipt,
+                    )
+                    .is_err()
+                {
+                    return false;
+                }
+                if let Some(prepared) = &item.prepared
                     && let (
                         ApprovedRequest::RequestLocalModel {
                             input_digest,
@@ -1956,6 +2060,58 @@ fn apply_lifecycle(state: &mut Reconstruction, op: &StoreOperation, result: &Sto
             }) || !select_evidence(state, evidence_id)
             {
                 return false;
+            }
+        }
+        (
+            StoreOperation::RecordCodingVerification {
+                task_id: id,
+                selection,
+                ..
+            },
+            StoreResult::VerificationRecorded,
+        ) if id == task_id => {
+            if !metron_protocol::coding_runtime::coding_selection_matches(
+                &state.task,
+                &state.state,
+                &state.verification,
+                selection,
+            ) || state.intents.values().any(|item| {
+                item.status != DispatchStatus::Settled
+                    || item
+                        .reservation
+                        .as_ref()
+                        .is_some_and(|r| r.status == ReservationStatus::Held)
+            }) {
+                return false;
+            }
+            for id in [
+                &selection.plan_evidence,
+                &selection.model_evidence,
+                &selection.artifact_evidence,
+            ] {
+                let Some(evidence) = state.evidence.get(id) else {
+                    return false;
+                };
+                if !evidence.selected
+                    || evidence.conflict
+                    || evidence.receipt.data().task_id != *task_id
+                    || evidence.receipt.evidence_id().ok().as_ref() != Some(id)
+                {
+                    return false;
+                }
+                if id == &selection.plan_evidence
+                    && !metron_protocol::coding_runtime::model_content(
+                        &evidence.receipt.data().output,
+                    )
+                    .is_some_and(|content| {
+                        matches!(
+                            metron_protocol::coding::parse_coding_action(content.as_bytes()),
+                            Ok(metron_protocol::coding::CodingAction::Plan { .. })
+                        )
+                    })
+                {
+                    return false;
+                }
             }
         }
         (
@@ -2048,6 +2204,17 @@ fn select_evidence(state: &mut Reconstruction, evidence_id: &Digest) -> bool {
             state.verification.publication = Some(receipt.clone());
             state.verification.publication_evidence = Some(evidence_id.clone());
         }
+        ReceiptOutput::Coding { observation } => match observation.as_ref() {
+            metron_protocol::coding_runtime::CodingObservation::ScriptedModel { .. } => {
+                state.verification.model = Some(receipt.clone());
+                state.verification.model_evidence = Some(evidence_id.clone());
+            }
+            metron_protocol::coding_runtime::CodingObservation::Artifact { .. } => {
+                state.verification.publication = Some(receipt.clone());
+                state.verification.publication_evidence = Some(evidence_id.clone());
+            }
+            metron_protocol::coding_runtime::CodingObservation::Tool { .. } => {}
+        },
         ReceiptOutput::Failure { .. } => {}
     }
     true
@@ -2388,7 +2555,7 @@ mod tests {
             reservation_id: content_digest(b"reservation"),
         };
         let mut accounts = Accounts::default();
-        assert!(accounts.create(&task));
+        assert!(accounts.create(&task, None));
         accounts.leases.insert(
             check.intent_id.clone(),
             LeaseSnapshot {
@@ -2522,6 +2689,7 @@ mod tests {
         let task: Task = parse_envelope(br#"{"schema_version":1,"task_id":"task","principal_id":"principal","objective":"sum","budget":{"max_model_requests":1,"max_tool_calls":2,"max_spend_micros_usd":0,"max_elapsed_ms":null}}"#).unwrap();
         let zero = SqlU64::new(0).unwrap();
         let genesis = Genesis {
+            coding_policy: None,
             mode: EngineMode::Agent,
             engine_version: BoundedText::new("sum-agent/v1").unwrap(),
             require_publication_approval: false,
@@ -2529,6 +2697,7 @@ mod tests {
             local_profile: None,
         };
         let initial = AgentState {
+            coding_context: None,
             task_id: task.data().task_id.clone(),
             genesis_digest: content_digest(b"genesis"),
             max_decision_steps: 8,

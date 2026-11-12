@@ -52,19 +52,57 @@ fn default_decision_steps() -> u8 {
     8
 }
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(try_from = "TaskData", into = "TaskData")]
-pub struct Task(TaskData);
+#[serde(untagged)]
+enum TaskWire {
+    Legacy(TaskData),
+    Coding(Box<crate::coding::CodingTask>),
+}
+
+/// Versioned task with one shared header for the durable effect machinery.
+/// Serialization preserves original legacy bytes or the complete coding
+/// contract. A common header alone cannot reconstruct a coding task.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(try_from = "TaskWire", into = "TaskWire")]
+pub struct Task {
+    common: TaskData,
+    coding: Option<Box<crate::coding::CodingTask>>,
+}
 impl Task {
     pub fn new(data: TaskData) -> Result<Self, ValidationError> {
+        if !matches!(data.schema_version, SchemaVersion::V1 | SchemaVersion::V2) {
+            return Err(ValidationError::Version);
+        }
         data.budget.validate()?;
         if data.max_decision_steps > 64 {
             return Err(ValidationError::Limit);
         }
         canonical_bytes(&data, MAX_ENVELOPE)?;
-        Ok(Self(data))
+        Ok(Self {
+            common: data,
+            coding: None,
+        })
+    }
+    pub fn new_coding(task: crate::coding::CodingTask) -> Result<Self, ValidationError> {
+        canonical_bytes(&task, MAX_ENVELOPE)?;
+        let data = task.data();
+        let common = TaskData {
+            schema_version: SchemaVersion::V3,
+            task_id: data.task_id.clone(),
+            principal_id: data.principal_id.clone(),
+            objective: data.objective.clone(),
+            budget: data.budget.clone(),
+            max_decision_steps: data.max_decision_steps,
+        };
+        Ok(Self {
+            common,
+            coding: Some(Box::new(task)),
+        })
     }
     pub fn data(&self) -> &TaskData {
-        &self.0
+        &self.common
+    }
+    pub fn coding(&self) -> Option<&crate::coding::CodingTask> {
+        self.coding.as_deref()
     }
 }
 impl TryFrom<TaskData> for Task {
@@ -75,7 +113,24 @@ impl TryFrom<TaskData> for Task {
 }
 impl From<Task> for TaskData {
     fn from(value: Task) -> Self {
-        value.0
+        value.common
+    }
+}
+impl TryFrom<TaskWire> for Task {
+    type Error = ValidationError;
+    fn try_from(value: TaskWire) -> Result<Self, Self::Error> {
+        match value {
+            TaskWire::Legacy(data) => Self::new(data),
+            TaskWire::Coding(task) => Self::new_coding(*task),
+        }
+    }
+}
+impl From<Task> for TaskWire {
+    fn from(value: Task) -> Self {
+        match value.coding {
+            Some(task) => Self::Coding(task),
+            None => Self::Legacy(value.common),
+        }
     }
 }
 
@@ -96,6 +151,9 @@ impl CandidateResult {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum IntentKind {
+    Coding {
+        step: Box<crate::coding_runtime::CodingStep>,
+    },
     ReadFixture,
     RequestModel {
         input_digest: Digest,
@@ -142,6 +200,10 @@ pub struct ArtifactPlan {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ApprovedRequest {
+    Coding {
+        step: Box<crate::coding_runtime::CodingStep>,
+        tariff: Tariff,
+    },
     ReadFixture {
         fixture_key: BoundedText<MAX_TEXT>,
         tariff: Tariff,
@@ -187,6 +249,9 @@ pub struct PreparedIntent {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ReceiptOutput {
+    Coding {
+        observation: Box<crate::coding_runtime::CodingObservation>,
+    },
     Fixture {
         bytes: BoundedText<MAX_FIXTURE>,
         digest: Digest,
@@ -224,9 +289,14 @@ pub struct Receipt(ReceiptData);
 impl Receipt {
     pub fn new(data: ReceiptData) -> Result<Self, ValidationError> {
         match (&data.output, data.schema_version) {
-            (ReceiptOutput::LocalModel { observation }, SchemaVersion::V2)
+            (ReceiptOutput::LocalModel { observation }, SchemaVersion::V2 | SchemaVersion::V3)
                 if observation.schema_version == SchemaVersion::V2 => {}
             (ReceiptOutput::LocalModel { .. }, _) => return Err(ValidationError::Version),
+            (ReceiptOutput::Coding { .. }, SchemaVersion::V3)
+            | (ReceiptOutput::Failure { .. }, SchemaVersion::V3) => {}
+            (ReceiptOutput::Coding { .. }, _) | (_, SchemaVersion::V3) => {
+                return Err(ValidationError::Version);
+            }
             _ => {}
         }
         canonical_bytes(&data, MAX_ENVELOPE)?;
@@ -260,6 +330,7 @@ pub enum Phase {
     New,
     WaitingRead,
     WaitingModel,
+    WaitingTool,
     WaitingArtifact,
     AwaitingVerification,
     Completed,
@@ -268,6 +339,8 @@ pub enum Phase {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AgentState {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coding_context: Option<crate::coding_runtime::CodingContext>,
     pub task_id: TaskId,
     pub genesis_digest: Digest,
     pub max_decision_steps: u8,
@@ -278,12 +351,15 @@ pub struct AgentState {
 }
 impl AgentState {
     pub fn validate(&self) -> Result<(), ValidationError> {
+        if let Some(context) = &self.coding_context {
+            context.validate()?;
+        }
         if self.max_decision_steps > 64 || self.decision_steps > self.max_decision_steps {
             return Err(ValidationError::Limit);
         }
         let pending_required = matches!(
             self.phase,
-            Phase::WaitingRead | Phase::WaitingModel | Phase::WaitingArtifact
+            Phase::WaitingRead | Phase::WaitingModel | Phase::WaitingTool | Phase::WaitingArtifact
         );
         if self.pending_intent.is_some() != pending_required {
             return Err(ValidationError::Binding);
@@ -327,6 +403,22 @@ impl Transition {
             Self::Finalization { next } => (next, None),
         };
         next.validate()?;
+        if previous.coding_context.is_none()
+            && next.coding_context.is_some()
+            && !matches!(
+                intent,
+                Some(Intent {
+                    schema_version: SchemaVersion::V3,
+                    kind: IntentKind::Coding { .. },
+                    ..
+                })
+            )
+        {
+            return Err(ValidationError::Binding);
+        }
+        if previous.coding_context.is_some() && next.coding_context.is_none() {
+            return Err(ValidationError::Binding);
+        }
         if next.task_id != previous.task_id
             || next.genesis_digest != previous.genesis_digest
             || next.max_decision_steps != previous.max_decision_steps
@@ -387,6 +479,23 @@ impl PreparedIntent {
             spend_micros_usd: zero,
         };
         let request = match &intent.kind {
+            IntentKind::Coding { step } => {
+                if intent.schema_version != SchemaVersion::V3 {
+                    return Err(ValidationError::Version);
+                }
+                step.validate()?;
+                ApprovedRequest::Coding {
+                    step: step.clone(),
+                    tariff: if matches!(
+                        step.as_ref(),
+                        crate::coding_runtime::CodingStep::Model { .. }
+                    ) {
+                        tariff(one, zero)
+                    } else {
+                        tariff(zero, one)
+                    },
+                }
+            }
             IntentKind::ReadFixture => ApprovedRequest::ReadFixture {
                 fixture_key: BoundedText::new("fixture://sum-v1/input")?,
                 tariff: tariff(zero, one),
@@ -503,6 +612,27 @@ impl PreparedIntent {
     ) -> Result<(), ValidationError> {
         self.validate_against(intent, principal, genesis_digest)?;
         match (&intent.kind, &genesis.local_profile, intent.schema_version) {
+            (IntentKind::Coding { step }, profile, SchemaVersion::V3) => {
+                if genesis.coding_policy.is_none() {
+                    return Err(ValidationError::Binding);
+                }
+                match step.as_ref() {
+                    crate::coding_runtime::CodingStep::Model { profile_digest, .. } => {
+                        let expected = match profile {
+                            Some(profile) => profile.digest()?,
+                            None => content_digest(b"coding-scripted/v1"),
+                        };
+                        if *profile_digest != expected {
+                            return Err(ValidationError::Binding);
+                        }
+                    }
+                    // Scope/approval denial is a durable admission outcome,
+                    // not permission granted by preparing the proposal.
+                    crate::coding_runtime::CodingStep::Tool { .. }
+                    | crate::coding_runtime::CodingStep::Freeze { .. } => {}
+                }
+                Ok(())
+            }
             (
                 IntentKind::RequestLocalModel { profile_digest, .. },
                 Some(profile),
