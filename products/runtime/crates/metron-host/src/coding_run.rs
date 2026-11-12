@@ -102,6 +102,13 @@ impl Settings {
         if !matches!(self.context_version, 1..=5) {
             return Err("unsupported coding context version".into());
         }
+        if self
+            .memory_db
+            .as_ref()
+            .is_some_and(|path| !path.is_absolute())
+        {
+            return Err("memory database path must be absolute".into());
+        }
         self.policy
             .validate(&self.task)
             .map_err(|e| format!("invalid coding policy: {e:?}"))?;
