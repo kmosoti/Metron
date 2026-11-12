@@ -305,13 +305,14 @@ fn different_profile_is_rejected_before_worker_start() {
 
 #[test]
 fn chunk_prefill_configuration_is_opt_in_and_bounded() {
-    use metron_inference_local::chunk_prefill::kv_target;
-    use metron_protocol::CHUNKED_PREFILL_MAX_KV_BYTES;
+    use metron_inference_local::chunk_prefill::{MAX_KV_TARGET_BYTES, kv_target};
     let mut p = profile(&std::env::current_exe().unwrap(), 2);
     assert_eq!(kv_target(&p), Ok(None));
-    p.cache_target_bytes = Some(SqlU64::new(1).unwrap());
-    assert!(kv_target(&p).is_err());
     p.chunked_prefill = true;
+    assert!(p.validate().is_ok());
+    assert!(kv_target(&p).is_err());
+    p.cache_target_bytes = Some(SqlU64::new(1).unwrap());
+    assert!(p.validate().is_ok());
     assert!(kv_target(&p).is_err());
     p.device = LocalDevice::Cuda {
         uuid: BoundedText::new("GPU-test").unwrap(),
@@ -320,9 +321,16 @@ fn chunk_prefill_configuration_is_opt_in_and_bounded() {
         driver: BoundedText::new("test").unwrap(),
     };
     assert_eq!(kv_target(&p), Ok(Some(1)));
-    p.cache_target_bytes = Some(SqlU64::new(CHUNKED_PREFILL_MAX_KV_BYTES + 1).unwrap());
+    p.cache_target_bytes = Some(SqlU64::new(0).unwrap());
+    assert!(p.validate().is_ok());
+    assert!(kv_target(&p).is_err());
+    p.cache_target_bytes = Some(SqlU64::new(MAX_KV_TARGET_BYTES).unwrap());
+    assert_eq!(kv_target(&p), Ok(Some(MAX_KV_TARGET_BYTES as usize)));
+    p.cache_target_bytes = Some(SqlU64::new(MAX_KV_TARGET_BYTES + 1).unwrap());
+    assert!(p.validate().is_ok());
     assert!(kv_target(&p).is_err());
     p.cache_target_bytes = Some(SqlU64::new(256).unwrap());
     p.scoped_prefix_cache = true;
+    assert!(p.validate().is_ok());
     assert!(kv_target(&p).is_err());
 }
