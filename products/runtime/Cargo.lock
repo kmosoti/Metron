@@ -3081,6 +3081,7 @@ version = "0.1.0"
 dependencies = [
  "metron-harness",
  "metron-protocol",
+ "serde_json",
  "sha2 0.10.9",
 ]
 
