@@ -62,6 +62,12 @@ pub const LOCAL_CODING_V8_RENDER_MODE: &str = "metron-native-xml-paired-tool-his
 pub const LOCAL_CODING_V8_RECIPE_SHA: &str =
     "22a07d679e478bf52e4c997f2ba4aff849c510fcaa8c5fea93976fb50386d27d";
 
+/// V9 preserves V8 rendering and canonicalizes the native root directory alias.
+pub const LOCAL_CODING_V9_SYSTEM: &str = LOCAL_CODING_V8_SYSTEM;
+pub const LOCAL_CODING_V9_RENDER_MODE: &str = "metron-native-xml-paired-tool-history/v2;typed-action-args;tool-intent-alias;exact-observation-dedup;omission-reason-tool-view;drop-provenance;feedback-after-pair;structured-preflight;native-list;feedback-detail-untrusted;native-root-dot-alias-list-run/v1";
+pub const LOCAL_CODING_V9_RECIPE_SHA: &str =
+    "7af6356cde25a650ff05fe7a66e30d0a99f47022746560673342de8c1ad7c207";
+
 /// Build the complete XML grammar from trusted tool names only. The small V6
 /// catalog is experimental; any other tool fails closed before sampling.
 pub fn native_xml_coding_grammar(
@@ -215,6 +221,7 @@ pub fn is_local_coding_recipe(digest: &str) -> bool {
             | LOCAL_CODING_V6_RECIPE_SHA
             | LOCAL_CODING_V7_RECIPE_SHA
             | LOCAL_CODING_V8_RECIPE_SHA
+            | LOCAL_CODING_V9_RECIPE_SHA
     )
 }
 /// Return the exact system text and JSON Schema for the selected coding recipe.
@@ -228,6 +235,7 @@ pub fn local_coding_recipe(digest: &str) -> Option<(&'static str, serde_json::Va
         LOCAL_CODING_V6_RECIPE_SHA => (LOCAL_CODING_V6_SYSTEM, LOCAL_CODING_V2_SCHEMA),
         LOCAL_CODING_V7_RECIPE_SHA => (LOCAL_CODING_V7_SYSTEM, LOCAL_CODING_V2_SCHEMA),
         LOCAL_CODING_V8_RECIPE_SHA => (LOCAL_CODING_V8_SYSTEM, LOCAL_CODING_V2_SCHEMA),
+        LOCAL_CODING_V9_RECIPE_SHA => (LOCAL_CODING_V9_SYSTEM, LOCAL_CODING_V2_SCHEMA),
         _ => return None,
     };
     Some((
@@ -743,6 +751,7 @@ impl LocalProfile {
                 | LOCAL_CODING_V6_RECIPE_SHA
                 | LOCAL_CODING_V7_RECIPE_SHA
                 | LOCAL_CODING_V8_RECIPE_SHA
+                | LOCAL_CODING_V9_RECIPE_SHA
         ) {
             gguf_lfm3_corrected_tokenizer_digest(&self.artifact_digest)?
         } else {
@@ -837,6 +846,13 @@ impl NativeCallEvidence {
     }
     /// A malformed or ambiguous response yields empty content and remains charged evidence.
     pub fn action_content(&self) -> Result<String, ValidationError> {
+        self.action_content_with_root_alias(false)
+    }
+    /// Normalize only the versioned native directory alias; evidence remains unchanged.
+    pub fn action_content_for_recipe(&self, recipe: &Digest) -> Result<String, ValidationError> {
+        self.action_content_with_root_alias(recipe.as_str() == LOCAL_CODING_V9_RECIPE_SHA)
+    }
+    fn action_content_with_root_alias(&self, root_alias: bool) -> Result<String, ValidationError> {
         canonical_bytes(self, MAX_MODEL_OUTPUT)?;
         if self.choice_count != 1 || self.overflow_digest.is_some() || self.calls.len() != 1 {
             return Ok(String::new());
@@ -858,6 +874,12 @@ impl NativeCallEvidence {
         };
         if args.contains_key("tool") {
             return Ok(String::new());
+        }
+        if root_alias
+            && matches!(call.name.as_str(), "list" | "run")
+            && args.get("directory").and_then(serde_json::Value::as_str) == Some(".")
+        {
+            args.insert("directory".to_string(), serde_json::Value::Null);
         }
         args.insert(
             "tool".to_string(),
@@ -937,7 +959,9 @@ impl LocalObservation {
                     | LOCAL_CODING_V6_RECIPE_SHA
                     | LOCAL_CODING_V7_RECIPE_SHA
                     | LOCAL_CODING_V8_RECIPE_SHA
-            ) || native.action_content()? != self.content.as_str()
+                    | LOCAL_CODING_V9_RECIPE_SHA
+            ) || native.action_content_for_recipe(&profile.prompt_recipe_digest)?
+                != self.content.as_str()
             {
                 return Err(ValidationError::Binding);
             }
@@ -947,6 +971,7 @@ impl LocalObservation {
                 | LOCAL_CODING_V6_RECIPE_SHA
                 | LOCAL_CODING_V7_RECIPE_SHA
                 | LOCAL_CODING_V8_RECIPE_SHA
+                | LOCAL_CODING_V9_RECIPE_SHA
         ) {
             return Err(ValidationError::Binding);
         }
@@ -1419,11 +1444,14 @@ impl WorkerRequest {
                     | LOCAL_CODING_V6_RECIPE_SHA
                     | LOCAL_CODING_V7_RECIPE_SHA
                     | LOCAL_CODING_V8_RECIPE_SHA
+                    | LOCAL_CODING_V9_RECIPE_SHA
             );
             if previous_tool_turn.is_some()
                 && !matches!(
                     profile.prompt_recipe_digest.as_str(),
-                    LOCAL_CODING_V7_RECIPE_SHA | LOCAL_CODING_V8_RECIPE_SHA
+                    LOCAL_CODING_V7_RECIPE_SHA
+                        | LOCAL_CODING_V8_RECIPE_SHA
+                        | LOCAL_CODING_V9_RECIPE_SHA
                 )
             {
                 return Err(ValidationError::Binding);
@@ -1452,7 +1480,10 @@ impl WorkerRequest {
                         .ok_or(ValidationError::Binding)?,
                 )?;
             }
-            if profile.prompt_recipe_digest.as_str() == LOCAL_CODING_V8_RECIPE_SHA {
+            if matches!(
+                profile.prompt_recipe_digest.as_str(),
+                LOCAL_CODING_V8_RECIPE_SHA | LOCAL_CODING_V9_RECIPE_SHA
+            ) {
                 native_xml_coding_v8_grammar(
                     native_tools
                         .as_deref()
