@@ -1,0 +1,182 @@
+{
+  "schema_version": 1,
+  "source_commit": "396870cf5198857b09569db2a861217eaeb8d3d9",
+  "sdk_commit": "fb4cdc3730dc64b366724e7637a205a8b7747499",
+  "worker_sha256": "92353b77feb95b36a366c99238440956627899526f3a3d6c83fe0e49db349840",
+  "model": "LiquidAI/LFM3-1.7B-GGUF",
+  "quantization": "Q4_K_M",
+  "device": "CUDA RTX3060Laptop",
+  "context_input_output_caps": [
+    4096,
+    3584,
+    512
+  ],
+  "cases": [
+    {
+      "case": "native-repair-v7-agent-04",
+      "mode": "agent",
+      "elapsed_seconds": 754.9643569880864,
+      "result": {
+        "outcome": "rejected",
+        "phase": "rejected",
+        "accounting": {
+          "limit": {
+            "model_requests": 8,
+            "tool_calls": 16,
+            "spend_micros_usd": 0
+          },
+          "posted": {
+            "model_requests": 8,
+            "tool_calls": 7,
+            "spend_micros_usd": 0
+          },
+          "reserved": {
+            "model_requests": 0,
+            "tool_calls": 0,
+            "spend_micros_usd": 0
+          },
+          "breached": false,
+          "incomplete": false,
+          "integrity_hold": false
+        },
+        "audit": {
+          "chain_valid": true,
+          "accounting_valid": true,
+          "projection_valid": true
+        },
+        "behavior_replay": true,
+        "replay_head": "97c7936ff135eee9b588ecb96757324155d0b6f70899daa4e77b1e73382d742e",
+        "artifact_valid": null,
+        "acceptance_report_valid": null
+      },
+      "preflight_prompt_token_counts": [
+        414,
+        947,
+        1131,
+        1386,
+        1357,
+        1524,
+        1556,
+        1376
+      ],
+      "model_profile_sha256": "7f95feb0ad36721d4f917310b50e47e38a18d9d4791dfbddbad732f29e544d8d",
+      "source_record_sha256": {
+        "preregistered.json": "e818e5d417ed1af255ec4df92f6fac6b3ac20e7cc2ccac58eac316cf5b31d689",
+        "stdout.jsonl": "805cd6345d5a908da986cc77e19b7b680a8553e09f749aeff96431ec22d71265",
+        "result.json": "cf6b4fa865977410c9274dca8e628858eb07a260af8ddc35700da7f86205b53b"
+      },
+      "final_source_sha256": "58d89b762e27309bfa1ea30da75549393a7d82ef83fba7f5b50041ee7a497ee5"
+    },
+    {
+      "case": "native-calculator-v7-agent-01",
+      "mode": "agent",
+      "elapsed_seconds": 359.06568549002986,
+      "result": {
+        "outcome": "rejected",
+        "phase": "rejected",
+        "accounting": {
+          "limit": {
+            "model_requests": 12,
+            "tool_calls": 24,
+            "spend_micros_usd": 0
+          },
+          "posted": {
+            "model_requests": 5,
+            "tool_calls": 1,
+            "spend_micros_usd": 0
+          },
+          "reserved": {
+            "model_requests": 0,
+            "tool_calls": 0,
+            "spend_micros_usd": 0
+          },
+          "breached": false,
+          "incomplete": false,
+          "integrity_hold": false
+        },
+        "audit": {
+          "chain_valid": true,
+          "accounting_valid": true,
+          "projection_valid": true
+        },
+        "behavior_replay": true,
+        "replay_head": "46325df25aaf6d6bf79cb438f0ff0812594d3650b202aaaa22344e68994f8d47",
+        "artifact_valid": null,
+        "acceptance_report_valid": null
+      },
+      "preflight_prompt_token_counts": [
+        444,
+        1068,
+        1185,
+        1285,
+        1286
+      ],
+      "model_profile_sha256": "7f95feb0ad36721d4f917310b50e47e38a18d9d4791dfbddbad732f29e544d8d",
+      "source_record_sha256": {
+        "preregistered.json": "b060ddbc47537e2baf68c69be03605e44823470f4812dce4ee94c464b240f369",
+        "stdout.jsonl": "b957d563564e15296c0dee45c5d3dc729b4d374f7e3fbc1352fbf2ca7d3f1231",
+        "result.json": "1b3ff17db8d5dcc33795839496546d4229a3cb2ebb0bba9114a8eef9c0469a94"
+      }
+    },
+    {
+      "case": "native-repair-v7-agent-05",
+      "mode": "agent",
+      "elapsed_seconds": 1204.725528523093,
+      "result": {
+        "outcome": "rejected",
+        "phase": "rejected",
+        "accounting": {
+          "limit": {
+            "model_requests": 12,
+            "tool_calls": 24,
+            "spend_micros_usd": 0
+          },
+          "posted": {
+            "model_requests": 12,
+            "tool_calls": 11,
+            "spend_micros_usd": 0
+          },
+          "reserved": {
+            "model_requests": 0,
+            "tool_calls": 0,
+            "spend_micros_usd": 0
+          },
+          "breached": false,
+          "incomplete": false,
+          "integrity_hold": false
+        },
+        "audit": {
+          "chain_valid": true,
+          "accounting_valid": true,
+          "projection_valid": true
+        },
+        "behavior_replay": true,
+        "replay_head": "24d7882ecf2ede2cb283b3d521b004f412cb113cc6e54466ace3b071576b99cb",
+        "artifact_valid": null,
+        "acceptance_report_valid": null
+      },
+      "preflight_prompt_token_counts": [
+        414,
+        947,
+        1131,
+        1386,
+        1357,
+        1524,
+        1556,
+        1376,
+        1589,
+        1549,
+        1377,
+        1520
+      ],
+      "model_profile_sha256": "7f95feb0ad36721d4f917310b50e47e38a18d9d4791dfbddbad732f29e544d8d",
+      "source_record_sha256": {
+        "preregistered.json": "975402be5b0b75f1f3a2b799c3e445256e4fc57d09850a9fad6d0f3c8eed3368",
+        "stdout.jsonl": "3fc51353ae16cf322f4376d2beefdf1d8f9e00e8fcc39b490be47d0fe04ef142",
+        "result.json": "a47b81427f1c1b1bc4dbee55a82a2128be6c9453d6a0041889ad2c3b32a6d026"
+      },
+      "final_source_sha256": "6fa4b5166fd15cbf1ea7ed05aefcf36d8410f44a7ffaedc3e587124667ab2893"
+    }
+  ],
+  "acceptance": "No task reached artifact freeze or independent evaluator; no accepted application"
+}

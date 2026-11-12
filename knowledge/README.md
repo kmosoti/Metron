@@ -57,6 +57,7 @@ knowledge to those sources.
 | [O-0010 Coding decoding contracts](observations/O-0010-coding-decoding-contracts.md) | agent | false |
 | [O-0011 Native XML constraints](observations/O-0011-native-xml-constraints.md) | agent | false |
 | [O-0012 Paired tool history diagnostic](observations/O-0012-paired-tool-history.md) | agent | false |
+| [O-0013 Native coding execution and feedback](observations/O-0013-native-coding-feedback.md) | agent | false |
 
 ## Runtime implementation
 

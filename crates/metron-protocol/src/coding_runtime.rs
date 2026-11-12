@@ -128,6 +128,8 @@ pub fn validate_coding_receipt(
                             | "coding-harness/v3.8"
                             | "coding-agent/v3.9"
                             | "coding-harness/v3.9"
+                            | "coding-agent/v3.10"
+                            | "coding-harness/v3.10"
                     )
                 {
                     return Err(ValidationError::Binding);
@@ -154,6 +156,8 @@ pub fn validate_coding_receipt(
                         | "coding-harness/v3.8"
                         | "coding-agent/v3.9"
                         | "coding-harness/v3.9"
+                        | "coding-agent/v3.10"
+                        | "coding-harness/v3.10"
                 )
             {
                 return Err(ValidationError::Binding);
@@ -485,6 +489,16 @@ pub fn coding_transition_paired(
     coding_transition_impl(task, policy, state, event, 9)
 }
 
+/// Version 3.10 adds bounded, untrusted rejected-proposal details.
+pub fn coding_transition_detailed_feedback(
+    task: &CodingTask,
+    policy: &CodingPolicy,
+    state: &AgentState,
+    event: &AgentEvent,
+) -> Result<Transition, DecisionError> {
+    coding_transition_impl(task, policy, state, event, 10)
+}
+
 fn coding_transition_impl(
     task: &CodingTask,
     policy: &CodingPolicy,
@@ -503,6 +517,14 @@ fn coding_transition_impl(
         return Err(DecisionError::InvalidEvent);
     }
     if let Some(context) = &state.coding_context {
+        if version < 10
+            && context
+                .model_feedback
+                .as_ref()
+                .is_some_and(|feedback| feedback.detail.is_some())
+        {
+            return Err(DecisionError::InvariantViolation);
+        }
         if version < 9
             && (context.pending_tool_turn.is_some() || context.previous_tool_turn.is_some())
         {
@@ -769,13 +791,19 @@ fn coding_transition_impl(
                     if version >= 5 {
                         context.model_feedback = None;
                     }
-                    context
-                        .observe(evidence_id.clone(), "model", content)
-                        .map_err(|_| DecisionError::InvariantViolation)?;
+                    if version >= 10 {
+                        context.observe_detailed(evidence_id.clone(), "model", content)
+                    } else {
+                        context.observe(evidence_id.clone(), "model", content)
+                    }
+                    .map_err(|_| DecisionError::InvariantViolation)?;
                     if version >= 3 {
-                        context
-                            .bound_focused()
-                            .map_err(|_| DecisionError::InvariantViolation)?;
+                        if version >= 10 {
+                            context.bound_detailed()
+                        } else {
+                            context.bound_focused()
+                        }
+                        .map_err(|_| DecisionError::InvariantViolation)?;
                     } else if phased {
                         context
                             .bound_phased()
@@ -802,10 +830,34 @@ fn coding_transition_impl(
                                 MODEL_VALIDATION_DIAGNOSTIC
                             })
                             .map_err(|_| DecisionError::InvariantViolation)?,
+                            detail: if version >= 10 {
+                                let reason = action
+                                    .as_ref()
+                                    .err()
+                                    .map(ToString::to_string)
+                                    .unwrap_or_else(|| {
+                                        "The first action must be a plan".to_owned()
+                                    });
+                                let reason_end = reason.floor_char_boundary(reason.len().min(256));
+                                let preview_end =
+                                    content.floor_char_boundary(content.len().min(512));
+                                Some(ModelFeedbackDetail {
+                                    reason: BoundedText::new(&reason[..reason_end])
+                                        .map_err(|_| DecisionError::InvariantViolation)?,
+                                    rejected_preview: BoundedText::new(&content[..preview_end])
+                                        .map_err(|_| DecisionError::InvariantViolation)?,
+                                    truncated: preview_end < content.len(),
+                                })
+                            } else {
+                                None
+                            },
                         });
-                        context
-                            .bound_focused()
-                            .map_err(|_| DecisionError::InvariantViolation)?;
+                        if version >= 10 {
+                            context.bound_detailed()
+                        } else {
+                            context.bound_focused()
+                        }
+                        .map_err(|_| DecisionError::InvariantViolation)?;
                         if context.invalid_proposals >= MAX_INVALID_PROPOSALS {
                             return final_state(state, Phase::Rejected, true, Some(context));
                         }
@@ -1223,6 +1275,15 @@ pub const FORMAT_NEUTRAL_MODEL_VALIDATION_DIAGNOSTIC: &str = "Return one valid a
 pub struct ModelFeedback {
     pub source_evidence: Digest,
     pub diagnostic: BoundedText<256>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<ModelFeedbackDetail>,
+}
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ModelFeedbackDetail {
+    pub reason: BoundedText<256>,
+    pub rejected_preview: BoundedText<512>,
+    pub truncated: bool,
 }
 fn is_zero_u8(value: &u8) -> bool {
     *value == 0
@@ -1368,6 +1429,15 @@ impl CodingContext {
                     || !self.items.last().is_some_and(|item| {
                         item.kind.as_str() == "model" && item.evidence == feedback.source_evidence
                     })
+                    || feedback.detail.as_ref().is_some_and(|detail| {
+                        self.items.last().is_none_or(|item| {
+                            let excerpt = item.excerpt.as_str();
+                            let end = excerpt.floor_char_boundary(excerpt.len().min(512));
+                            detail.reason.as_str().is_empty()
+                                || detail.rejected_preview.as_str() != &excerpt[..end]
+                                || detail.truncated != (item.truncated || end < excerpt.len())
+                        })
+                    })
             })
             || self.memory_manifest.as_ref().is_some_and(|m| {
                 m.visible.len() > 8
@@ -1442,6 +1512,57 @@ impl CodingContext {
         }
         self.validate()
     }
+    // v3.10 must retain the current model observation while its feedback cites it.
+    fn bound_detailed(&mut self) -> Result<(), ValidationError> {
+        while canonical_bytes(self, 16 * 1024).is_err() {
+            if self.items.len() > 1 {
+                self.items.remove(0);
+                self.omitted_items = self
+                    .omitted_items
+                    .checked_add(1)
+                    .ok_or(ValidationError::Limit)?;
+            } else if self.tool_views.len() > 1 {
+                self.tool_views.remove(0);
+            } else if self.recorded_plan.len() > 1 {
+                self.recorded_plan.pop();
+                self.omitted_plan_steps = self
+                    .omitted_plan_steps
+                    .checked_add(1)
+                    .ok_or(ValidationError::Limit)?;
+            } else if matches!(
+                self.previous_tool_turn.as_deref(),
+                Some(CompletedToolTurn::Complete { .. })
+            ) {
+                let turn = self
+                    .previous_tool_turn
+                    .take()
+                    .ok_or(ValidationError::Binding)?;
+                let CompletedToolTurn::Complete {
+                    action,
+                    model_evidence,
+                    tool_intent,
+                    tool_evidence,
+                    observation,
+                } = *turn
+                else {
+                    return Err(ValidationError::Binding);
+                };
+                let action_digest = content_digest(&canonical_bytes(&action, MAX_INTERNAL)?);
+                self.previous_tool_turn = Some(Box::new(CompletedToolTurn::Omitted {
+                    reason: PairedOmissionReason::ContextLimit,
+                    action_digest,
+                    tool: action.tool(),
+                    model_evidence,
+                    tool_intent,
+                    tool_evidence,
+                    observation,
+                }));
+            } else {
+                return Err(ValidationError::Limit);
+            }
+        }
+        self.validate()
+    }
     fn add_tool_view(&mut self, output: &CodingToolOutput) -> Result<(), ValidationError> {
         let text = output.body.as_str();
         let end = text.floor_char_boundary(768);
@@ -1480,6 +1601,23 @@ impl CodingContext {
         kind: &str,
         content: &str,
     ) -> Result<(), ValidationError> {
+        self.observe_impl(evidence, kind, content, false)
+    }
+    fn observe_detailed(
+        &mut self,
+        evidence: Digest,
+        kind: &str,
+        content: &str,
+    ) -> Result<(), ValidationError> {
+        self.observe_impl(evidence, kind, content, true)
+    }
+    fn observe_impl(
+        &mut self,
+        evidence: Digest,
+        kind: &str,
+        content: &str,
+        preserve_model: bool,
+    ) -> Result<(), ValidationError> {
         let end = content.floor_char_boundary(1536);
         self.items.push(CodingContextItem {
             evidence,
@@ -1508,7 +1646,11 @@ impl CodingContext {
             || self.last_action.is_some()
             || !self.tool_views.is_empty()
         {
-            self.bound_focused()
+            if preserve_model {
+                self.bound_detailed()
+            } else {
+                self.bound_focused()
+            }
         } else if self.items.iter().any(|item| !item.file_refs.is_empty()) {
             self.bound_phased()
         } else {

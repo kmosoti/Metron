@@ -123,13 +123,23 @@ fn cognition(
                     .map(|c| Box::new(c) as Box<dyn Cognition>)
                     .map_err(|_| (CliOutcome::IntegrityFailure, "invalid coding policy"))
             }
-            (EngineMode::Agent, "coding-agent/v3.9") => {
+            (EngineMode::Agent, "coding-agent/v3.10") => {
                 metron_agent::CodingAgent::new(task, policy)
                     .map(|c| Box::new(c) as Box<dyn Cognition>)
                     .map_err(|_| (CliOutcome::IntegrityFailure, "invalid coding policy"))
             }
-            (EngineMode::Harness, "coding-harness/v3.9") => {
+            (EngineMode::Harness, "coding-harness/v3.10") => {
                 metron_harness::planner::CodingPlanner::new(task, policy)
+                    .map(|c| Box::new(c) as Box<dyn Cognition>)
+                    .map_err(|_| (CliOutcome::IntegrityFailure, "invalid coding policy"))
+            }
+            (EngineMode::Agent, "coding-agent/v3.9") => {
+                metron_agent::CodingAgent::legacy_v3_9(task, policy)
+                    .map(|c| Box::new(c) as Box<dyn Cognition>)
+                    .map_err(|_| (CliOutcome::IntegrityFailure, "invalid coding policy"))
+            }
+            (EngineMode::Harness, "coding-harness/v3.9") => {
+                metron_harness::planner::CodingPlanner::legacy_v3_9(task, policy)
                     .map(|c| Box::new(c) as Box<dyn Cognition>)
                     .map_err(|_| (CliOutcome::IntegrityFailure, "invalid coding policy"))
             }
