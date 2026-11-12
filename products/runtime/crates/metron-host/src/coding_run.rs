@@ -16,7 +16,9 @@ use metron_inference_local::{
 use metron_protocol::{coding::*, toolkit::ToolCatalog, *};
 use metron_store_sqlite::{
     SqliteStore,
-    memory::{MemoryError, MemoryInput, MemoryStore, Scope},
+    memory::{
+        MemoryError, MemoryInput, MemoryStore, Scope, SourceAnnotationInput, SourceAnnotationKind,
+    },
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{
@@ -99,7 +101,7 @@ fn scope(settings: &Settings) -> Result<Option<Scope>, String> {
 }
 impl Settings {
     fn validate(&self, execution: bool) -> Result<(), String> {
-        if !matches!(self.context_version, 1..=8) {
+        if !matches!(self.context_version, 1..=9) {
             return Err("unsupported coding context version".into());
         }
         if self
@@ -186,6 +188,8 @@ impl Settings {
                 (EngineMode::Agent, 7) => "coding-agent/v3.6",
                 (EngineMode::Harness, 7) => "coding-harness/v3.6",
                 (EngineMode::Agent, 8) => "coding-agent/v3.7",
+                (EngineMode::Agent, 9) => "coding-agent/v3.8",
+                (EngineMode::Harness, 9) => "coding-harness/v3.8",
                 (EngineMode::Harness, 8) => "coding-harness/v3.7",
                 _ => return Err("unsupported coding context version".into()),
             })
@@ -218,6 +222,7 @@ struct Driver {
     store_path: PathBuf,
     run_dir: PathBuf,
     policy: CodingPolicy,
+    context_version: u8,
 }
 impl Driver {
     fn uncertain(&self, effect: &AuthorizedEffect, diagnostic: &str) -> DriverOutcome {
@@ -347,6 +352,128 @@ impl Driver {
             }
         }
     }
+    fn memory_search_v9(
+        &mut self,
+        action: &CodingAction,
+    ) -> (ToolOutcome, Option<MemorySelection>) {
+        let CodingAction::MemorySearch { query, limit } = action else {
+            unreachable!()
+        };
+        let Some((store, scope)) = self.memory.as_mut() else {
+            return (
+                self.memory_output(action, ToolStatus::Denied, "memory not granted", false),
+                None,
+            );
+        };
+        let page =
+            match store.search_candidates(scope, query.as_str(), usize::from((*limit).min(8))) {
+                Ok(page) => page,
+                Err(MemoryError::Denied) => {
+                    return (
+                        self.memory_output(
+                            action,
+                            ToolStatus::Denied,
+                            "memory grant revoked or absent",
+                            false,
+                        ),
+                        None,
+                    );
+                }
+                Err(MemoryError::InvalidInput) => {
+                    return (
+                        self.memory_output(
+                            action,
+                            ToolStatus::Failed,
+                            "invalid memory input",
+                            false,
+                        ),
+                        None,
+                    );
+                }
+                Err(_) => {
+                    return (
+                        ToolOutcome::Uncertain("memory transaction uncertain".into()),
+                        None,
+                    );
+                }
+            };
+        let mut selection = MemorySelection {
+            sources: Vec::new(),
+            requested_limit: *limit,
+            candidate_limit: page.requested_limit as u8,
+            output_budget_bytes: self.policy.max_output_bytes.min(700),
+            excerpt_limit_bytes: 256,
+            has_more: page.has_more,
+            omitted_known: 0,
+        };
+        let mut excerpts = Vec::new();
+        let budget = (self.policy.max_output_bytes as usize).min(700);
+        for (i, entry) in page.entries.into_iter().enumerate() {
+            let annotations: Vec<_> = entry
+                .annotations
+                .into_iter()
+                .map(|annotation| {
+                    let (stale, related_dispatch) = match annotation.kind {
+                        SourceAnnotationKind::Stale => (true, None),
+                        SourceAnnotationKind::ConflictsWith { related_dispatch } => {
+                            (false, Some(related_dispatch))
+                        }
+                    };
+                    MemoryAnnotationRef {
+                        dispatch: annotation.dispatch,
+                        source_evidence: annotation.source_evidence,
+                        reason_digest: content_digest(annotation.reason.as_bytes()),
+                        target_dispatch: annotation.target_dispatch,
+                        related_dispatch,
+                        stale,
+                    }
+                })
+                .collect();
+            let end = entry.body.floor_char_boundary(entry.body.len().min(256));
+            let excerpt = &entry.body[..end];
+            let visible = serde_json::json!({"slot":i,"excerpt":excerpt,"unverified":true,"stale":annotations.iter().any(|a|a.stale),"conflict":annotations.iter().any(|a|a.related_dispatch.is_some()),"truncated":end<entry.body.len()});
+            let mut candidate = excerpts.clone();
+            candidate.push(visible);
+            let remaining = (page.requested_limit - candidate.len()) as u8;
+            let value = serde_json::json!({"notes":candidate,"omitted_known":remaining,"has_more":page.has_more});
+            let include = value.to_string().len() <= budget;
+            if include {
+                excerpts = candidate;
+            }
+            selection.sources.push(MemorySource {
+                slot: i as u8,
+                dispatch: entry.dispatch,
+                content_hash: entry.content_hash,
+                source_task: entry.source_task,
+                source_evidence: entry.source_evidence,
+                trust: BoundedText::new(entry.trust).expect("known trust label"),
+                annotations,
+                body_bytes: entry.body.len() as u32,
+                excerpt: include.then(|| BoundedText::new(excerpt).expect("bounded excerpt")),
+            });
+        }
+        selection.omitted_known = selection
+            .sources
+            .iter()
+            .filter(|s| s.excerpt.is_none())
+            .count() as u8;
+        let value = serde_json::json!({"notes":excerpts,"omitted_known":selection.omitted_known,"has_more":selection.has_more}).to_string();
+        if value.len() > budget || selection.validate().is_err() {
+            return (
+                self.memory_output(
+                    action,
+                    ToolStatus::Failed,
+                    "memory result exceeds output budget",
+                    false,
+                ),
+                None,
+            );
+        }
+        (
+            self.memory_output(action, ToolStatus::Succeeded, &value, false),
+            Some(selection),
+        )
+    }
     fn memory_output(
         &self,
         action: &CodingAction,
@@ -400,24 +527,37 @@ impl EffectDriver for Driver {
                 )
             }
             CodingStep::Tool { action, .. } => {
-                let outcome = if matches!(
+                let (outcome, memory_selection) = if self.context_version >= 9
+                    && matches!(action, CodingAction::MemorySearch { .. })
+                {
+                    self.memory_search_v9(action)
+                } else if matches!(
                     action,
                     CodingAction::MemoryPut { .. } | CodingAction::MemorySearch { .. }
                 ) {
-                    self.memory_action(
-                        action,
-                        &effect.request().action.dispatch_id,
-                        &effect.request().action.task_id,
+                    (
+                        self.memory_action(
+                            action,
+                            &effect.request().action.dispatch_id,
+                            &effect.request().action.task_id,
+                        ),
+                        None,
                     )
                 } else {
-                    self.tools
-                        .execute(action, &effect.request().action.dispatch_id)
+                    (
+                        self.tools
+                            .execute(action, &effect.request().action.dispatch_id),
+                        None,
+                    )
                 };
                 match outcome {
                     ToolOutcome::Known(output) => self.known(
                         &effect,
                         ReceiptOutput::Coding {
-                            observation: Box::new(CodingObservation::Tool { output }),
+                            observation: Box::new(CodingObservation::Tool {
+                                output,
+                                memory_selection,
+                            }),
                         },
                         0,
                         1,
@@ -688,8 +828,125 @@ fn flag(args: &[String], name: &str) -> Option<String> {
 fn required(args: &[String], name: &str) -> Result<String, String> {
     flag(args, name).ok_or_else(|| format!("missing {name}"))
 }
+fn annotate_memory(args: &[String]) -> Result<serde_json::Value, String> {
+    let run_dir = PathBuf::from(required(args, "--run-dir")?);
+    let settings: Settings = read(&run_dir.join("coding-settings.json"))?;
+    settings.validate(false)?;
+    let scope = scope(&settings)?.ok_or("task has no memory scope")?;
+    let evidence =
+        Digest::new(required(args, "--source-evidence")?).map_err(|_| "invalid source evidence")?;
+    let mut runtime = SqliteStore::open_read_only(run_dir.join("runtime.sqlite"))
+        .map_err(|_| "cannot open source journal")?;
+    let mut snapshot = runtime.audit().map_err(|_| "cannot audit source journal")?;
+    let task_id = &settings.task.data().task_id;
+    let projection = snapshot
+        .projection(task_id)
+        .map_err(|_| "missing source task")?;
+    if projection.task.coding() != Some(&settings.task)
+        || projection.genesis != settings.genesis()?
+    {
+        return Err("source task/settings mismatch".into());
+    }
+    let audit =
+        metron_harness::audit::verify(&mut snapshot, task_id).map_err(|_| "source audit failed")?;
+    if !audit.chain_valid || !audit.accounting_valid || !audit.projection_valid {
+        return Err("source audit invalid".into());
+    }
+    let engine =
+        crate::cognition(&projection.genesis, &projection.task).map_err(|(_, e)| e.to_string())?;
+    if !metron_harness::replay::behavior(&mut snapshot, task_id, engine.as_ref())
+        .map_err(|_| "source replay failed")?
+    {
+        return Err("source replay invalid".into());
+    }
+    let mut found = false;
+    let mut cursor = None;
+    loop {
+        let page = snapshot
+            .intents(task_id, cursor)
+            .map_err(|_| "source intents unavailable")?;
+        for intent in page.records {
+            if intent.selected_evidence.as_ref() != Some(&evidence) {
+                continue;
+            }
+            let IntentKind::Coding { step } = &intent.intent.kind else {
+                continue;
+            };
+            let CodingStep::Tool { action, .. } = step.as_ref() else {
+                continue;
+            };
+            if matches!(
+                action,
+                CodingAction::MemoryPut { .. } | CodingAction::MemorySearch { .. }
+            ) {
+                continue;
+            }
+            let mut evidence_cursor = None;
+            loop {
+                let evidence_page = snapshot
+                    .evidence(&intent.intent_id, evidence_cursor)
+                    .map_err(|_| "source evidence unavailable")?;
+                for item in evidence_page.records {
+                    if item.evidence_id != evidence || !item.selected || item.conflict {
+                        continue;
+                    }
+                    if let ReceiptOutput::Coding { observation } = &item.receipt.data().output
+                        && let CodingObservation::Tool { output, .. } = observation.as_ref()
+                        && output.tool == action.tool()
+                        && output.status == ToolStatus::Succeeded
+                        && output.process_tree_closed
+                    {
+                        found = true;
+                    }
+                }
+                evidence_cursor = evidence_page.next;
+                if evidence_cursor.is_none() {
+                    break;
+                }
+            }
+        }
+        cursor = page.next;
+        if cursor.is_none() {
+            break;
+        }
+    }
+    if !found {
+        return Err("source is not selected ordinary tool evidence".into());
+    }
+    let kind = match required(args, "--kind")?.as_str() {
+        "stale" => SourceAnnotationKind::Stale,
+        "conflicts-with" => SourceAnnotationKind::ConflictsWith {
+            related_dispatch: Digest::new(required(args, "--related-dispatch")?)
+                .map_err(|_| "invalid related dispatch")?,
+        },
+        _ => return Err("invalid annotation kind".into()),
+    };
+    let input = SourceAnnotationInput {
+        dispatch: Digest::new(required(args, "--dispatch")?).map_err(|_| "invalid dispatch")?,
+        target_dispatch: Digest::new(required(args, "--target-dispatch")?)
+            .map_err(|_| "invalid target dispatch")?,
+        kind,
+        source_evidence: evidence,
+        reason: required(args, "--reason")?,
+    };
+    let mut memory = MemoryStore::open_existing(
+        settings
+            .memory_db
+            .as_ref()
+            .ok_or("missing memory database")?,
+    )
+    .map_err(|_| "cannot open memory database")?;
+    memory
+        .annotate_source(&scope, &input)
+        .map_err(|_| "memory annotation denied or invalid")?;
+    Ok(serde_json::json!({"outcome":"succeeded","dispatch":input.dispatch}))
+}
+
 fn run(args: &[String]) -> Result<serde_json::Value, String> {
     let action = args.first().map(String::as_str).unwrap_or("");
+    if action == "memory-annotate" {
+        return annotate_memory(args);
+    }
     if action == "identities" {
         let catalog: ToolCatalog = read(Path::new(&required(args, "--catalog")?))?;
         let profile: LocalProfile = read(Path::new(&required(args, "--profile")?))?;
@@ -739,7 +996,7 @@ fn run(args: &[String]) -> Result<serde_json::Value, String> {
                 metron_protocol::LOCAL_CODING_V4_RECIPE_SHA
                 | metron_protocol::LOCAL_CODING_V5_RECIPE_SHA,
             )
-            | None => 8,
+            | None => 9,
             Some(metron_protocol::LOCAL_CODING_V3_RECIPE_SHA) => 6,
             Some(_) => 4,
         };
@@ -904,6 +1161,7 @@ fn run(args: &[String]) -> Result<serde_json::Value, String> {
             store_path: store_path.clone(),
             run_dir: run_dir.clone(),
             policy: settings.policy.clone(),
+            context_version: settings.context_version,
         };
         let mut verifier = Verifier {
             spec: settings.acceptance.clone(),
@@ -1069,6 +1327,7 @@ mod tests {
             store_path: root.join("run/runtime.sqlite"),
             run_dir: root.join("run"),
             policy: s.policy.clone(),
+            context_version: s.context_version,
         }
     }
     pub(super) fn assert_audits(store: &mut SqliteStore, s: &Settings) {
@@ -1265,7 +1524,10 @@ mod tests {
             for intent in page.records {
                 for e in snapshot.evidence(&intent.intent_id, None).unwrap().records {
                     if let ReceiptOutput::Coding { observation } = &e.receipt.data().output
-                        && let CodingObservation::Tool { output } = observation.as_ref()
+                        && let CodingObservation::Tool {
+                            output,
+                            memory_selection: None,
+                        } = observation.as_ref()
                     {
                         assert_eq!(
                             output.status,
