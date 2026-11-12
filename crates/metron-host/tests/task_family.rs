@@ -89,6 +89,59 @@ fn existing_legacy_journal_cannot_be_mutated_through_either_entry() {
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stdout).contains("legacy execution removed"));
     assert_eq!(fs::read(root.join("runtime.sqlite")).unwrap(), before);
+    let digest = content_digest(b"absent");
+    for (action, args) in [
+        ("inspect", vec![]),
+        (
+            "approval",
+            vec![
+                "--request-id",
+                "absent",
+                "--action-digest",
+                digest.as_str(),
+                "--decision",
+                "approve",
+                "--command-id",
+                "legacy-approval",
+            ],
+        ),
+        (
+            "advance-tick",
+            vec![
+                "--expected-tick",
+                "0",
+                "--new-tick",
+                "30",
+                "--command-id",
+                "legacy-clock",
+            ],
+        ),
+        (
+            "reconcile",
+            vec![
+                "--intent",
+                digest.as_str(),
+                "--evidence",
+                digest.as_str(),
+                "--expected-evidence-revision",
+                "0",
+                "--expected-epoch",
+                "0",
+                "--command-id",
+                "legacy-reconcile",
+            ],
+        ),
+    ] {
+        let out = Command::new(env!("CARGO_BIN_EXE_metron-runtime"))
+            .args(["coding", action, "--run-dir"])
+            .arg(&root)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(!out.status.success());
+        assert!(String::from_utf8_lossy(&out.stdout).contains("legacy execution removed"));
+        assert_eq!(fs::read(root.join("runtime.sqlite")).unwrap(), before);
+    }
     assert!(!root.join("coding-settings.json").exists());
     fs::remove_dir_all(root).unwrap();
 }
