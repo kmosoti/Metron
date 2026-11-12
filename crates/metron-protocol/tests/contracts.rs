@@ -1081,8 +1081,9 @@ fn local_request_bounds_and_reasoner_binding() {
         output_schema: LocalOutputSchema::Text,
         context: BoundedText::new(context).unwrap(),
         native_tools: None,
+        previous_tool_turn: None,
         profile: Box::new(profile),
-        artifact_path: BoundedText::new("/model.gguf").unwrap(),
+        artifact_path: Box::new(BoundedText::new("/model.gguf").unwrap()),
         cohort: Box::new(SubmissionCohort {
             id: BoundedText::new("cohort").unwrap(),
             size: 1,

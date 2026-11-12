@@ -8,3 +8,5 @@ pub mod framing;
 pub mod driver;
 
 pub mod tokenizer;
+
+pub mod paired_history;

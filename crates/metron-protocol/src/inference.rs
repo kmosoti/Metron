@@ -50,6 +50,12 @@ pub const LOCAL_CODING_V6_SCHEMA_MODE: &str = "metron-native-xml-lark-actions/v1
 pub const LOCAL_CODING_V6_RECIPE_SHA: &str =
     "0403f2699dd6b12cd64de8b45044f5ff65d79438420806a0b1d2ca73ca9ba31b";
 
+/// V7 binds structured history projection and the V6 action grammar.
+pub const LOCAL_CODING_V7_SYSTEM: &str = LOCAL_CODING_V6_SYSTEM;
+pub const LOCAL_CODING_V7_RENDER_MODE: &str = "metron-native-xml-paired-tool-history/v1;typed-action-args;tool-intent-alias;exact-observation-dedup;omission-reason-tool-view;drop-provenance;feedback-after-pair;structured-preflight";
+pub const LOCAL_CODING_V7_RECIPE_SHA: &str =
+    "2b384f0ae4a7eca985e96bdf20079aab711f259570be49b8e8dc0eb90aa9737c";
+
 /// Build the complete XML grammar from trusted tool names only. The small V6
 /// catalog is experimental; any other tool fails closed before sampling.
 pub fn native_xml_coding_grammar(
@@ -172,6 +178,7 @@ pub fn is_local_coding_recipe(digest: &str) -> bool {
             | LOCAL_CODING_V4_RECIPE_SHA
             | LOCAL_CODING_V5_RECIPE_SHA
             | LOCAL_CODING_V6_RECIPE_SHA
+            | LOCAL_CODING_V7_RECIPE_SHA
     )
 }
 /// Return the exact system text and JSON Schema for the selected coding recipe.
@@ -183,6 +190,7 @@ pub fn local_coding_recipe(digest: &str) -> Option<(&'static str, serde_json::Va
         LOCAL_CODING_V4_RECIPE_SHA => (LOCAL_CODING_V4_SYSTEM, LOCAL_CODING_V2_SCHEMA),
         LOCAL_CODING_V5_RECIPE_SHA => (LOCAL_CODING_V5_SYSTEM, LOCAL_CODING_V2_SCHEMA),
         LOCAL_CODING_V6_RECIPE_SHA => (LOCAL_CODING_V6_SYSTEM, LOCAL_CODING_V2_SCHEMA),
+        LOCAL_CODING_V7_RECIPE_SHA => (LOCAL_CODING_V7_SYSTEM, LOCAL_CODING_V2_SCHEMA),
         _ => return None,
     };
     Some((
@@ -688,6 +696,7 @@ impl LocalProfile {
                 | LOCAL_CODING_V4_RECIPE_SHA
                 | LOCAL_CODING_V5_RECIPE_SHA
                 | LOCAL_CODING_V6_RECIPE_SHA
+                | LOCAL_CODING_V7_RECIPE_SHA
         ) {
             gguf_lfm3_corrected_tokenizer_digest(&self.artifact_digest)?
         } else {
@@ -878,14 +887,16 @@ impl LocalObservation {
         if let Some(native) = &self.native_calls {
             if !matches!(
                 profile.prompt_recipe_digest.as_str(),
-                LOCAL_CODING_V3_RECIPE_SHA | LOCAL_CODING_V6_RECIPE_SHA
+                LOCAL_CODING_V3_RECIPE_SHA
+                    | LOCAL_CODING_V6_RECIPE_SHA
+                    | LOCAL_CODING_V7_RECIPE_SHA
             ) || native.action_content()? != self.content.as_str()
             {
                 return Err(ValidationError::Binding);
             }
         } else if matches!(
             profile.prompt_recipe_digest.as_str(),
-            LOCAL_CODING_V3_RECIPE_SHA | LOCAL_CODING_V6_RECIPE_SHA
+            LOCAL_CODING_V3_RECIPE_SHA | LOCAL_CODING_V6_RECIPE_SHA | LOCAL_CODING_V7_RECIPE_SHA
         ) {
             return Err(ValidationError::Binding);
         }
@@ -1249,8 +1260,10 @@ pub enum WorkerRequest {
         context: BoundedText<MAX_LOCAL_CONTEXT>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         native_tools: Option<Box<Vec<crate::coding::CodingTool>>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        previous_tool_turn: Option<Box<crate::coding_runtime::CompletedToolTurn>>,
         profile: Box<LocalProfile>,
-        artifact_path: BoundedText<4096>,
+        artifact_path: Box<BoundedText<4096>>,
         cohort: Box<SubmissionCohort>,
     },
     Cancel {
@@ -1343,6 +1356,7 @@ impl WorkerRequest {
             role,
             output_schema,
             native_tools,
+            previous_tool_turn,
             ..
         } = self
         {
@@ -1353,7 +1367,13 @@ impl WorkerRequest {
                     | LOCAL_CODING_V4_RECIPE_SHA
                     | LOCAL_CODING_V5_RECIPE_SHA
                     | LOCAL_CODING_V6_RECIPE_SHA
+                    | LOCAL_CODING_V7_RECIPE_SHA
             );
+            if previous_tool_turn.is_some()
+                && profile.prompt_recipe_digest.as_str() != LOCAL_CODING_V7_RECIPE_SHA
+            {
+                return Err(ValidationError::Binding);
+            }
             if native != native_tools.is_some()
                 || native_tools.as_ref().is_some_and(|tools| {
                     tools.is_empty()
@@ -1367,7 +1387,10 @@ impl WorkerRequest {
             {
                 return Err(ValidationError::Binding);
             }
-            if profile.prompt_recipe_digest.as_str() == LOCAL_CODING_V6_RECIPE_SHA {
+            if matches!(
+                profile.prompt_recipe_digest.as_str(),
+                LOCAL_CODING_V6_RECIPE_SHA | LOCAL_CODING_V7_RECIPE_SHA
+            ) {
                 native_xml_coding_grammar(
                     native_tools
                         .as_deref()

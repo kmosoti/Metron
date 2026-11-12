@@ -101,7 +101,7 @@ fn scope(settings: &Settings) -> Result<Option<Scope>, String> {
 }
 impl Settings {
     fn validate(&self, execution: bool) -> Result<(), String> {
-        if !matches!(self.context_version, 1..=9) {
+        if !matches!(self.context_version, 1..=10) {
             return Err("unsupported coding context version".into());
         }
         if self
@@ -188,6 +188,8 @@ impl Settings {
                 (EngineMode::Agent, 7) => "coding-agent/v3.6",
                 (EngineMode::Harness, 7) => "coding-harness/v3.6",
                 (EngineMode::Agent, 8) => "coding-agent/v3.7",
+                (EngineMode::Agent, 10) => "coding-agent/v3.9",
+                (EngineMode::Harness, 10) => "coding-harness/v3.9",
                 (EngineMode::Agent, 9) => "coding-agent/v3.8",
                 (EngineMode::Harness, 9) => "coding-harness/v3.8",
                 (EngineMode::Harness, 8) => "coding-harness/v3.7",
@@ -992,6 +994,7 @@ fn run(args: &[String]) -> Result<serde_json::Value, String> {
             .map(|p| read(Path::new(&p)))
             .transpose()?;
         let context_version = match profile.as_ref().map(|p| p.prompt_recipe_digest.as_str()) {
+            Some(metron_protocol::LOCAL_CODING_V7_RECIPE_SHA) => 10,
             Some(
                 metron_protocol::LOCAL_CODING_V4_RECIPE_SHA
                 | metron_protocol::LOCAL_CODING_V5_RECIPE_SHA
@@ -1348,6 +1351,133 @@ mod tests {
             )
             .unwrap()
         );
+    }
+    #[test]
+    fn paired_both_modes_replay_controlled_compiler_feedback_and_correction() {
+        struct ControlledCompile {
+            inner: Driver,
+            saw_feedback: bool,
+        }
+        impl EffectDriver for ControlledCompile {
+            type Outcome = DriverOutcome;
+            fn execute(&mut self, effect: AuthorizedEffect) -> DriverOutcome {
+                if let ApprovedRequest::Coding { step, .. } = &effect.request().request {
+                    if let CodingStep::Model {
+                        previous_tool_turn: Some(turn),
+                        ..
+                    } = step.as_ref()
+                        && let metron_protocol::coding_runtime::CompletedToolTurn::Complete {
+                            action: CodingAction::Run { .. },
+                            observation,
+                            ..
+                        } = turn.as_ref()
+                    {
+                        self.saw_feedback = observation
+                            .body
+                            .as_str()
+                            .contains("controlled compiler error");
+                    }
+                    if let CodingStep::Tool {
+                        action: CodingAction::Run { .. },
+                        ..
+                    } = step.as_ref()
+                    {
+                        return self.inner.known(
+                            &effect,
+                            ReceiptOutput::Coding {
+                                observation: Box::new(CodingObservation::Tool {
+                                    output: CodingToolOutput {
+                                        tool: CodingTool::Run,
+                                        status: ToolStatus::Failed,
+                                        body: BoundedText::new(
+                                            "controlled compiler error: expected delimiter",
+                                        )
+                                        .unwrap(),
+                                        truncated: false,
+                                        exit_code: Some(1),
+                                        files: vec![],
+                                        process_tree_closed: true,
+                                    },
+                                    memory_selection: None,
+                                }),
+                            },
+                            0,
+                            1,
+                        );
+                    }
+                }
+                self.inner.execute(effect)
+            }
+        }
+        for mode in [EngineMode::Agent, EngineMode::Harness] {
+            let (root, mut settings, old_store) = setup(
+                if mode == EngineMode::Agent {
+                    "paired-agent"
+                } else {
+                    "paired-harness"
+                },
+                mode,
+                vec![CodingTool::Edit, CodingTool::Run, CodingTool::Finish],
+                false,
+            );
+            drop(old_store);
+            settings.context_version = 10;
+            settings.policy.allowed_programs = vec![metron_protocol::coding::RustProgram::Cargo];
+            let mut store = SqliteStore::create(root.join("run/paired.sqlite")).unwrap();
+            store
+                .apply(
+                    command(StoreOperation::CreateTask {
+                        task: Task::new_coding(settings.task.clone()).unwrap(),
+                        genesis: settings.genesis().unwrap(),
+                    })
+                    .unwrap(),
+                )
+                .unwrap();
+            let digest = content_digest(b"fn main( {");
+            let correction = format!(
+                r#"{{"tool":"edit","path":"test.rs","expected_digest":"{}","content":"fn main() {{}}"}}"#,
+                digest.as_str()
+            );
+            let mut worker = ControlledCompile {
+                inner: driver(
+                    &root,
+                    &settings,
+                    &[
+                        r#"{"tool":"plan","steps":["write and check"]}"#,
+                        r#"{"tool":"edit","path":"test.rs","expected_digest":null,"content":"fn main( {"}"#,
+                        r#"{"tool":"run","program":"cargo","args":["test","--offline"],"directory":null}"#,
+                        &correction,
+                        r#"{"tool":"finish","summary":"request verification"}"#,
+                    ],
+                ),
+                saw_feedback: false,
+            };
+            let task = Task::new_coding(settings.task.clone()).unwrap();
+            let engine = crate::cognition(&settings.genesis().unwrap(), &task).unwrap();
+            assert_eq!(
+                orchestrator::drive_with_driver(
+                    &mut store,
+                    &settings.task.data().task_id,
+                    engine.as_ref(),
+                    &root.join("run"),
+                    &mut NoObserver,
+                    &mut worker
+                )
+                .unwrap(),
+                orchestrator::DriveStatus::Blocked
+            );
+            assert!(worker.saw_feedback);
+            let mut snapshot = store.audit().unwrap();
+            let projection = snapshot.projection(&settings.task.data().task_id).unwrap();
+            assert_eq!(projection.state.phase, Phase::AwaitingVerification);
+            assert_eq!(projection.task_account.posted.model_requests.get(), 5);
+            assert_eq!(projection.task_account.posted.tool_calls.get(), 4);
+            drop(snapshot);
+            assert_audits(&mut store, &settings);
+            drop(store);
+            drop(worker);
+            fs::remove_dir_all(root).unwrap();
+        }
     }
     #[test]
     fn both_modes_record_plan_edit_finish_without_self_certifying_success() {

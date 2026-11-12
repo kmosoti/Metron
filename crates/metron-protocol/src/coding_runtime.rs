@@ -17,6 +17,8 @@ pub enum CodingStep {
         native_tools: Option<Vec<CodingTool>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         memory_manifest: Option<MemoryContextManifest>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        previous_tool_turn: Option<Box<CompletedToolTurn>>,
     },
     Tool {
         action: CodingAction,
@@ -467,6 +469,16 @@ pub fn coding_transition_memory(
     coding_transition_impl(task, policy, state, event, 8)
 }
 
+/// Version 3.9 carries a verified, bounded previous tool turn.
+pub fn coding_transition_paired(
+    task: &CodingTask,
+    policy: &CodingPolicy,
+    state: &AgentState,
+    event: &AgentEvent,
+) -> Result<Transition, DecisionError> {
+    coding_transition_impl(task, policy, state, event, 9)
+}
+
 fn coding_transition_impl(
     task: &CodingTask,
     policy: &CodingPolicy,
@@ -483,6 +495,18 @@ fn coding_transition_impl(
         .map_err(|_| DecisionError::InvariantViolation)?;
     if state.task_id != task.data().task_id {
         return Err(DecisionError::InvalidEvent);
+    }
+    if let Some(context) = &state.coding_context {
+        if version < 9
+            && (context.pending_tool_turn.is_some() || context.previous_tool_turn.is_some())
+        {
+            return Err(DecisionError::InvariantViolation);
+        }
+        if version >= 9
+            && (state.phase == Phase::WaitingTool) != context.pending_tool_turn.is_some()
+        {
+            return Err(DecisionError::InvariantViolation);
+        }
     }
     fn final_state(
         state: &AgentState,
@@ -610,6 +634,8 @@ fn coding_transition_impl(
             model_feedback: Option<&'a ModelFeedback>,
             #[serde(skip_serializing_if = "Option::is_none")]
             memory_notes_unverified: Option<MemoryPrompt<'a>>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            previous_tool_turn_untrusted: Option<&'a CompletedToolTurn>,
         }
         // v3 was persisted with insertion-ordered serde_json maps. Serialize a
         // fixed struct to retain those exact bytes regardless of Cargo feature unification.
@@ -652,6 +678,7 @@ fn coding_transition_impl(
                 recent_observations_untrusted: &context.tool_views,
                 model_feedback: if version >= 5 { context.model_feedback.as_ref() } else { None },
                 memory_notes_unverified: if version >= 8 { context.memory_manifest.as_ref().map(|m| MemoryPrompt { notes: m.visible.as_slice(), omitted_known: m.omitted_known, has_more: m.has_more }) } else { None },
+                previous_tool_turn_untrusted: if version >= 9 { context.previous_tool_turn.as_deref() } else { None },
             }, MAX_LOCAL_CONTEXT)
         } else if version == 0 {
             canonical_bytes(&LegacyPrompt {
@@ -673,6 +700,11 @@ fn coding_transition_impl(
             profile_digest: task.data().model_profile_digest.clone(),
             memory_manifest: if version >= 8 {
                 context.memory_manifest.clone()
+            } else {
+                None
+            },
+            previous_tool_turn: if version >= 9 {
+                context.previous_tool_turn.clone()
             } else {
                 None
             },
@@ -702,7 +734,13 @@ fn coding_transition_impl(
         AgentEvent::Denied { intent_id, .. }
             if state.pending_intent.as_ref() == Some(intent_id) =>
         {
-            final_state(state, Phase::Rejected, true, state.coding_context.clone())
+            let mut context = state.coding_context.clone();
+            if version >= 9
+                && let Some(context) = &mut context
+            {
+                context.pending_tool_turn = None;
+            }
+            final_state(state, Phase::Rejected, true, context)
         }
         AgentEvent::EffectSettled {
             intent_id,
@@ -714,6 +752,9 @@ fn coding_transition_impl(
                 .clone()
                 .ok_or(DecisionError::MissingEvidence)?;
             if matches!(output, ReceiptOutput::Failure { .. }) {
+                if version >= 9 {
+                    context.pending_tool_turn = None;
+                }
                 return final_state(state, Phase::Rejected, true, Some(context));
             }
             match state.phase {
@@ -802,6 +843,32 @@ fn coding_transition_impl(
                             context,
                         )
                     } else {
+                        if version >= 9 {
+                            let bytes = canonical_bytes(&action, MAX_INTERNAL)
+                                .map_err(|_| DecisionError::InvariantViolation)?;
+                            context.pending_tool_turn = Some(Box::new(PendingToolTurn {
+                                action: (bytes.len() <= MAX_PAIRED_ACTION_BYTES)
+                                    .then(|| action.clone()),
+                                omission_reason: (bytes.len() > MAX_PAIRED_ACTION_BYTES)
+                                    .then_some(PairedOmissionReason::ActionLimit),
+                                action_digest: content_digest(&bytes),
+                                tool: action.tool(),
+                                model_evidence: evidence_id.clone(),
+                            }));
+                            if canonical_bytes(&context, 16 * 1024).is_err() {
+                                let pending = context
+                                    .pending_tool_turn
+                                    .as_mut()
+                                    .ok_or(DecisionError::InvariantViolation)?;
+                                if pending.action.take().is_some() {
+                                    pending.omission_reason =
+                                        Some(PairedOmissionReason::ContextLimit);
+                                }
+                            }
+                            context
+                                .bound_focused()
+                                .map_err(|_| DecisionError::InvariantViolation)?;
+                        }
                         decision(
                             state,
                             Phase::WaitingTool,
@@ -871,6 +938,47 @@ fn coding_transition_impl(
                     output
                         .validate()
                         .map_err(|_| DecisionError::MissingEvidence)?;
+                    if version >= 9 {
+                        let pending = context
+                            .pending_tool_turn
+                            .take()
+                            .ok_or(DecisionError::InvalidEvent)?;
+                        if pending.tool != output.tool {
+                            return Err(DecisionError::InvalidEvent);
+                        }
+                        let text = output.body.as_str();
+                        let end = text.floor_char_boundary(768);
+                        let observation = FocusedToolView {
+                            tool: output.tool,
+                            status: output.status.clone(),
+                            body: BoundedText::new(&text[..end])
+                                .map_err(|_| DecisionError::InvariantViolation)?,
+                            truncated: output.truncated || end < text.len(),
+                            file_refs: output.files.iter().take(1).cloned().collect(),
+                            skipped_file_count: u32::try_from(output.files.len().saturating_sub(1))
+                                .map_err(|_| DecisionError::InvariantViolation)?,
+                        };
+                        context.previous_tool_turn = Some(Box::new(match pending.action {
+                            Some(action) => CompletedToolTurn::Complete {
+                                action,
+                                model_evidence: pending.model_evidence,
+                                tool_intent: intent_id.clone(),
+                                tool_evidence: evidence_id.clone(),
+                                observation,
+                            },
+                            None => CompletedToolTurn::Omitted {
+                                reason: pending
+                                    .omission_reason
+                                    .ok_or(DecisionError::InvariantViolation)?,
+                                action_digest: pending.action_digest,
+                                tool: pending.tool,
+                                model_evidence: pending.model_evidence,
+                                tool_intent: intent_id.clone(),
+                                tool_evidence: evidence_id.clone(),
+                                observation,
+                            },
+                        }));
+                    }
                     let data = canonical_bytes(output, MAX_INTERNAL)
                         .map_err(|_| DecisionError::InvariantViolation)?;
                     context
@@ -1114,6 +1222,74 @@ fn is_zero_u8(value: &u8) -> bool {
     *value == 0
 }
 
+pub const MAX_PAIRED_ACTION_BYTES: usize = 8192;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PairedOmissionReason {
+    ActionLimit,
+    ContextLimit,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum CompletedToolTurn {
+    Complete {
+        action: CodingAction,
+        model_evidence: Digest,
+        tool_intent: Digest,
+        tool_evidence: Digest,
+        observation: FocusedToolView,
+    },
+    Omitted {
+        reason: PairedOmissionReason,
+        action_digest: Digest,
+        tool: CodingTool,
+        model_evidence: Digest,
+        tool_intent: Digest,
+        tool_evidence: Digest,
+        observation: FocusedToolView,
+    },
+}
+impl CompletedToolTurn {
+    pub fn validate(&self) -> Result<(), ValidationError> {
+        let (tool, observation) = match self {
+            Self::Complete {
+                action,
+                observation,
+                ..
+            } => {
+                action.validate()?;
+                if canonical_bytes(action, MAX_PAIRED_ACTION_BYTES).is_err() {
+                    return Err(ValidationError::Limit);
+                }
+                (action.tool(), observation)
+            }
+            Self::Omitted {
+                tool, observation, ..
+            } => (*tool, observation),
+        };
+        if matches!(tool, CodingTool::Plan | CodingTool::Finish)
+            || tool != observation.tool
+            || observation.file_refs.len() > 1
+            || (observation.skipped_file_count > 0 && observation.file_refs.is_empty())
+        {
+            return Err(ValidationError::Binding);
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PendingToolTurn {
+    pub action: Option<CodingAction>,
+    pub omission_reason: Option<PairedOmissionReason>,
+    pub action_digest: Digest,
+    pub tool: CodingTool,
+    pub model_evidence: Digest,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CodingContext {
@@ -1135,6 +1311,10 @@ pub struct CodingContext {
     pub model_feedback: Option<ModelFeedback>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub memory_manifest: Option<MemoryContextManifest>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_tool_turn: Option<Box<PendingToolTurn>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_tool_turn: Option<Box<CompletedToolTurn>>,
 }
 impl Default for CodingContext {
     fn default() -> Self {
@@ -1150,12 +1330,30 @@ impl Default for CodingContext {
             invalid_proposals: 0,
             model_feedback: None,
             memory_manifest: None,
+            pending_tool_turn: None,
+            previous_tool_turn: None,
         }
     }
 }
 impl CodingContext {
     pub fn validate(&self) -> Result<(), ValidationError> {
-        if self.invalid_proposals > MAX_INVALID_PROPOSALS
+        if self
+            .previous_tool_turn
+            .as_ref()
+            .is_some_and(|turn| turn.validate().is_err())
+            || self.pending_tool_turn.as_ref().is_some_and(|pending| {
+                matches!(pending.tool, CodingTool::Plan | CodingTool::Finish)
+                    || (pending.action.is_some() == pending.omission_reason.is_some())
+                    || pending.action.as_ref().is_some_and(|action| {
+                        action.validate().is_err()
+                            || action.tool() != pending.tool
+                            || canonical_bytes(action, MAX_PAIRED_ACTION_BYTES)
+                                .map_or(true, |bytes| {
+                                    content_digest(&bytes) != pending.action_digest
+                                })
+                    })
+            })
+            || self.invalid_proposals > MAX_INVALID_PROPOSALS
             || self.model_feedback.as_ref().is_some_and(|feedback| {
                 self.invalid_proposals == 0
                     || (feedback.diagnostic.as_str() != MODEL_VALIDATION_DIAGNOSTIC

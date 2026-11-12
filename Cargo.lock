@@ -3149,6 +3149,7 @@ dependencies = [
  "metron-inference-local",
  "metron-protocol",
  "mistralrs",
+ "mistralrs-core",
  "tokio",
 ]
 
