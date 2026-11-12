@@ -131,6 +131,7 @@ fn over_limit_audit_is_operational_and_leaves_database_intact() {
     )
     .unwrap();
     let genesis = Genesis {
+        coding_policy: None,
         mode: EngineMode::Agent,
         engine_version: BoundedText::new("sum-agent/v1").unwrap(),
         require_publication_approval: false,

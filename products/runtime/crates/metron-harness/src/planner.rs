@@ -313,3 +313,95 @@ impl Cognition for LocalSumPlanner {
         Ok(transition)
     }
 }
+
+/// Pure version-3 coding controller. Model and tool data remain proposals.
+#[derive(Clone, Debug)]
+pub struct CodingPlanner {
+    task: metron_protocol::coding::CodingTask,
+    policy: metron_protocol::coding::CodingPolicy,
+    version: u8,
+}
+impl CodingPlanner {
+    pub const ENGINE_VERSION: &str = "coding-harness/v3.3";
+    pub const CATALOG_ENGINE_VERSION: &str = "coding-harness/v3.2";
+    pub const PHASED_ENGINE_VERSION: &str = "coding-harness/v3.1";
+    pub const LEGACY_ENGINE_VERSION: &str = "coding-harness/v3";
+    pub fn new(
+        task: &metron_protocol::coding::CodingTask,
+        policy: &metron_protocol::coding::CodingPolicy,
+    ) -> Result<Self, metron_protocol::ValidationError> {
+        policy.validate(task)?;
+        Ok(Self {
+            task: task.clone(),
+            policy: policy.clone(),
+            version: 3,
+        })
+    }
+    pub fn legacy_v3(
+        task: &metron_protocol::coding::CodingTask,
+        policy: &metron_protocol::coding::CodingPolicy,
+    ) -> Result<Self, metron_protocol::ValidationError> {
+        policy.validate(task)?;
+        Ok(Self {
+            task: task.clone(),
+            policy: policy.clone(),
+            version: 0,
+        })
+    }
+    pub fn legacy_v3_1(
+        task: &metron_protocol::coding::CodingTask,
+        policy: &metron_protocol::coding::CodingPolicy,
+    ) -> Result<Self, metron_protocol::ValidationError> {
+        policy.validate(task)?;
+        Ok(Self {
+            task: task.clone(),
+            policy: policy.clone(),
+            version: 1,
+        })
+    }
+    pub fn legacy_v3_2(
+        task: &metron_protocol::coding::CodingTask,
+        policy: &metron_protocol::coding::CodingPolicy,
+    ) -> Result<Self, metron_protocol::ValidationError> {
+        policy.validate(task)?;
+        Ok(Self {
+            task: task.clone(),
+            policy: policy.clone(),
+            version: 2,
+        })
+    }
+}
+impl Cognition for CodingPlanner {
+    fn transition(
+        &self,
+        state: &AgentState,
+        event: &AgentEvent,
+    ) -> Result<Transition, DecisionError> {
+        match self.version {
+            0 => metron_protocol::coding_runtime::coding_transition(
+                &self.task,
+                &self.policy,
+                state,
+                event,
+            ),
+            1 => metron_protocol::coding_runtime::coding_transition_phased(
+                &self.task,
+                &self.policy,
+                state,
+                event,
+            ),
+            2 => metron_protocol::coding_runtime::coding_transition_catalog(
+                &self.task,
+                &self.policy,
+                state,
+                event,
+            ),
+            _ => metron_protocol::coding_runtime::coding_transition_focused(
+                &self.task,
+                &self.policy,
+                state,
+                event,
+            ),
+        }
+    }
+}

@@ -2,7 +2,7 @@
 use metron_protocol::{
     domain::{ApprovedRequest, PreparedIntent},
     store::{
-        AdmissionCheck, ApprovalDecision, Disposition, Genesis, GrantSnapshot as StoredGrant,
+        AdmissionCheck, ApprovalDecision, Disposition, GrantSnapshot as StoredGrant,
         IntentSnapshot, Projection, StoreCommand, StoreError, StoreOperation, StorePort,
         StoreResult, WriteOutcome,
     },
@@ -12,15 +12,50 @@ use metron_protocol::{
 // These wrappers are process-local policy evidence, never serialized or cloned.
 struct HostPolicy {
     publication_approval: bool,
+    coding: Option<metron_protocol::coding::CodingPolicy>,
 }
 impl HostPolicy {
-    fn from_genesis(genesis: &Genesis) -> Result<Self, StoreError> {
-        if genesis.policy_digest != content_digest(b"metron-alpha0-host-policy-v1") {
-            return Err(StoreError::Integrity);
-        }
+    fn from_projection(projection: &Projection) -> Result<Self, StoreError> {
+        let genesis = &projection.genesis;
+        let coding = if let Some(task) = projection.task.coding() {
+            let policy = genesis
+                .coding_policy
+                .as_deref()
+                .ok_or(StoreError::Integrity)?;
+            if policy.digest(task).map_err(StoreError::Validation)? != genesis.policy_digest {
+                return Err(StoreError::Integrity);
+            }
+            Some(policy.clone())
+        } else {
+            if genesis.coding_policy.is_some()
+                || genesis.policy_digest != content_digest(b"metron-alpha0-host-policy-v1")
+            {
+                return Err(StoreError::Integrity);
+            }
+            None
+        };
         Ok(Self {
             publication_approval: genesis.require_publication_approval,
+            coding,
         })
+    }
+    fn requires_approval(&self, request: &ApprovedRequest) -> bool {
+        match request {
+            ApprovedRequest::Coding { step, .. } => self
+                .coding
+                .as_ref()
+                .is_some_and(|p| step.requires_approval(p)),
+            ApprovedRequest::PublishArtifact { .. } => self.publication_approval,
+            _ => false,
+        }
+    }
+    fn permits(&self, request: &ApprovedRequest) -> bool {
+        match request {
+            ApprovedRequest::Coding { step, .. } => {
+                self.coding.as_ref().is_some_and(|p| step.permitted(p))
+            }
+            _ => self.coding.is_none(),
+        }
     }
 }
 struct GrantSnapshot {
@@ -66,11 +101,8 @@ impl DispatchAdmission {
                 &projection.genesis,
             )
             .map_err(StoreError::Validation)?;
-        if policy.publication_approval
-            && matches!(
-                check.prepared.request,
-                ApprovedRequest::PublishArtifact { .. }
-            )
+        if policy.permits(&check.prepared.request)
+            && policy.requires_approval(&check.prepared.request)
         {
             let approval = intent.approval.as_ref().ok_or(StoreError::Integrity)?;
             if check.approval_id.as_ref() != Some(&approval.request_id)
@@ -81,10 +113,8 @@ impl DispatchAdmission {
                 return Err(StoreError::Integrity);
             }
         }
-        Ok(Self {
-            check,
-            revoked: grant.revoked,
-        })
+        let revoked = grant.revoked || !policy.permits(&check.prepared.request);
+        Ok(Self { check, revoked })
     }
 }
 
@@ -168,7 +198,7 @@ pub(crate) fn admit<S: StorePort>(
         StoreOperation::Admit { check } => check.clone(),
         _ => return Err(StoreError::Integrity),
     };
-    let policy = HostPolicy::from_genesis(&projection.genesis)?;
+    let policy = HostPolicy::from_projection(projection)?;
     let grant = GrantSnapshot::checked(grant, projection)?;
     let admission = DispatchAdmission::checked(check, intent, projection, grant, &policy)?;
     let outcome = match store.apply(command.clone()) {

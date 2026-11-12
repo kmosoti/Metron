@@ -48,6 +48,18 @@ pub struct VerificationSelection {
     pub plan_digest: Digest,
 }
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CodingVerificationSelection {
+    pub evidence_revision: SqlU64,
+    pub plan_evidence: Digest,
+    pub model_evidence: Digest,
+    pub artifact_evidence: Digest,
+    pub artifact_digest: Digest,
+    pub acceptance_digest: Digest,
+    pub evaluator_digest: Digest,
+    pub report_digest: Digest,
+}
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum StoreOperation {
     CreateTask {
@@ -131,6 +143,12 @@ pub enum StoreOperation {
     RecordVerification {
         task_id: TaskId,
         selection: VerificationSelection,
+        accepted: bool,
+        reason: BoundedText<MAX_TEXT>,
+    },
+    RecordCodingVerification {
+        task_id: TaskId,
+        selection: CodingVerificationSelection,
         accepted: bool,
         reason: BoundedText<MAX_TEXT>,
     },
@@ -283,6 +301,8 @@ pub struct Genesis {
     pub policy_digest: Digest,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub local_profile: Option<crate::LocalProfile>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coding_policy: Option<Box<crate::coding::CodingPolicy>>,
 }
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -561,19 +581,58 @@ pub trait RuntimeSnapshot: AuditSnapshot {
 /// journal, whose first committed record has sequence one. Later tasks retain
 /// their own task-derived genesis for deterministic intent identities.
 pub fn journal_genesis(task: &Task, genesis: &Genesis) -> Result<Digest, ValidationError> {
-    match (&genesis.local_profile, task.data().schema_version) {
-        (None, SchemaVersion::V1) => {}
-        (Some(profile), SchemaVersion::V2) => {
-            profile.validate()?;
-            let expected = match genesis.mode {
-                EngineMode::Agent => "sum-local-agent/v2",
-                EngineMode::Harness => "sum-local-harness/v2",
-            };
-            if genesis.engine_version.as_str() != expected {
-                return Err(ValidationError::Binding);
-            }
+    if let Some(coding) = task.coding() {
+        let policy = genesis
+            .coding_policy
+            .as_ref()
+            .ok_or(ValidationError::Binding)?;
+        if task.data().schema_version != SchemaVersion::V3
+            || policy.digest(coding)? != genesis.policy_digest
+            || genesis.require_publication_approval != policy.require_mutation_approval
+        {
+            return Err(ValidationError::Binding);
         }
-        _ => return Err(ValidationError::Version),
+        let expected = match genesis.mode {
+            EngineMode::Agent => [
+                "coding-agent/v3",
+                "coding-agent/v3.1",
+                "coding-agent/v3.2",
+                "coding-agent/v3.3",
+            ],
+            EngineMode::Harness => [
+                "coding-harness/v3",
+                "coding-harness/v3.1",
+                "coding-harness/v3.2",
+                "coding-harness/v3.3",
+            ],
+        };
+        if !expected.contains(&genesis.engine_version.as_str()) {
+            return Err(ValidationError::Binding);
+        }
+        match &genesis.local_profile {
+            Some(profile) if profile.digest()? == coding.data().model_profile_digest => {}
+            None if coding.data().model_profile_digest == content_digest(b"coding-scripted/v1") => {
+            }
+            _ => return Err(ValidationError::Binding),
+        }
+    } else {
+        if genesis.coding_policy.is_some() {
+            return Err(ValidationError::Binding);
+        }
+        match (&genesis.local_profile, task.data().schema_version) {
+            (None, SchemaVersion::V1) => {}
+            (Some(profile), SchemaVersion::V2) => {
+                profile.validate()?;
+                let expected = match genesis.mode {
+                    EngineMode::Agent => "sum-local-agent/v2",
+                    EngineMode::Harness => "sum-local-harness/v2",
+                };
+                if genesis.engine_version.as_str() != expected {
+                    return Err(ValidationError::Binding);
+                }
+            }
+            _ => return Err(ValidationError::Version),
+        }
     }
     let operation = StoreOperation::CreateTask {
         task: task.clone(),

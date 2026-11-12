@@ -43,6 +43,7 @@ fn setup(root: &Path) {
     let mut store = SqliteStore::create(root.join("runtime.sqlite")).unwrap();
     let task = metron_testkit::sum_task(task_id(), PrincipalId::new("principal").unwrap()).unwrap();
     let genesis = Genesis {
+        coding_policy: None,
         mode: EngineMode::Agent,
         engine_version: BoundedText::new("sum-agent/v1").unwrap(),
         require_publication_approval: false,

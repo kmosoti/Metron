@@ -6,12 +6,13 @@ use metron_harness::{
     policy::{AuthorizedEffect, EffectDriver},
     qualification::QualificationPermit,
 };
+use metron_protocol::coding_runtime::CodingStep;
 use metron_protocol::{
     ActualUsage, ApprovedRequest, BoundedText, DecimalUsage, Digest, LocalDevice, LocalObservation,
     LocalOutputSchema, LocalProfile, LocalRole, MAX_ENVELOPE, MAX_LOCAL_CONTEXT, MAX_MODEL_OUTPUT,
-    MAX_TEXT, PrincipalId, ProducerReceiptId, Receipt, ReceiptData, ReceiptOutput, SchemaVersion,
+    MAX_TEXT, PrincipalId, ProducerReceiptId, Receipt, ReceiptData, ReceiptOutput,
     SubmissionCohort, TaskId, UsageVector, WorkerReply, WorkerRequest, canonical_bytes,
-    parse_worker_reply, worker_request_bytes,
+    is_local_coding_recipe, parse_worker_reply, worker_request_bytes,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -328,16 +329,43 @@ impl LocalInferenceDriver {
             .iter()
             .map(|effect| {
                 let prepared = effect.request();
-                let ApprovedRequest::RequestLocalModel {
-                    input_digest,
-                    context,
-                    profile_digest,
-                    role,
-                    output_schema,
-                    ..
-                } = &prepared.request
-                else {
-                    return None;
+                let (input_digest, context, profile_digest, role, output_schema) = match &prepared
+                    .request
+                {
+                    ApprovedRequest::RequestLocalModel {
+                        input_digest,
+                        context,
+                        profile_digest,
+                        role,
+                        output_schema,
+                        ..
+                    } => (
+                        input_digest,
+                        BoundedText::new(context.as_str()).ok()?,
+                        profile_digest,
+                        *role,
+                        *output_schema,
+                    ),
+                    ApprovedRequest::Coding { step, .. }
+                        if is_local_coding_recipe(self.profile.prompt_recipe_digest.as_str()) =>
+                    {
+                        let CodingStep::Model {
+                            input_digest,
+                            context,
+                            profile_digest,
+                        } = step.as_ref()
+                        else {
+                            return None;
+                        };
+                        (
+                            input_digest,
+                            context.clone(),
+                            profile_digest,
+                            LocalRole::Reasoner,
+                            LocalOutputSchema::Text,
+                        )
+                    }
+                    _ => return None,
                 };
                 Some(TransportRequest {
                     dispatch_id: prepared.action.dispatch_id.clone(),
@@ -346,9 +374,9 @@ impl LocalInferenceDriver {
                     principal_id: prepared.action.principal_id.clone(),
                     action_digest: prepared.action_digest.clone(),
                     input_digest: input_digest.clone(),
-                    role: *role,
-                    output_schema: *output_schema,
-                    context: BoundedText::new(context.as_str()).ok()?,
+                    role,
+                    output_schema,
+                    context,
                     profile_digest: profile_digest.clone(),
                     cohort: None,
                     require_stream: false,
@@ -840,7 +868,7 @@ fn receipt(effect: &AuthorizedEffect, output: ReceiptOutput, model: &str) -> Dri
     let prepared = effect.request();
     let result = (|| {
         Receipt::new(ReceiptData {
-            schema_version: SchemaVersion::V2,
+            schema_version: effect.schema_version(),
             producer_receipt_id: ProducerReceiptId::new(prepared.action.dispatch_id.as_str())
                 .ok()?,
             task_id: prepared.action.task_id.clone(),

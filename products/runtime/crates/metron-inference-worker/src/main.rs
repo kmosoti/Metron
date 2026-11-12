@@ -8,10 +8,11 @@ use metron_inference_local::{
 use metron_protocol::{
     BatchProvenance, BoundedText, LOCAL_REASONER_SYSTEM, LOCAL_TEAM_RECIPE_SHA, LocalDevice,
     LocalObservation, LocalRole, MAX_ENVELOPE, SchemaVersion, SqlU64, WorkerReply, WorkerRequest,
-    canonical_bytes, parse_local_response, parse_worker_request,
+    canonical_bytes, is_local_coding_recipe, local_coding_recipe, parse_local_response,
+    parse_worker_request,
 };
 use mistralrs::{
-    Device, DeviceLayerMapMetadata, DeviceMapMetadata, GgufModelBuilder, Model,
+    Constraint, Device, DeviceLayerMapMetadata, DeviceMapMetadata, GgufModelBuilder, Model,
     PrefixCacheCapacity, RequestBuilder, Response, SamplingParams, TextMessageRole, TextMessages,
     TokenSource,
 };
@@ -152,7 +153,8 @@ async fn load(request: &WorkerRequest, writer: &Writer) -> Result<Arc<Model>, St
     if profile.scoped_prefix_cache
         || profile.chunked_prefill
         || profile.cache_target_bytes.is_some()
-        || ![RECIPE_SHA, LOCAL_TEAM_RECIPE_SHA].contains(&profile.prompt_recipe_digest.as_str())
+        || !([RECIPE_SHA, LOCAL_TEAM_RECIPE_SHA].contains(&profile.prompt_recipe_digest.as_str())
+            || is_local_coding_recipe(profile.prompt_recipe_digest.as_str()))
     {
         return Err("unsupported profile setting".into());
     }
@@ -262,13 +264,22 @@ async fn generate(model: Arc<Model>, request: WorkerRequest, writer: Writer, in_
     };
     if matches!(role, LocalRole::Reasoner)
         && profile.prompt_recipe_digest.as_str() != LOCAL_TEAM_RECIPE_SHA
+        && !is_local_coding_recipe(profile.prompt_recipe_digest.as_str())
     {
-        reject(&writer, dispatch_id, "reasoner requires team prompt recipe");
+        reject(
+            &writer,
+            dispatch_id,
+            "reasoner requires a reasoner prompt recipe",
+        );
         return;
     }
+    let coding_recipe = local_coding_recipe(profile.prompt_recipe_digest.as_str());
     let system = match role {
         LocalRole::Solver => SOLVER,
         LocalRole::ToolSelector => SELECTOR,
+        LocalRole::Reasoner if coding_recipe.is_some() => {
+            coding_recipe.as_ref().expect("checked").0
+        }
         LocalRole::Reasoner => LOCAL_REASONER_SYSTEM,
     };
     let messages = TextMessages::new()
@@ -336,6 +347,11 @@ async fn generate(model: Arc<Model>, request: WorkerRequest, writer: Writer, in_
         .add_message(TextMessageRole::User, context.as_str())
         .enable_thinking(false)
         .set_sampling(sampling);
+    let request = if let Some((_, schema)) = coding_recipe {
+        request.set_constraint(Constraint::JsonSchema(schema))
+    } else {
+        request
+    };
     if emit(
         &writer,
         &WorkerReply::Started {
