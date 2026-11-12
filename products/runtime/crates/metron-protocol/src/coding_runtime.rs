@@ -276,6 +276,16 @@ pub fn coding_transition_native(
     coding_transition_impl(task, policy, state, event, 4)
 }
 
+/// Version 3.5 permits bounded recovery from known invalid model proposals.
+pub fn coding_transition_recovering(
+    task: &CodingTask,
+    policy: &CodingPolicy,
+    state: &AgentState,
+    event: &AgentEvent,
+) -> Result<Transition, DecisionError> {
+    coding_transition_impl(task, policy, state, event, 5)
+}
+
 fn coding_transition_impl(
     task: &CodingTask,
     policy: &CodingPolicy,
@@ -409,6 +419,8 @@ fn coding_transition_impl(
             tool_help: &'static str,
             last_action: &'a Option<FocusedAction>,
             recent_observations_untrusted: &'a [FocusedToolView],
+            #[serde(skip_serializing_if = "Option::is_none")]
+            model_feedback: Option<&'a ModelFeedback>,
         }
         // v3 was persisted with insertion-ordered serde_json maps. Serialize a
         // fixed struct to retain those exact bytes regardless of Cargo feature unification.
@@ -445,6 +457,7 @@ fn coding_transition_impl(
                 },
                 last_action: &context.last_action,
                 recent_observations_untrusted: &context.tool_views,
+                model_feedback: if version >= 5 { context.model_feedback.as_ref() } else { None },
             }, MAX_LOCAL_CONTEXT)
         } else if version == 0 {
             canonical_bytes(&LegacyPrompt {
@@ -507,6 +520,9 @@ fn coding_transition_impl(
             match state.phase {
                 Phase::WaitingModel => {
                     let content = model_content(output).ok_or(DecisionError::MissingEvidence)?;
+                    if version >= 5 {
+                        context.model_feedback = None;
+                    }
                     context
                         .observe(evidence_id.clone(), "model", content)
                         .map_err(|_| DecisionError::InvariantViolation)?;
@@ -519,9 +535,36 @@ fn coding_transition_impl(
                             .bound_phased()
                             .map_err(|_| DecisionError::InvariantViolation)?;
                     }
-                    let Ok(action) = parse_coding_action(content.as_bytes()) else {
-                        return final_state(state, Phase::Rejected, true, Some(context));
-                    };
+                    let action = parse_coding_action(content.as_bytes());
+                    let invalid_phase = action.as_ref().is_ok_and(|action| {
+                        context.plan_evidence.is_none()
+                            && !matches!(action, CodingAction::Plan { .. })
+                    });
+                    if action.is_err() || invalid_phase {
+                        if version < 5 {
+                            return final_state(state, Phase::Rejected, true, Some(context));
+                        }
+                        context.invalid_proposals = context
+                            .invalid_proposals
+                            .checked_add(1)
+                            .ok_or(DecisionError::Overflow)?;
+                        context.model_feedback = Some(ModelFeedback {
+                            source_evidence: evidence_id.clone(),
+                            diagnostic: BoundedText::new(MODEL_VALIDATION_DIAGNOSTIC)
+                                .map_err(|_| DecisionError::InvariantViolation)?,
+                        });
+                        context
+                            .bound_focused()
+                            .map_err(|_| DecisionError::InvariantViolation)?;
+                        if context.invalid_proposals >= MAX_INVALID_PROPOSALS {
+                            return final_state(state, Phase::Rejected, true, Some(context));
+                        }
+                        return model(task, policy, state, context, version);
+                    }
+                    let action = action.map_err(|_| DecisionError::InvariantViolation)?;
+                    if version >= 5 {
+                        context.model_feedback = None;
+                    }
                     if let CodingAction::Plan { steps } = &action {
                         if version >= 3 {
                             context.recorded_plan = steps.clone();
@@ -804,6 +847,19 @@ pub struct FocusedToolView {
     pub skipped_file_count: u32,
 }
 
+pub const MAX_INVALID_PROPOSALS: u8 = 3;
+pub const MODEL_VALIDATION_DIAGNOSTIC: &str = "Return one valid function with workspace-relative paths; use null for the root directory and null expected_digest for a new file.";
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ModelFeedback {
+    pub source_evidence: Digest,
+    pub diagnostic: BoundedText<256>,
+}
+fn is_zero_u8(value: &u8) -> bool {
+    *value == 0
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CodingContext {
@@ -819,6 +875,10 @@ pub struct CodingContext {
     pub last_action: Option<FocusedAction>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tool_views: Vec<FocusedToolView>,
+    #[serde(default, skip_serializing_if = "is_zero_u8")]
+    pub invalid_proposals: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_feedback: Option<ModelFeedback>,
 }
 impl Default for CodingContext {
     fn default() -> Self {
@@ -831,12 +891,22 @@ impl Default for CodingContext {
             omitted_plan_steps: 0,
             last_action: None,
             tool_views: Vec::new(),
+            invalid_proposals: 0,
+            model_feedback: None,
         }
     }
 }
 impl CodingContext {
     pub fn validate(&self) -> Result<(), ValidationError> {
-        if self.recorded_plan.len() > 12
+        if self.invalid_proposals > MAX_INVALID_PROPOSALS
+            || self.model_feedback.as_ref().is_some_and(|feedback| {
+                self.invalid_proposals == 0
+                    || feedback.diagnostic.as_str() != MODEL_VALIDATION_DIAGNOSTIC
+                    || !self.items.last().is_some_and(|item| {
+                        item.kind.as_str() == "model" && item.evidence == feedback.source_evidence
+                    })
+            })
+            || self.recorded_plan.len() > 12
             || self.tool_views.len() > 2
             || self
                 .last_action
@@ -865,6 +935,8 @@ impl CodingContext {
             || self.omitted_plan_steps > 0
             || self.last_action.is_some()
             || !self.tool_views.is_empty()
+            || self.invalid_proposals > 0
+            || self.model_feedback.is_some()
         {
             canonical_bytes(self, 16 * 1024)?;
         }

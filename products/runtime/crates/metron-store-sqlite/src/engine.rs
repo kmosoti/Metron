@@ -1026,6 +1026,9 @@ fn commit_transition(
             "coding-agent/v3.4" | "coding-harness/v3.4" => {
                 metron_protocol::coding_runtime::coding_transition_native
             }
+            "coding-agent/v3.5" | "coding-harness/v3.5" => {
+                metron_protocol::coding_runtime::coding_transition_recovering
+            }
             _ => return Err(StoreError::Integrity),
         };
         controller(coding, policy, &state, &item.input.event).as_ref() == Ok(transition)

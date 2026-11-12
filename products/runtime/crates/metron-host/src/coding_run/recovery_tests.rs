@@ -7,6 +7,85 @@ use metron_protocol::store::{
 struct UncertainModel {
     calls: usize,
 }
+
+#[test]
+fn known_invalid_proposal_records_feedback_without_an_effect_and_charges_usage() {
+    for mode in [EngineMode::Agent, EngineMode::Harness] {
+        let name = if mode == EngineMode::Agent {
+            "invalid-proposal-agent"
+        } else {
+            "invalid-proposal-harness"
+        };
+        let (root, settings, mut store) = setup(
+            name,
+            mode,
+            vec![CodingTool::Edit, CodingTool::Finish],
+            false,
+        );
+        let mut worker = driver(
+            &root,
+            &settings,
+            &[
+                r#"{"tool":"plan","steps":["Create a controlled note"]}"#,
+                r#"{"tool":"list","directory":"/"}"#,
+                r#"{"tool":"edit","path":"README.md","expected_digest":null,"content":"Controlled recovery fixture\n"}"#,
+                r#"{"tool":"finish","summary":"Request independent verification"}"#,
+            ],
+        );
+        let task = Task::new_coding(settings.task.clone()).unwrap();
+        let engine = crate::cognition(&settings.genesis().unwrap(), &task).unwrap();
+        assert_eq!(
+            orchestrator::drive_with_driver(
+                &mut store,
+                &settings.task.data().task_id,
+                engine.as_ref(),
+                &root.join("run"),
+                &mut NoObserver,
+                &mut worker,
+            )
+            .unwrap(),
+            orchestrator::DriveStatus::Blocked
+        );
+        let mut snapshot = store.audit().unwrap();
+        let projection = snapshot.projection(&settings.task.data().task_id).unwrap();
+        assert_eq!(projection.state.phase, Phase::AwaitingVerification);
+        assert_eq!(projection.task_account.posted.model_requests.get(), 4);
+        assert_eq!(projection.task_account.posted.tool_calls.get(), 2);
+        assert_eq!(projection.task_account.reserved.model_requests.get(), 0);
+        let context = projection.state.coding_context.unwrap();
+        assert_eq!(context.invalid_proposals, 1);
+        assert!(context.model_feedback.is_none());
+        let intents = snapshot
+            .intents(&settings.task.data().task_id, None)
+            .unwrap();
+        let mut feedback_requests = 0;
+        for intent in intents.records {
+            if let IntentKind::Coding { step } = &intent.intent.kind {
+                match step.as_ref() {
+                    CodingStep::Model { context, .. }
+                        if context.as_str().contains("model_feedback") =>
+                    {
+                        feedback_requests += 1;
+                    }
+                    CodingStep::Tool { action, .. } => {
+                        assert!(matches!(action, CodingAction::Edit { .. }));
+                    }
+                    _ => {}
+                }
+            }
+        }
+        assert_eq!(feedback_requests, 1);
+        assert_eq!(
+            fs::read_to_string(root.join("workspace/README.md")).unwrap(),
+            "Controlled recovery fixture\n"
+        );
+        drop(snapshot);
+        assert_audits(&mut store, &settings);
+        drop(worker);
+        drop(store);
+        fs::remove_dir_all(root).unwrap();
+    }
+}
 impl EffectDriver for UncertainModel {
     type Outcome = DriverOutcome;
     fn execute(&mut self, effect: AuthorizedEffect) -> DriverOutcome {
