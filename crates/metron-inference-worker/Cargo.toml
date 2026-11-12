@@ -14,6 +14,7 @@ metron-inference-local = { path = "../metron-inference-local" }
 mistralrs-core = { git = "https://github.com/EricLBuehler/mistral.rs", rev = "fb4cdc3730dc64b366724e7637a205a8b7747499" }
 mistralrs = { git = "https://github.com/EricLBuehler/mistral.rs", rev = "fb4cdc3730dc64b366724e7637a205a8b7747499" }
 either = "=1.19.0"
+serde_json = "1"
 tokio = { version = "=1.54.1", features = ["rt-multi-thread", "sync", "time", "macros"] }
 
 [lints.rust]

@@ -3101,6 +3101,7 @@ dependencies = [
  "metron-protocol",
  "mistralrs",
  "mistralrs-core",
+ "serde_json",
  "tokio",
 ]
 

@@ -159,6 +159,7 @@ fn root_workspace_members_and_dependency_boundaries() {
                 "mistralrs-core",
                 "either",
                 "tokio",
+                "serde_json",
             ],
             "metron-host" => &[
                 // The composition root owns operational report serialization;
