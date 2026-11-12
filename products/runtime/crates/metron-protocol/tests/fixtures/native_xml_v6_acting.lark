@@ -1,0 +1,53 @@
+start: <tool_call> "\n"? call "\n"? </tool_call>
+call: call_edit | call_read | call_run | call_finish
+call_edit: "<function=edit>" "\n"? state_edit_0 </function>
+state_edit_0: arg_edit_0 state_edit_1 | arg_edit_1 state_edit_2 | arg_edit_2 state_edit_4
+state_edit_1: arg_edit_1 state_edit_3 | arg_edit_2 state_edit_5
+state_edit_2: arg_edit_0 state_edit_3 | arg_edit_2 state_edit_6
+state_edit_3: arg_edit_2 state_edit_7
+state_edit_4: arg_edit_0 state_edit_5 | arg_edit_1 state_edit_6
+state_edit_5: arg_edit_1 state_edit_7
+state_edit_6: arg_edit_0 state_edit_7
+state_edit_7: 
+arg_edit_0: "<parameter=path>" "\n"? path "\n"? </parameter> "\n"?
+arg_edit_1: "<parameter=expected_digest>" "\n"? digest "\n"? </parameter> "\n"?
+arg_edit_2: "<parameter=content>" "\n"? content "\n"? </parameter> "\n"?
+call_read: "<function=read>" "\n"? state_read_0 </function>
+state_read_0: arg_read_0 state_read_1 | arg_read_1 state_read_2 | arg_read_2 state_read_4
+state_read_1: arg_read_1 state_read_3 | arg_read_2 state_read_5
+state_read_2: arg_read_0 state_read_3 | arg_read_2 state_read_6
+state_read_3: arg_read_2 state_read_7
+state_read_4: arg_read_0 state_read_5 | arg_read_1 state_read_6
+state_read_5: arg_read_1 state_read_7
+state_read_6: arg_read_0 state_read_7
+state_read_7: 
+arg_read_0: "<parameter=path>" "\n"? path "\n"? </parameter> "\n"?
+arg_read_1: "<parameter=first_line>" "\n"? firstline "\n"? </parameter> "\n"?
+arg_read_2: "<parameter=line_count>" "\n"? linecount "\n"? </parameter> "\n"?
+call_run: "<function=run>" "\n"? state_run_0 </function>
+state_run_0: arg_run_0 state_run_1 | arg_run_1 state_run_2 | arg_run_2 state_run_4
+state_run_1: arg_run_1 state_run_3 | arg_run_2 state_run_5
+state_run_2: arg_run_0 state_run_3 | arg_run_2 state_run_6
+state_run_3: arg_run_2 state_run_7
+state_run_4: arg_run_0 state_run_5 | arg_run_1 state_run_6
+state_run_5: arg_run_1 state_run_7
+state_run_6: arg_run_0 state_run_7
+state_run_7: 
+arg_run_0: "<parameter=program>" "\n"? program "\n"? </parameter> "\n"?
+arg_run_1: "<parameter=args>" "\n"? args "\n"? </parameter> "\n"?
+arg_run_2: "<parameter=directory>" "\n"? directory "\n"? </parameter> "\n"?
+call_finish: "<function=finish>" "\n"? state_finish_0 </function>
+state_finish_0: arg_finish_0 state_finish_1
+state_finish_1: 
+arg_finish_0: "<parameter=summary>" "\n"? content "\n"? </parameter> "\n"?
+steps: %json {"type":"array","minItems":1,"maxItems":12,"items":{"type":"string","minLength":1,"maxLength":256}}
+args: %json {"type":"array","maxItems":32,"items":{"type":"string"}}
+path: /[^\/\\\x00\r\n]+(\/[^\/\\\x00\r\n]+)*/
+directory: path | "null"
+digest: /[0-9a-f]{64}/ | "null"
+program: "cargo" | "rustc" | "rustfmt" | "clippy"
+firstline: /[1-9][0-9]{0,9}/
+linecount: /([1-9]|[1-9][0-9]|1[0-9][0-9]|200)/
+content: (xml_text | xml_lt)*
+xml_text: /[^<]+/
+xml_lt: "<" /[^\/]/ | "</" /[^p]/ | "</p" /[^a]/ | "</pa" /[^r]/ | "</par" /[^a]/ | "</para" /[^m]/ | "</param" /[^e]/ | "</parame" /[^t]/ | "</paramet" /[^e]/ | "</paramete" /[^r]/ | "</parameter" /[^>]/
