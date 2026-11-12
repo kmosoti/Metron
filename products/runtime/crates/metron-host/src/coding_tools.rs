@@ -1090,8 +1090,11 @@ fn edit_file(
             RenameFlags::NOREPLACE,
         )
     };
-    if result.is_err() {
+    if let Err(error) = result {
         let _ = unlinkat(&parent, temporary.as_str(), AtFlags::empty());
+        if expected.is_none() && error == rustix::io::Errno::EXIST {
+            return Err("file exists; read its digest before replacing it");
+        }
         return Err("atomic replacement failed");
     }
     parent
@@ -1323,3 +1326,7 @@ mod tests {
         fs::remove_dir_all(dir).unwrap();
     }
 }
+
+#[cfg(test)]
+#[path = "coding_tools/security_tests.rs"]
+mod security_tests;
