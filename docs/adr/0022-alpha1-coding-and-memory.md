@@ -38,6 +38,10 @@ flowchart TB
     Host --> Caller[Standalone CodingPlanner]
     Agent -->|proposed intents| Admission[Trusted admission: grants, budgets, leases, approval]
     Caller -->|proposed intents| Admission
+    Agent -->|known invalid proposal only| Feedback[Bounded validation feedback, no tool intent]
+    Caller -->|known invalid proposal only| Feedback
+    Feedback -->|new model decision; third invalid proposal stops| Agent
+    Feedback --> Caller
     Admission <--> Store[SQLite journal, reservations and durable outbox]
     Admission -->|fresh committed permit only| Effects[Host effect driver]
     Effects --> Worker[Supervised mistral.rs CUDA worker]

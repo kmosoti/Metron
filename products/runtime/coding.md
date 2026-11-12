@@ -20,6 +20,11 @@ identity describes that transform; the worker separately logs the generated file
 hash. Native calls are proposals and pass the same domain and admission checks
 as other coding actions. See [the compatibility evidence](../../knowledge/observations/O-0008-coding-loop-and-confinement.md#native-tool-call-tokenizer-incompatibility).
 
+The v3.5 controller can provide bounded validation feedback after a known invalid
+model proposal. The model must submit a new proposal; the third invalid proposal
+ends the task. Unknown executions and authorization failures still stop the
+loop. See [the correction contract](../../knowledge/observations/O-0009-known-proposal-feedback.md).
+
 ## Inputs and invocation
 
 Provide separate absolute paths for an owner-private workspace and the private
