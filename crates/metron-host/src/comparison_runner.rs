@@ -1,6 +1,6 @@
 //! Accounted, local operational comparison; does not select a production profile.
 use crate::{hardware, measurement::GpuMonitor};
-use metron_harness::comparison::{ComparisonCase, ComparisonResult, ComparisonSession};
+use metron_inference_local::comparison::{ComparisonCase, ComparisonResult, ComparisonSession};
 use metron_inference_local::{
     artifact::{self, AUXILIARY_FILES, Artifact},
     driver::{EventSink, LocalInferenceDriver, QualificationOutcome, WorkerEvent},

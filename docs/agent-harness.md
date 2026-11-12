@@ -8,8 +8,8 @@ the pinned local inference SDK.
 
 [Bounded coding](coding.md) is the alpha.1 development path. GPU generation is
 verified, while independently accepted model-written coding and the required
-resource gates remain incomplete. The explicit `sum-v1` fixture commands below
-remain compatibility examples; they do not establish general coding capability.
+resource gates remain incomplete. The public workflow is coding-specific;
+historical sum journals have only a private read-only replay path.
 
 ```mermaid
 flowchart LR
@@ -17,21 +17,35 @@ flowchart LR
     Host --> Agent[Pure agent or standalone planner]
     Host --> Harness[Harness policy and orchestration]
     Harness --> Store[SQLite journal, inbox and accounting]
-    Harness -->|consumed admission| Driver[Scripted or local model driver]
-    Driver -->|bounded framed requests| Worker[Isolated local inference worker]
+    Harness -->|explicit effect port| Effects[Host or local inference adapters]
+    Effects -->|bounded framed requests| Worker[Isolated local inference worker]
     Worker --> Model[One loaded LFM3 model per task, principal and profile]
-    Worker -->|bounded observations| Driver
-    Harness -->|consumed admission| Publisher[Fixed-path artifact publisher]
-    Driver -->|receipt| Harness
-    Publisher -->|receipt| Harness
+    Worker -->|bounded observations| Effects
+    Effects -->|receipt| Harness
     Harness -->|evidence and artifact| Verifier[Independent verifier]
     Verifier -->|selection and result| Harness
     Store -->|read-only snapshot| Audit[Replay and verification audit]
+    Audit -->|recognized noncoding journals only| Legacy[Private FrozenSum reducer and legacy artifact inspection]
 ```
 
-Cognition proposes intents; host policy and the SQLite admission transaction
-control execution. SQLite retains receipts, accounting, and recovery state. An
-admitted dispatch whose result is unknown is not repeated automatically.
+Cognition proposes coding intents; host policy and SQLite admission control
+execution. Every effect and coding verifier is supplied through an explicit
+port. The production harness has no ambient filesystem fallback. SQLite
+retains receipts, accounting, and recovery state. An admitted dispatch whose
+result is unknown is not repeated automatically. Historical sum replay uses a
+separate private reducer and read-only artifact inspection; it has no execution
+or reconciliation route.
+
+The crate API exposes `metron_harness::orchestrator::drive_with_driver` for
+explicit effect driving and
+`metron_harness::orchestrator::drive_coding_with_driver` when a trusted
+`metron_harness::orchestrator::CodingVerifier` is supplied. Both require a
+`metron_harness::policy::EffectDriver`; there is no implicit `drive` or
+built-in scripted driver.
+`metron_harness::orchestrator::Checkpoint::EffectReturned`
+marks return from the supplied effect before receipt persistence, not durable
+filesystem completion. Controlled scripted replies and fixtures are confined
+to the dev-only `metron_testkit::coding` module.
 
 ## Build and run
 
@@ -96,28 +110,20 @@ Local requests permit up to 64 KiB of decoded context and a 512 KiB framed reque
 
 The fixed comparisons test short and near-8K inputs across three repetitions. An operational candidate must meet correctness, both roles' p95 usable-output latency below one second, a process GPU memory peak at most 4 GiB and at least 1 GiB free GPU memory; concurrency 1 is a baseline rather than a selectable candidate. There may be no acceptable candidate. The staggered case records whether the reasoner SDK stream is still awaiting its terminal response when the selector reaches the worker; actual backend batch membership remains unknown. These results do not automatically promote a profile: production selection retains the separate frozen-corpus qualification gate. See [ADR 0021](adr/0021-local-inference.md) and [R-0010](../knowledge/research/R-0010-lfm3-native-inference.md).
 
-A minimal task file is:
+## Public task entry and historical audit
 
-```json
-{"schema_version":1,"task_id":"example","principal_id":"operator","objective":"Sum the fixture values","budget":{"max_model_requests":1,"max_tool_calls":2,"max_spend_micros_usd":0,"max_elapsed_ms":null},"max_decision_steps":8}
-```
-
-```sh
-cargo run -p metron-host -- run --task-family sum-v1 --task task.json --run-dir run-1
-cargo run -p metron-host -- replay run-1
-cargo run -p metron-host -- verify run-1
-```
-
-`run` requires an empty run directory. Use `--mode harness` for the standalone
-planner; the default is `--mode agent`. Add `--require-publication-approval` to
-require an operator decision before publishing. The immutable artifact path is
-`artifacts/<intent-id>/<dispatch-id>/result.json` under the run directory.
-
-New runs require explicit `--task-family sum-v1` selection. The task's objective
-is descriptive; this legacy family verifies only the fixed sum fixture. Missing
-or unsupported families reject before creating run state or loading a model.
-Existing persisted runs can still resume, replay and verify without this flag.
-Coding tasks remain unavailable until their tool and acceptance contracts land.
+Use the `coding` commands documented in [bounded coding](coding.md) for new
+execution. Generic `run`, `resume`, `approval` and `reconcile` entry points
+reject before opening a database, loading a profile or starting a worker.
+`coding resume` performs a read-only audit first and rejects a legacy task
+before writable store or effect setup. `replay` and `verify` remain available
+for recognized noncoding history through the private FrozenSum reducer;
+verification inspects recorded legacy artifacts read-only. This does not mean
+all historical engine/profile variants are empirically replay-qualified. Seven
+of eight copied legacy/current databases in the Phase 2B receipt passed; the
+obsolete-profile `sum-local-agent/v2` sample rejects identically to the
+immutable prior host, and no persisted `sum-local-harness/v2` specimen was
+located. See the Phase 2B verification receipt for specimen scope and provenance.
 
 ### Pinned tool inventory
 

@@ -195,7 +195,6 @@ fn contextual_file_tools_admit_reconcile_and_replay_both_modes() {
                 &mut store,
                 &settings.task.data().task_id,
                 engine.as_ref(),
-                &root.join("run"),
                 &mut NoObserver,
                 &mut worker
             )
@@ -266,7 +265,6 @@ fn contextual_file_tools_admit_reconcile_and_replay_both_modes() {
                 &mut store,
                 &settings.task.data().task_id,
                 engine.as_ref(),
-                &root.join("run"),
                 &mut NoObserver,
                 &mut worker
             )
@@ -475,7 +473,6 @@ fn objective_digest_cannot_authorize_edit_without_read_in_either_mode() {
                 &mut store,
                 &settings.task.data().task_id,
                 engine.as_ref(),
-                &root.join("run"),
                 &mut NoObserver,
                 &mut worker
             )

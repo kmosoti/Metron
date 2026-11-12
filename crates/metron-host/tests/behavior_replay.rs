@@ -1,5 +1,5 @@
 //! A valid hash chain cannot substitute for rerunning cognition.
-use metron_agent::SumAgent;
+use metron_agent::CodingAgent;
 use metron_harness::{
     orchestrator::{self, NoObserver},
     replay,
@@ -7,14 +7,13 @@ use metron_harness::{
 use metron_protocol::{
     domain::Transition,
     store::{
-        AuditSnapshot, CommandData, EngineMode, EvidenceSnapshot, Genesis, GrantSnapshot,
-        InboxInput, InboxSnapshot, IntentSnapshot, JournalEvent, JournalPage, JournalRecord,
-        JournalRecordData, Projection, RuntimeSnapshot, SnapshotPage, StoreCommand, StoreError,
-        StoreOperation, StorePort, UnpostedDebit,
+        AuditSnapshot, CommandData, EngineMode, EvidenceSnapshot, GrantSnapshot, InboxInput,
+        InboxSnapshot, IntentSnapshot, JournalEvent, JournalPage, JournalRecord, JournalRecordData,
+        Projection, RuntimeSnapshot, SnapshotPage, StoreCommand, StoreError, StoreOperation,
+        StorePort, UnpostedDebit,
     },
     types::{
-        BoundedText, CommandId, Digest, MAX_INTERNAL, PrincipalId, SchemaVersion, SqlU64, TaskId,
-        canonical_bytes, content_digest, structural_digest,
+        Digest, MAX_INTERNAL, PrincipalId, SqlU64, TaskId, canonical_bytes, structural_digest,
     },
 };
 use metron_store_sqlite::SqliteStore;
@@ -150,29 +149,25 @@ fn valid_rehashed_chain_cannot_hide_changed_transition() {
     let root = std::env::temp_dir().join(format!("metron-replay-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir(&root).unwrap();
-    let task_id = TaskId::new("replay").unwrap();
-    let task =
-        metron_testkit::sum_task(task_id.clone(), PrincipalId::new("principal").unwrap()).unwrap();
-    let genesis = Genesis {
-        coding_policy: None,
-        mode: EngineMode::Agent,
-        engine_version: BoundedText::new("sum-agent/v1").unwrap(),
-        require_publication_approval: false,
-        policy_digest: content_digest(b"metron-alpha0-host-policy-v1"),
-        local_profile: None,
-    };
-    let create = StoreCommand::new(CommandData {
-        schema_version: SchemaVersion::V1,
-        command_id: CommandId::new("create").unwrap(),
-        operation: StoreOperation::CreateTask { task, genesis },
-    })
-    .unwrap();
+    let (coding, policy, genesis) = metron_testkit::coding::fixture("replay", EngineMode::Agent);
+    let task_id = coding.data().task_id.clone();
+    let engine = CodingAgent::new(&coding, &policy).unwrap();
+    let task = metron_protocol::Task::new_coding(coding).unwrap();
+    let create = metron_testkit::coding::command(StoreOperation::CreateTask { task, genesis });
     let mut store = SqliteStore::create(root.join("runtime.sqlite")).unwrap();
     store.apply(create).unwrap();
     assert_eq!(
-        orchestrator::drive(&mut store, &task_id, &SumAgent, &root, &mut NoObserver).unwrap(),
-        orchestrator::DriveStatus::Complete
+        orchestrator::drive_with_driver(
+            &mut store,
+            &task_id,
+            &engine,
+            &mut NoObserver,
+            &mut metron_testkit::coding::ModelReplies::default()
+        )
+        .unwrap(),
+        orchestrator::DriveStatus::Blocked
     );
+    assert!(replay::behavior(&mut store.audit().unwrap(), &task_id, &engine).unwrap());
     let snapshot = store.audit().unwrap();
     let mut tampered = Tampered::new(snapshot);
     let mut previous = tampered.records[0].data().previous.clone();
@@ -192,7 +187,7 @@ fn valid_rehashed_chain_cannot_hide_changed_transition() {
         previous = digest;
     }
     assert_eq!(previous, tampered.head);
-    assert!(!replay::behavior(&mut tampered, &task_id, &SumAgent).unwrap());
+    assert!(!replay::behavior(&mut tampered, &task_id, &engine).unwrap());
     drop(tampered);
     drop(store);
     std::fs::remove_dir_all(root).unwrap();

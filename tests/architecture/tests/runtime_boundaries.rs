@@ -208,10 +208,21 @@ fn pure_crates_do_not_use_ambient_io_or_lab_fixtures() {
                     "std::process",
                     "std::env",
                     "std::time",
+                    "fs::",
+                    "net::",
+                    "process::",
+                    "env::",
+                    "time::",
+                    "io::",
+                    "thread::",
                     "experiments/fixtures",
                 ] {
                     assert!(
-                        !source.contains(forbidden),
+                        !source.match_indices(forbidden).any(|(offset, _)| {
+                            offset == 0
+                                || !source.as_bytes()[offset - 1].is_ascii_alphanumeric()
+                                    && source.as_bytes()[offset - 1] != b'_'
+                        }),
                         "{} contains {forbidden}",
                         path.display()
                     );
@@ -219,7 +230,7 @@ fn pure_crates_do_not_use_ambient_io_or_lab_fixtures() {
             }
         }
     }
-    for name in ["metron-protocol", "metron-agent"] {
+    for name in ["metron-protocol", "metron-agent", "metron-harness"] {
         visit(&root().join("crates").join(name).join("src"));
     }
 }

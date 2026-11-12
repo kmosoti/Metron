@@ -42,7 +42,7 @@ fn derive_id(
 #[cfg(test)]
 mod tests {
     use super::{derive_id, session_id};
-    use metron_harness::comparison::{ComparisonCase, ComparisonResult, ComparisonSession};
+    use metron_inference_local::comparison::{ComparisonCase, ComparisonResult, ComparisonSession};
     use metron_protocol::{
         BoundedText, Digest, LOCAL_TEAM_RECIPE_SHA, LocalDevice, LocalOutputSchema, LocalProfile,
         LocalRole, PrincipalId, SchemaVersion, SqlU64, TaskId, content_digest,
