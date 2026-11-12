@@ -45,6 +45,11 @@ framed worker protocol, journals, and authority flow. The bounded diagnostic
 example is development support; it is not a product layer or profile
 qualification path.
 
+Optional context planning and resident-worker admission are described in
+[Context planning and resource-budgeted coding](context-budget.md). This
+conditional policy does not alter durable effect authority and applies only to
+drivers sharing its in-process coordinator.
+
 ## Execution and authority
 
 ```mermaid

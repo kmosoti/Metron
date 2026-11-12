@@ -1,5 +1,11 @@
 //! Consumed-authority local effect driver and lazy worker supervisor.
-use crate::{artifact, comparison::ComparisonPermit, framing, qualification::QualificationPermit};
+use crate::{
+    artifact,
+    comparison::ComparisonPermit,
+    context_budget::{BudgetPolicy, ResidentLease},
+    framing,
+    qualification::QualificationPermit,
+};
 use metron_harness::{
     driver::DriverOutcome,
     policy::{AuthorizedEffect, EffectDriver},
@@ -111,12 +117,13 @@ struct Process {
     writes: WriteQueue,
     replies: mpsc::Receiver<io::Result<(WorkerReply, Instant)>>,
     pid: u32,
+    lease: Option<ResidentLease>,
     sink: Option<EventSink>,
 }
 impl Drop for Process {
     fn drop(&mut self) {
         let deadline = Instant::now() + Duration::from_secs(1);
-        loop {
+        let confirmed = loop {
             let exited = self
                 .control
                 .child
@@ -125,16 +132,22 @@ impl Drop for Process {
                 .and_then(|mut child| child.try_wait().ok().flatten())
                 .is_some();
             if exited {
-                break;
+                break true;
             }
             if Instant::now() >= deadline {
-                let _ = self.control.terminate();
-                if let Ok(mut child) = self.control.child.lock() {
-                    let _ = child.wait();
+                if self.control.terminate().is_err() {
+                    break false;
                 }
-                break;
+                break self
+                    .control
+                    .child
+                    .lock()
+                    .is_ok_and(|mut child| child.wait().is_ok());
             }
             std::thread::sleep(Duration::from_millis(10));
+        };
+        if confirmed && let Some(lease) = self.lease.take() {
+            lease.release_confirmed();
         }
         if let Some(sink) = &self.sink {
             sink(WorkerEvent::Exited { pid: self.pid });
@@ -181,6 +194,7 @@ pub struct LocalInferenceDriver {
     sink: Option<EventSink>,
     process: Option<Process>,
     admission_check: Option<AdmissionCheck>,
+    budget_policy: Option<BudgetPolicy>,
 }
 impl LocalInferenceDriver {
     pub fn new(
@@ -203,7 +217,14 @@ impl LocalInferenceDriver {
             sink,
             process: None,
             admission_check: None,
+            budget_policy: None,
         })
+    }
+
+    /// Add conditional host-local resource admission. Without this policy no fit is promised.
+    pub fn with_resource_budget(mut self, policy: BudgetPolicy) -> Self {
+        self.budget_policy = Some(policy);
+        self
     }
 
     /// Recheck mutable host capacity immediately before a new worker is spawned.
@@ -211,7 +232,7 @@ impl LocalInferenceDriver {
         self.admission_check = Some(check);
         self
     }
-    fn start(&mut self) -> io::Result<()> {
+    fn start(&mut self, resident_bytes: Option<u64>) -> io::Result<()> {
         if self.process.is_some() {
             return Ok(());
         }
@@ -249,7 +270,23 @@ impl LocalInferenceDriver {
         if let Some(check) = &self.admission_check {
             check()?;
         }
-        let mut child = command.spawn()?;
+        let mut lease = match (&self.budget_policy, resident_bytes) {
+            (Some(policy), Some(bytes)) => Some(
+                policy
+                    .reserve(bytes)
+                    .map_err(|e| io::Error::other(format!("resource budget: {e:?}")))?,
+            ),
+            _ => None,
+        };
+        let mut child = match command.spawn() {
+            Ok(child) => child,
+            Err(error) => {
+                if let Some(lease) = lease.take() {
+                    lease.release_confirmed();
+                }
+                return Err(error);
+            }
+        };
         let pid = child.id();
         let stdin = child
             .stdin
@@ -309,6 +346,7 @@ impl LocalInferenceDriver {
             writes,
             replies: rx,
             pid,
+            lease,
             sink: self.sink.clone(),
         });
         Ok(())
@@ -526,6 +564,34 @@ impl LocalInferenceDriver {
                 .map(|_| rejected("qualification cohort mismatch"))
                 .collect();
         }
+        // Check the entire cohort even when start() would reuse a warm process.
+        let resident_bytes = if let Some(policy) = &self.budget_policy {
+            let scopes = requests
+                .iter()
+                .map(|r| (&r.task_id, &r.principal_id))
+                .collect::<Vec<_>>();
+            match policy.check(&self.profile, &scopes) {
+                Ok(bytes) => {
+                    if self.process.as_ref().is_some_and(|p| {
+                        p.lease
+                            .as_ref()
+                            .is_none_or(|lease| !lease.matches(policy, bytes))
+                    }) {
+                        return (0..count)
+                            .map(|_| rejected("resource budget: warm worker lease mismatch"))
+                            .collect();
+                    }
+                    Some(bytes)
+                }
+                Err(error) => {
+                    return (0..count)
+                        .map(|_| rejected(&format!("resource budget: {error:?}")))
+                        .collect();
+                }
+            }
+        } else {
+            None
+        };
         let mut frames = Vec::new();
         for (position, request) in requests.iter().enumerate() {
             if self.profile.digest().ok().as_ref() != Some(&request.profile_digest) {
@@ -580,7 +646,7 @@ impl LocalInferenceDriver {
             }
             frames.push(bytes);
         }
-        if let Err(error) = self.start() {
+        if let Err(error) = self.start(resident_bytes) {
             let diagnostic = format!("worker could not start: {error}");
             return (0..count).map(|_| rejected(&diagnostic)).collect();
         }
