@@ -323,13 +323,25 @@ pub struct CodingAgent {
     version: u8,
 }
 impl CodingAgent {
-    pub const ENGINE_VERSION: &str = "coding-agent/v3.5";
+    pub const ENGINE_VERSION: &str = "coding-agent/v3.6";
+    pub const RECOVERING_ENGINE_VERSION: &str = "coding-agent/v3.5";
     pub const NATIVE_ENGINE_VERSION: &str = "coding-agent/v3.4";
     pub const FOCUSED_ENGINE_VERSION: &str = "coding-agent/v3.3";
     pub const CATALOG_ENGINE_VERSION: &str = "coding-agent/v3.2";
     pub const PHASED_ENGINE_VERSION: &str = "coding-agent/v3.1";
     pub const LEGACY_ENGINE_VERSION: &str = "coding-agent/v3";
     pub fn new(
+        task: &metron_protocol::coding::CodingTask,
+        policy: &metron_protocol::coding::CodingPolicy,
+    ) -> Result<Self, metron_protocol::ValidationError> {
+        policy.validate(task)?;
+        Ok(Self {
+            task: task.clone(),
+            policy: policy.clone(),
+            version: 6,
+        })
+    }
+    pub fn legacy_v3_5(
         task: &metron_protocol::coding::CodingTask,
         policy: &metron_protocol::coding::CodingPolicy,
     ) -> Result<Self, metron_protocol::ValidationError> {
@@ -433,7 +445,13 @@ impl Cognition for CodingAgent {
                 state,
                 event,
             ),
-            _ => metron_protocol::coding_runtime::coding_transition_recovering(
+            5 => metron_protocol::coding_runtime::coding_transition_recovering(
+                &self.task,
+                &self.policy,
+                state,
+                event,
+            ),
+            _ => metron_protocol::coding_runtime::coding_transition_constrained(
                 &self.task,
                 &self.policy,
                 state,

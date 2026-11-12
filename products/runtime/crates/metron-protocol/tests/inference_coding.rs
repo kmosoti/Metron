@@ -450,3 +450,140 @@ fn native_request_and_observation_bind_catalog_and_raw_evidence() {
             .is_err()
     );
 }
+
+#[test]
+fn filtered_v4_recipe_and_catalog_are_frozen() {
+    use metron_protocol::coding::CodingTool;
+    let identity = format!(
+        "{LOCAL_CODING_V4_SYSTEM}\n{LOCAL_CODING_V4_SCHEMA_MODE}\n{LOCAL_CODING_V2_SCHEMA}"
+    );
+    assert_eq!(
+        content_digest(identity.as_bytes()).as_str(),
+        LOCAL_CODING_V4_RECIPE_SHA
+    );
+    let mut profile = local_profile();
+    profile.prompt_recipe_digest = Digest::new(LOCAL_CODING_V4_RECIPE_SHA).unwrap();
+    assert!(profile.validate().is_err());
+    profile.embedded_tokenizer_digest =
+        gguf_lfm3_corrected_tokenizer_digest(&profile.artifact_digest).unwrap();
+    assert!(profile.validate().is_ok());
+    let initial = filtered_coding_action_schema(&[CodingTool::Plan]).unwrap();
+    assert_eq!(
+        content_digest(&canonical_bytes(&initial, MAX_ENVELOPE).unwrap()).as_str(),
+        "e772ab82b0b8268b73e224da8bc5c1f339c38040b2ffb3c01d2411fce9552b40"
+    );
+    assert_eq!(initial["anyOf"].as_array().unwrap().len(), 1);
+    assert_eq!(initial["anyOf"][0]["properties"]["tool"]["const"], "plan");
+    let acting = filtered_coding_action_schema(&[
+        CodingTool::Edit,
+        CodingTool::Read,
+        CodingTool::Run,
+        CodingTool::Finish,
+    ])
+    .unwrap();
+    assert_eq!(
+        content_digest(&canonical_bytes(&acting, MAX_ENVELOPE).unwrap()).as_str(),
+        "5044222e0e883afaad076d1116ccf77659d330beff41249a8467de5270676127"
+    );
+    let names: Vec<_> = acting["anyOf"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v["properties"]["tool"]["const"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["read", "edit", "run", "finish"]);
+    assert!(filtered_coding_action_schema(&[]).is_err());
+    assert!(filtered_coding_action_schema(&[CodingTool::Read, CodingTool::Read]).is_err());
+    assert!(serde_json::from_str::<CodingTool>("\"unknown\"").is_err());
+    let permuted = filtered_coding_action_schema(&[
+        CodingTool::Finish,
+        CodingTool::Run,
+        CodingTool::Read,
+        CodingTool::Edit,
+    ])
+    .unwrap();
+    assert_eq!(
+        canonical_bytes(&acting, MAX_ENVELOPE).unwrap(),
+        canonical_bytes(&permuted, MAX_ENVELOPE).unwrap()
+    );
+}
+
+#[test]
+fn v4_requires_trusted_catalog_and_plain_observation() {
+    use metron_protocol::coding::CodingTool;
+    let mut profile = local_profile();
+    profile.prompt_recipe_digest = Digest::new(LOCAL_CODING_V4_RECIPE_SHA).unwrap();
+    profile.embedded_tokenizer_digest =
+        gguf_lfm3_corrected_tokenizer_digest(&profile.artifact_digest).unwrap();
+    let digest = content_digest(b"request");
+    let context = "task";
+    let cohort = SubmissionCohort {
+        id: BoundedText::new("cohort").unwrap(),
+        size: 1,
+        position: 0,
+    };
+    let mut request = WorkerRequest::Generate {
+        dispatch_id: content_digest(b"dispatch"),
+        request_digest: digest.clone(),
+        task_id: TaskId::new("task").unwrap(),
+        principal_id: PrincipalId::new("principal").unwrap(),
+        action_digest: content_digest(b"action"),
+        input_digest: content_digest(context.as_bytes()),
+        role: LocalRole::Reasoner,
+        output_schema: LocalOutputSchema::Text,
+        context: BoundedText::new(context).unwrap(),
+        native_tools: Some(Box::new(vec![CodingTool::Plan])),
+        profile: Box::new(profile.clone()),
+        artifact_path: BoundedText::new("/model.gguf").unwrap(),
+        cohort: Box::new(cohort.clone()),
+    };
+    assert!(request.validate().is_ok());
+    if let WorkerRequest::Generate { native_tools, .. } = &mut request {
+        *native_tools = None;
+    }
+    assert!(request.validate().is_err());
+    if let WorkerRequest::Generate { native_tools, .. } = &mut request {
+        *native_tools = Some(Box::new(vec![CodingTool::Plan, CodingTool::Plan]));
+    }
+    assert!(request.validate().is_err());
+    let mut observation = LocalObservation {
+        schema_version: SchemaVersion::V2,
+        profile_digest: profile.digest().unwrap(),
+        request_digest: digest.clone(),
+        input_digest: content_digest(context.as_bytes()),
+        response: Some(LocalResponse::Text),
+        content: BoundedText::new(r#"{"tool":"plan","steps":["inspect"]}"#).unwrap(),
+        reasoning: None,
+        native_calls: None,
+        prompt_tokens: 20,
+        completion_tokens: 10,
+        submission_cohort: cohort,
+        backend_batch: BatchProvenance::Unknown,
+    };
+    assert!(
+        observation
+            .validate(&profile, &digest, LocalOutputSchema::Text)
+            .is_ok()
+    );
+    observation.native_calls = Some(
+        NativeCallEvidence::capture(
+            1,
+            vec![("plan".into(), r#"{"steps":["inspect"]}"#.into())],
+            None,
+        )
+        .unwrap(),
+    );
+    assert!(
+        observation
+            .validate(&profile, &digest, LocalOutputSchema::Text)
+            .is_err()
+    );
+    profile.prompt_recipe_digest = Digest::new(LOCAL_CODING_V3_RECIPE_SHA).unwrap();
+    observation.profile_digest = profile.digest().unwrap();
+    observation.native_calls = None;
+    assert!(
+        observation
+            .validate(&profile, &digest, LocalOutputSchema::Text)
+            .is_err()
+    );
+}
