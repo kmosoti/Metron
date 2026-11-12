@@ -1,9 +1,9 @@
 //! Runs frozen calibration cases through one-shot qualification permits.
 use crate::qualification_capture::Capture;
-use metron_harness::qualification::{
+use metron_inference_local::driver::{LocalInferenceDriver, QualificationOutcome};
+use metron_inference_local::qualification::{
     QualificationResult, QualificationSession, SessionKind, SessionSources, ValidatedCalibration,
 };
-use metron_inference_local::driver::{LocalInferenceDriver, QualificationOutcome};
 use metron_protocol::{
     BoundedText, Digest, LocalProfile, MAX_ENVELOPE, SchemaVersion, SqlU64, canonical_bytes,
     content_digest,

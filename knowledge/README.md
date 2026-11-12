@@ -61,6 +61,7 @@ to those sources.
 | [O-0013 Native coding execution and feedback](observations/O-0013-native-coding-feedback.md) | agent | false |
 | [O-0014 Native file-tool contract](observations/O-0014-native-file-tool-contract.md) | agent | false |
 | [O-0015 Native V10 coding cases and context capacity](observations/O-0015-native-coding-v10-and-context.md) | agent | false |
+| [O-0016 V6 comparison proposal evidence and disposition](observations/O-0016-v6-comparison-proposal.md) | agent | false |
 
 ## Runtime implementation
 

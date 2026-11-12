@@ -1,4 +1,4 @@
-use metron_harness::qualification::{
+use metron_inference_local::qualification::{
     QualificationResult, QualificationSession, SessionKind, SessionSources,
 };
 use metron_protocol::{

@@ -1,10 +1,8 @@
 //! Consumed-authority local effect driver and lazy worker supervisor.
-use crate::{artifact, framing};
+use crate::{artifact, comparison::ComparisonPermit, framing, qualification::QualificationPermit};
 use metron_harness::{
-    comparison::ComparisonPermit,
     driver::DriverOutcome,
     policy::{AuthorizedEffect, EffectDriver},
-    qualification::QualificationPermit,
 };
 use metron_protocol::coding_runtime::CodingStep;
 use metron_protocol::{

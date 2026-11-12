@@ -1,5 +1,5 @@
 #![forbid(unsafe_code)]
-use metron_harness::qualification::{QualificationSession, SessionKind, SessionSources};
+use metron_inference_local::qualification::{QualificationSession, SessionKind, SessionSources};
 use metron_inference_local::{
     artifact::sha256_file,
     driver::{LocalInferenceDriver, QualificationOutcome, WorkerEvent},
@@ -151,11 +151,13 @@ fn untrusted_child_faults_never_fabricate_success() {
             "{mode}"
         );
         session
-            .settle(&[metron_harness::qualification::QualificationResult {
-                dispatch_id,
-                observation: None,
-                rejection: None,
-            }])
+            .settle(
+                &[metron_inference_local::qualification::QualificationResult {
+                    dispatch_id,
+                    observation: None,
+                    rejection: None,
+                }],
+            )
             .unwrap();
         assert!(session.admit(&[("calibration-sum-02", 0, false)]).is_err());
         assert!(session.admit(&[("calibration-tool-00", 0, false)]).is_err());

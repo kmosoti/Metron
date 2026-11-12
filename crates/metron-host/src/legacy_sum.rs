@@ -1,0 +1,343 @@
+//! Frozen reducers for read-only historical journal replay. No effect driver exists here.
+use metron_protocol::{
+    AgentEvent, AgentState, ApprovedRequest, BoundedText, Cognition, DecisionError, Digest, Intent,
+    IntentKind, MAX_CONTEXT, Phase, ReceiptOutput, SchemaVersion, SqlU64, Tariff, Transition,
+    canonical_bytes, content_digest, parse_sum_input, structural_digest,
+};
+
+/// Immutable replay identifier for this cognition implementation.
+const ENGINE_VERSION: &str = "sum-agent/v1";
+
+fn expected_pending(state: &AgentState, intent_id: &Digest) -> Result<(), DecisionError> {
+    if state.pending_intent.as_ref() == Some(intent_id) {
+        Ok(())
+    } else {
+        Err(DecisionError::InvalidEvent)
+    }
+}
+
+fn next_state(state: &AgentState) -> Result<AgentState, DecisionError> {
+    let mut next = state.clone();
+    next.revision = state
+        .revision
+        .checked_add(1)
+        .map_err(|_| DecisionError::Overflow)?;
+    Ok(next)
+}
+
+fn decision(
+    state: &AgentState,
+    phase: Phase,
+    kind: IntentKind,
+) -> Result<Transition, DecisionError> {
+    if state.decision_steps >= state.max_decision_steps {
+        return Err(DecisionError::DecisionLimit);
+    }
+    let ordinal = u32::from(state.decision_steps);
+    let genesis = state.genesis_digest.bytes();
+    let pending = structural_digest(
+        "intent-id/v1",
+        &[
+            state.task_id.as_str().as_bytes(),
+            &genesis,
+            &ordinal.to_be_bytes(),
+        ],
+    )
+    .map_err(|_| DecisionError::InvariantViolation)?;
+    let mut next = next_state(state)?;
+    next.decision_steps += 1;
+    next.phase = phase;
+    next.pending_intent = Some(pending);
+    let intent = Intent {
+        schema_version: SchemaVersion::V1,
+        task_id: state.task_id.clone(),
+        ordinal,
+        kind,
+    };
+    let result = Transition::Decision { next, intent };
+    result
+        .validate_from(state)
+        .map_err(|_| DecisionError::InvariantViolation)?;
+    Ok(result)
+}
+
+fn finalize(state: &AgentState, phase: Phase, clear: bool) -> Result<Transition, DecisionError> {
+    let mut next = next_state(state)?;
+    next.phase = phase;
+    if clear {
+        next.pending_intent = None;
+    }
+    let result = Transition::Finalization { next };
+    result
+        .validate_from(state)
+        .map_err(|_| DecisionError::InvariantViolation)?;
+    Ok(result)
+}
+
+fn scripted_transition(
+    state: &AgentState,
+    event: &AgentEvent,
+) -> Result<Transition, DecisionError> {
+    state
+        .validate()
+        .map_err(|_| DecisionError::InvariantViolation)?;
+    match state.phase {
+        Phase::New | Phase::AwaitingVerification | Phase::Completed | Phase::Rejected
+            if state.pending_intent.is_some() =>
+        {
+            return Err(DecisionError::InvariantViolation);
+        }
+        Phase::WaitingRead | Phase::WaitingModel | Phase::WaitingArtifact
+            if state.pending_intent.is_none() =>
+        {
+            return Err(DecisionError::InvariantViolation);
+        }
+        _ => {}
+    }
+    match (state.phase, event) {
+        (Phase::New, AgentEvent::TaskAccepted) => {
+            decision(state, Phase::WaitingRead, IntentKind::ReadFixture)
+        }
+        (
+            Phase::WaitingRead,
+            AgentEvent::EffectSettled {
+                intent_id,
+                output: ReceiptOutput::Fixture { bytes, digest },
+                ..
+            },
+        ) => {
+            expected_pending(state, intent_id)?;
+            if content_digest(bytes.as_str().as_bytes()) != *digest
+                || parse_sum_input(bytes.as_str().as_bytes()).is_err()
+            {
+                return Err(DecisionError::MissingEvidence);
+            }
+            let context =
+                BoundedText::new(bytes.as_str()).map_err(|_| DecisionError::InvariantViolation)?;
+            let zero = SqlU64::new(0).map_err(|_| DecisionError::InvariantViolation)?;
+            let request = ApprovedRequest::RequestModel {
+                input_digest: digest.clone(),
+                route: BoundedText::new("scripted/sum-v1")
+                    .map_err(|_| DecisionError::InvariantViolation)?,
+                context: context.clone(),
+                tariff: Tariff {
+                    model_requests: SqlU64::new(1)
+                        .map_err(|_| DecisionError::InvariantViolation)?,
+                    tool_calls: zero,
+                    spend_micros_usd: zero,
+                },
+            };
+            canonical_bytes(&request, MAX_CONTEXT)
+                .map_err(|_| DecisionError::InvariantViolation)?;
+            decision(
+                state,
+                Phase::WaitingModel,
+                IntentKind::RequestModel {
+                    input_digest: digest.clone(),
+                    context,
+                },
+            )
+        }
+        (
+            Phase::WaitingModel,
+            AgentEvent::EffectSettled {
+                intent_id,
+                output: ReceiptOutput::Model { candidate },
+                ..
+            },
+        ) => {
+            expected_pending(state, intent_id)?;
+            decision(
+                state,
+                Phase::WaitingArtifact,
+                IntentKind::PublishArtifact {
+                    candidate: candidate.clone(),
+                },
+            )
+        }
+        (
+            Phase::WaitingArtifact,
+            AgentEvent::EffectSettled {
+                intent_id,
+                output: ReceiptOutput::Published { .. },
+                ..
+            },
+        ) => {
+            expected_pending(state, intent_id)?;
+            finalize(state, Phase::AwaitingVerification, true)
+        }
+        (
+            Phase::WaitingRead | Phase::WaitingModel | Phase::WaitingArtifact,
+            AgentEvent::EffectUncertain { intent_id },
+        ) => {
+            expected_pending(state, intent_id)?;
+            finalize(state, state.phase, false)
+        }
+        (
+            Phase::WaitingRead | Phase::WaitingModel | Phase::WaitingArtifact,
+            AgentEvent::Denied { intent_id, .. }
+            | AgentEvent::EffectSettled {
+                intent_id,
+                output: ReceiptOutput::Failure { .. },
+                ..
+            },
+        ) => {
+            expected_pending(state, intent_id)?;
+            finalize(state, Phase::Rejected, true)
+        }
+        (Phase::AwaitingVerification, AgentEvent::Verified { accepted, .. }) => finalize(
+            state,
+            if *accepted {
+                Phase::Completed
+            } else {
+                Phase::Rejected
+            },
+            true,
+        ),
+        _ => Err(DecisionError::InvalidEvent),
+    }
+}
+
+/// Versioned local cognition: replay consumes recorded observations only.
+const LOCAL_ENGINE_VERSION: &str = "sum-local-agent/v2";
+
+struct FrozenSum {
+    profile_digest: Option<Digest>,
+}
+impl FrozenSum {
+    fn scripted() -> Self {
+        Self {
+            profile_digest: None,
+        }
+    }
+    fn new(
+        profile: &metron_protocol::LocalProfile,
+    ) -> Result<Self, metron_protocol::ValidationError> {
+        Ok(Self {
+            profile_digest: Some(profile.digest()?),
+        })
+    }
+}
+impl Cognition for FrozenSum {
+    fn transition(
+        &self,
+        state: &AgentState,
+        event: &AgentEvent,
+    ) -> Result<Transition, DecisionError> {
+        let Some(profile_digest) = &self.profile_digest else {
+            return scripted_transition(state, event);
+        };
+        if state.phase == Phase::WaitingModel
+            && matches!(
+                event,
+                AgentEvent::EffectSettled {
+                    output: ReceiptOutput::Model { .. },
+                    ..
+                }
+            )
+        {
+            return Err(DecisionError::InvalidEvent);
+        }
+        let mapped = match event {
+            AgentEvent::EffectSettled {
+                intent_id,
+                evidence_id,
+                output: ReceiptOutput::LocalModel { observation },
+            } => {
+                if observation.profile_digest != *profile_digest {
+                    return Err(DecisionError::MissingEvidence);
+                }
+                let output = match &observation.response {
+                    Some(metron_protocol::LocalResponse::Sum(sum)) => ReceiptOutput::Model {
+                        candidate: metron_protocol::CandidateResult {
+                            count: sum.count,
+                            sum: sum.sum,
+                            input_digest: observation.input_digest.clone(),
+                        },
+                    },
+                    _ => ReceiptOutput::Failure {
+                        diagnostic: BoundedText::new("invalid local response")
+                            .map_err(|_| DecisionError::InvariantViolation)?,
+                    },
+                };
+                AgentEvent::EffectSettled {
+                    intent_id: intent_id.clone(),
+                    evidence_id: evidence_id.clone(),
+                    output,
+                }
+            }
+            _ => event.clone(),
+        };
+        let mut transition = scripted_transition(state, &mapped)?;
+        if let Transition::Decision { intent, .. } = &mut transition {
+            intent.schema_version = SchemaVersion::V2;
+            if let IntentKind::RequestModel {
+                input_digest,
+                context,
+            } = &intent.kind
+            {
+                intent.kind = IntentKind::RequestLocalModel {
+                    input_digest: input_digest.clone(),
+                    context: context.clone(),
+                    profile_digest: profile_digest.clone(),
+                    role: metron_protocol::LocalRole::Solver,
+                    output_schema: metron_protocol::LocalOutputSchema::Sum,
+                };
+                let IntentKind::RequestLocalModel {
+                    input_digest,
+                    context,
+                    profile_digest,
+                    role,
+                    output_schema,
+                } = &intent.kind
+                else {
+                    return Err(DecisionError::InvariantViolation);
+                };
+                let request = ApprovedRequest::RequestLocalModel {
+                    input_digest: input_digest.clone(),
+                    context: context.clone(),
+                    profile_digest: profile_digest.clone(),
+                    role: *role,
+                    output_schema: *output_schema,
+                    tariff: Tariff {
+                        model_requests: SqlU64::new(1)
+                            .map_err(|_| DecisionError::InvariantViolation)?,
+                        tool_calls: SqlU64::new(0)
+                            .map_err(|_| DecisionError::InvariantViolation)?,
+                        spend_micros_usd: SqlU64::new(0)
+                            .map_err(|_| DecisionError::InvariantViolation)?,
+                    },
+                };
+                canonical_bytes(&request, MAX_CONTEXT)
+                    .map_err(|_| DecisionError::InvariantViolation)?;
+            }
+        }
+        Ok(transition)
+    }
+}
+
+pub(super) fn reader(
+    genesis: &metron_protocol::Genesis,
+) -> Result<Box<dyn Cognition>, &'static str> {
+    use metron_protocol::EngineMode;
+    if genesis.coding_policy.is_some() {
+        return Err("legacy journal has coding policy");
+    }
+    match (
+        genesis.mode,
+        genesis.engine_version.as_str(),
+        &genesis.local_profile,
+    ) {
+        (EngineMode::Agent, ENGINE_VERSION, None)
+        | (EngineMode::Harness, "sum-harness/v1", None) => Ok(Box::new(FrozenSum::scripted())),
+        (EngineMode::Agent, LOCAL_ENGINE_VERSION, Some(profile))
+        | (EngineMode::Harness, "sum-local-harness/v2", Some(profile)) => Ok(Box::new(
+            FrozenSum::new(profile).map_err(|_| "invalid local profile")?,
+        )),
+        _ => Err("unknown legacy engine version"),
+    }
+}
+
+#[cfg(test)]
+#[path = "legacy_sum_tests.rs"]
+mod tests;

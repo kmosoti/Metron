@@ -1,5 +1,5 @@
 #![forbid(unsafe_code)]
-use metron_harness::comparison::{ComparisonCase, ComparisonResult, ComparisonSession};
+use metron_inference_local::comparison::{ComparisonCase, ComparisonResult, ComparisonSession};
 use metron_inference_local::{
     artifact::sha256_file,
     driver::{LocalInferenceDriver, QualificationOutcome, WorkerEvent},

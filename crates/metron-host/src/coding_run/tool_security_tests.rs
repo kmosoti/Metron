@@ -117,7 +117,6 @@ fn admitted_list_read_and_argv_cannot_escape_build_script() {
             &mut store,
             &s.task.data().task_id,
             engine.as_ref(),
-            &root.join("run"),
             &mut NoObserver,
             &mut worker
         )
@@ -204,7 +203,6 @@ fn live_cargo_host_kill_holds_workspace_and_reservation() {
             &mut store,
             &s.task.data().task_id,
             engine.as_ref(),
-            &root.join("run"),
             &mut NoObserver,
             &mut worker,
         );
@@ -415,7 +413,6 @@ fn live_cargo_host_kill_holds_workspace_and_reservation() {
             &mut store,
             &settings.task.data().task_id,
             engine.as_ref(),
-            &root.join("run"),
             &mut NoObserver,
             &mut counter
         )
