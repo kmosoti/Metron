@@ -25,11 +25,18 @@ model proposal. The model must submit a new proposal; the third invalid proposal
 ends the task. Unknown executions and authorization failures still stop the
 loop. See [the correction contract](../../knowledge/observations/O-0009-known-proposal-feedback.md).
 
-Recipe v4 uses streaming JSON-schema actions filtered by the admitted phase/tool
-catalog. Its v3.6 controller leaves output encoding to the recipe. This mode
+Recipes v4 and v5 use streaming JSON-schema actions filtered by the admitted
+phase/tool catalog. The v3.7 controller leaves output encoding and recovery
+feedback to the recipe. This mode
 constrains argument types and paths that the pinned SDK's XML grammar does not
 enforce. It retains the corrected tokenizer and all host authorization checks;
 see [the decoding evidence](../../knowledge/observations/O-0010-coding-decoding-contracts.md).
+
+Recipe v5 admits canonical and tool-first property orders and disallows JSON
+whitespace outside string values. File contents retain their whitespace. The
+worker verifies property-order preservation before sampling; the host validates
+every resulting action independently. Historical controller and recipe identities
+remain available for replay, including v3.6's original recovery wording.
 
 ## Inputs and invocation
 

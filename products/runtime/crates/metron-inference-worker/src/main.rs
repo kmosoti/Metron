@@ -225,7 +225,9 @@ async fn load(request: &WorkerRequest, writer: &Writer) -> Result<Arc<Model>, St
     }
     let corrected_tokenizer = matches!(
         profile.prompt_recipe_digest.as_str(),
-        metron_protocol::LOCAL_CODING_V3_RECIPE_SHA | metron_protocol::LOCAL_CODING_V4_RECIPE_SHA
+        metron_protocol::LOCAL_CODING_V3_RECIPE_SHA
+            | metron_protocol::LOCAL_CODING_V4_RECIPE_SHA
+            | metron_protocol::LOCAL_CODING_V5_RECIPE_SHA
     );
     let tokenizer_identity = if corrected_tokenizer {
         metron_protocol::gguf_lfm3_corrected_tokenizer_digest(&profile.artifact_digest)
@@ -348,7 +350,27 @@ async fn generate(model: Arc<Model>, request: WorkerRequest, writer: Writer, in_
         profile.prompt_recipe_digest.as_str() == metron_protocol::LOCAL_CODING_V3_RECIPE_SHA;
     let json_v4 =
         profile.prompt_recipe_digest.as_str() == metron_protocol::LOCAL_CODING_V4_RECIPE_SHA;
-    let filtered_schema = if json_v4 {
+    let json_v5 =
+        profile.prompt_recipe_digest.as_str() == metron_protocol::LOCAL_CODING_V5_RECIPE_SHA;
+    let filtered_schema = if json_v5 {
+        let Some(allowed) = native_tools.as_deref().map(Vec::as_slice) else {
+            reject(&writer, dispatch_id, "missing trusted coding catalog");
+            return;
+        };
+        match metron_protocol::compact_ordered_coding_schema(allowed)
+            .and_then(|raw| metron_protocol::parse_compact_ordered_coding_schema(&raw, allowed))
+        {
+            Ok(schema) => Some(schema),
+            Err(_) => {
+                reject(
+                    &writer,
+                    dispatch_id,
+                    "compact coding schema ordering unavailable",
+                );
+                return;
+            }
+        }
+    } else if json_v4 {
         let Some(allowed) = native_tools.as_deref().map(Vec::as_slice) else {
             reject(&writer, dispatch_id, "missing trusted coding catalog");
             return;
@@ -396,7 +418,7 @@ async fn generate(model: Arc<Model>, request: WorkerRequest, writer: Writer, in_
         {
             tokens
         }
-        Err(error) if native_v3 || json_v4 => {
+        Err(error) if native_v3 || json_v4 || json_v5 => {
             reject(
                 &writer,
                 dispatch_id,
@@ -404,7 +426,7 @@ async fn generate(model: Arc<Model>, request: WorkerRequest, writer: Writer, in_
             );
             return;
         }
-        Ok(tokens) if native_v3 || json_v4 => {
+        Ok(tokens) if native_v3 || json_v4 || json_v5 => {
             reject(
                 &writer,
                 dispatch_id,
@@ -530,7 +552,7 @@ async fn generate(model: Arc<Model>, request: WorkerRequest, writer: Writer, in_
     while let Some(response) = stream.next().await {
         let chunk = match response {
             Response::Chunk(chunk) => chunk,
-            Response::InternalError(error) if json_v4 => {
+            Response::InternalError(error) if json_v4 || json_v5 => {
                 reject(
                     &writer,
                     dispatch_id,
@@ -538,7 +560,7 @@ async fn generate(model: Arc<Model>, request: WorkerRequest, writer: Writer, in_
                 );
                 return;
             }
-            Response::ValidationError(error) if json_v4 => {
+            Response::ValidationError(error) if json_v4 || json_v5 => {
                 reject(
                     &writer,
                     dispatch_id,
@@ -546,7 +568,7 @@ async fn generate(model: Arc<Model>, request: WorkerRequest, writer: Writer, in_
                 );
                 return;
             }
-            Response::ModelError(error, _) if json_v4 => {
+            Response::ModelError(error, _) if json_v4 || json_v5 => {
                 reject(
                     &writer,
                     dispatch_id,
@@ -1090,6 +1112,40 @@ mod tests {
             } else {
                 assert!(!directory.exists());
             }
+        }
+    }
+
+    #[test]
+    fn compact_schema_parser_retains_both_property_orders() {
+        use metron_protocol::{
+            coding::CodingTool, compact_ordered_coding_schema, parse_compact_ordered_coding_schema,
+        };
+        for tools in [
+            vec![CodingTool::Plan],
+            vec![
+                CodingTool::Read,
+                CodingTool::Edit,
+                CodingTool::Run,
+                CodingTool::Finish,
+            ],
+        ] {
+            let raw = compact_ordered_coding_schema(&tools).unwrap();
+            let schema = parse_compact_ordered_coding_schema(&raw, &tools)
+                .expect("SDK enables ordered JSON parsing");
+            let variants = schema["anyOf"].as_array().unwrap();
+            assert_eq!(variants.len(), tools.len() * 2);
+            assert_eq!(
+                variants[1]["properties"]
+                    .as_object()
+                    .unwrap()
+                    .keys()
+                    .next()
+                    .unwrap(),
+                "tool"
+            );
+            let mut tampered = raw.clone();
+            tampered.push(b' ');
+            assert!(parse_compact_ordered_coding_schema(&tampered, &tools).is_err());
         }
     }
 

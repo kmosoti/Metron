@@ -99,7 +99,7 @@ fn scope(settings: &Settings) -> Result<Option<Scope>, String> {
 }
 impl Settings {
     fn validate(&self, execution: bool) -> Result<(), String> {
-        if !matches!(self.context_version, 1..=7) {
+        if !matches!(self.context_version, 1..=8) {
             return Err("unsupported coding context version".into());
         }
         if self
@@ -185,6 +185,8 @@ impl Settings {
                 (EngineMode::Harness, 6) => "coding-harness/v3.5",
                 (EngineMode::Agent, 7) => "coding-agent/v3.6",
                 (EngineMode::Harness, 7) => "coding-harness/v3.6",
+                (EngineMode::Agent, 8) => "coding-agent/v3.7",
+                (EngineMode::Harness, 8) => "coding-harness/v3.7",
                 _ => return Err("unsupported coding context version".into()),
             })
             .map_err(|e| format!("engine: {e:?}"))?,
@@ -733,7 +735,11 @@ fn run(args: &[String]) -> Result<serde_json::Value, String> {
             .map(|p| read(Path::new(&p)))
             .transpose()?;
         let context_version = match profile.as_ref().map(|p| p.prompt_recipe_digest.as_str()) {
-            Some(metron_protocol::LOCAL_CODING_V4_RECIPE_SHA) | None => 7,
+            Some(
+                metron_protocol::LOCAL_CODING_V4_RECIPE_SHA
+                | metron_protocol::LOCAL_CODING_V5_RECIPE_SHA,
+            )
+            | None => 8,
             Some(metron_protocol::LOCAL_CODING_V3_RECIPE_SHA) => 6,
             Some(_) => 4,
         };
@@ -1023,7 +1029,7 @@ mod tests {
             max_processes: 16,
         };
         let settings = Settings {
-            context_version: 7,
+            context_version: 8,
             task,
             policy,
             catalog,

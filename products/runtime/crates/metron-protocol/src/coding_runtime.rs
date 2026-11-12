@@ -296,6 +296,16 @@ pub fn coding_transition_constrained(
     coding_transition_impl(task, policy, state, event, 6)
 }
 
+/// Version 3.7 also leaves recovery feedback encoding to the pinned recipe.
+pub fn coding_transition_format_neutral(
+    task: &CodingTask,
+    policy: &CodingPolicy,
+    state: &AgentState,
+    event: &AgentEvent,
+) -> Result<Transition, DecisionError> {
+    coding_transition_impl(task, policy, state, event, 7)
+}
+
 fn coding_transition_impl(
     task: &CodingTask,
     policy: &CodingPolicy,
@@ -564,8 +574,12 @@ fn coding_transition_impl(
                             .ok_or(DecisionError::Overflow)?;
                         context.model_feedback = Some(ModelFeedback {
                             source_evidence: evidence_id.clone(),
-                            diagnostic: BoundedText::new(MODEL_VALIDATION_DIAGNOSTIC)
-                                .map_err(|_| DecisionError::InvariantViolation)?,
+                            diagnostic: BoundedText::new(if version >= 7 {
+                                FORMAT_NEUTRAL_MODEL_VALIDATION_DIAGNOSTIC
+                            } else {
+                                MODEL_VALIDATION_DIAGNOSTIC
+                            })
+                            .map_err(|_| DecisionError::InvariantViolation)?,
                         });
                         context
                             .bound_focused()
@@ -863,6 +877,7 @@ pub struct FocusedToolView {
 
 pub const MAX_INVALID_PROPOSALS: u8 = 3;
 pub const MODEL_VALIDATION_DIAGNOSTIC: &str = "Return one valid function with workspace-relative paths; use null for the root directory and null expected_digest for a new file.";
+pub const FORMAT_NEUTRAL_MODEL_VALIDATION_DIAGNOSTIC: &str = "Return one valid action in the system's required format. Plan steps must be strings. Use workspace-relative paths, null for root, and null expected_digest for a new file. Do not invent file digests.";
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -915,7 +930,9 @@ impl CodingContext {
         if self.invalid_proposals > MAX_INVALID_PROPOSALS
             || self.model_feedback.as_ref().is_some_and(|feedback| {
                 self.invalid_proposals == 0
-                    || feedback.diagnostic.as_str() != MODEL_VALIDATION_DIAGNOSTIC
+                    || (feedback.diagnostic.as_str() != MODEL_VALIDATION_DIAGNOSTIC
+                        && feedback.diagnostic.as_str()
+                            != FORMAT_NEUTRAL_MODEL_VALIDATION_DIAGNOSTIC)
                     || !self.items.last().is_some_and(|item| {
                         item.kind.as_str() == "model" && item.evidence == feedback.source_evidence
                     })
