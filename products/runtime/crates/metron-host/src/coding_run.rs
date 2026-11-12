@@ -994,7 +994,8 @@ fn run(args: &[String]) -> Result<serde_json::Value, String> {
         let context_version = match profile.as_ref().map(|p| p.prompt_recipe_digest.as_str()) {
             Some(
                 metron_protocol::LOCAL_CODING_V4_RECIPE_SHA
-                | metron_protocol::LOCAL_CODING_V5_RECIPE_SHA,
+                | metron_protocol::LOCAL_CODING_V5_RECIPE_SHA
+                | metron_protocol::LOCAL_CODING_V6_RECIPE_SHA,
             )
             | None => 9,
             Some(metron_protocol::LOCAL_CODING_V3_RECIPE_SHA) => 6,
