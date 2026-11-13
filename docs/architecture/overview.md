@@ -98,7 +98,8 @@ freeze recovery.
 | `docs/` | Architecture, setup and interface documentation |
 | `knowledge/archive/laboratory/` | Historical Boolean-laboratory reports and research evidence |
 
-The root owns the single `Cargo.toml`, `Cargo.lock` and dated Rust toolchain pin.
+The root owns the single `Cargo.toml`, `Cargo.lock` and Rust 1.100.0 stable
+toolchain pin.
 The [product scope decision](../adr/0024-product-scope-and-laboratory-archive.md)
 records why the Boolean laboratory is archived rather than included in the
 current executable product. [ADR 0023](../adr/0023-first-class-agent-and-harness.md)
