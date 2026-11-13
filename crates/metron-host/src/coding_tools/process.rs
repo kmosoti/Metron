@@ -281,7 +281,7 @@ pub fn run(cfg: Config<'_>) -> Result<Completed, Failure> {
         "true",
         "--setenv",
         "RUSTUP_TOOLCHAIN",
-        "beta-2026-11-07",
+        "1.100.0",
         "--chdir",
     ])
     .arg(&cfg.workdir)

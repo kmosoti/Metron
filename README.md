@@ -27,7 +27,8 @@ cargo test --locked --workspace
 
 The host builds the `metron-runtime` CLI. Build the local inference worker
 separately with the required backend feature; a host build does not select CUDA.
-The repository pins `beta-2026-11-07` (Rust 1.100.0-beta.12).
+The repository pins stable Rust 1.100.0; edition 2024 and the Rust 1.100 minimum
+remain unchanged.
 
 Alpha.1 is in development. Local LFM3 Q4 CUDA generation is verified; useful
 model-written coding and all required resource gates have not yet passed.
