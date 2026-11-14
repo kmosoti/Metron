@@ -1,6 +1,7 @@
 //! Host composition for coding execution and read-only historical audit.
 #![forbid(unsafe_code)]
 mod coding_acceptance;
+mod coding_contract;
 mod coding_run;
 mod coding_tools;
 mod comparison_runner;
@@ -26,7 +27,7 @@ use metron_protocol::{
 use metron_store_sqlite::SqliteStore;
 use std::{env, path::PathBuf, process::ExitCode};
 
-fn cognition(
+pub(crate) fn cognition(
     genesis: &Genesis,
     task: &Task,
 ) -> Result<Box<dyn Cognition>, (CliOutcome, &'static str)> {

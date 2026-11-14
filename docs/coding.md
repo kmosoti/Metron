@@ -1,5 +1,58 @@
 # Experimental bounded coding
 
+## Intent contract experiment
+
+The host-private experiment makes task provenance, a baseline,
+approved changes, model assumptions, and their resolutions explicit before
+coding. Its structural validation reports readiness only; it cannot establish
+that the contract is semantically correct. A fixed trusted checker registry
+and custom `CodingVerifier` preserve the complete frozen
+`coding_acceptance.rs` source and its identities, along with the existing core
+acceptance version and settings.
+
+The host implements contract proposal, validation, freezing, experiment
+execution/finalization, and audit. The pilot path is experimental; public
+contract `run` and `resume` currently return a deferred blocked result.
+`declared_ready` means structural and declared checks passed; it is not
+semantic readiness. Unknowns block until supported by host-authenticated
+clarification or trusted-spec inputs. Model approval or blocking flags cannot
+grant authority. Native study outcomes and remaining evidence are recorded
+separately in [O-0020](../knowledge/observations/O-0020-intent-contract-experiment.md).
+
+The contract draft validation, freeze, and audit commands are:
+
+```sh
+metron-runtime coding contract validate --draft draft.json --request-file request.txt [--workspace /absolute/workspace] [--clarification-file clarification.txt] [--source ID=FILE] [--trusted-spec ID=FILE] [--output report.json]
+metron-runtime coding contract freeze --draft draft.json --request-file request.txt --expected-digest SHA256 --output bundle.json [--workspace /absolute/workspace] [--clarification-file clarification.txt] [--source ID=FILE] [--trusted-spec ID=FILE]
+metron-runtime coding contract audit --bundle bundle.json [--request-file request.txt] [--workspace /absolute/workspace] [--clarification-file clarification.txt] [--source ID=FILE] [--trusted-spec ID=FILE] [--report report.json] [--run-dir /absolute/run]
+```
+
+For native preparation, `propose` takes a request, contract ID, output
+directory, and pinned profile, worker, and model artifact; `experiment` takes
+the frozen corpus and corpus-freeze files, output directory, explicit tool
+catalog, and the same native pins. `experiment --finalize-campaign` consumes
+the campaign annotations and frozen corpus to produce a decision receipt.
+Production `--recorded-replies` and `--controlled-replies` inputs are rejected;
+recorded material can enter through `validate` as a draft, not as native
+execution evidence. Keep the four contract diagnostics and 48-attempt maximum
+within ADR 0028's predeclared study design.
+
+Freeze revalidates with host-authenticated inputs, checks the operator-supplied
+prospective digest, and writes a new bundle. Audit with only a bundle checks
+structural integrity; with a report but no run directory it still cannot claim
+independent acceptance. A run-directory audit checks recorded settings,
+journal, artifact, and selection consistency; it does not rerun a fresh checker
+or establish native model quality. Source reauthentication is distinct from
+structural consistency. See [ADR 0028](adr/0028-experimental-intent-contracts.md)
+for the proposed pilot and its gates.
+
+The runner pins the exact host executable digest in immutable
+pre-effect settings and evaluator identity. New effects and resume require that
+same current host binary; changing it requires a fresh task/workflow. The
+inference worker, backend, and profile have a separate pinned identity.
+Historical offline audits can check recorded consistency without claiming a
+fresh run under a different current executable.
+
 The coding entry point connects a version-3 task to workspace tools, a local
 model, scoped notes and independent artifact acceptance. Both `agent` and
 `harness` modes use the same admission, reservation, receipt and verification

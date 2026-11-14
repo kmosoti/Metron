@@ -136,3 +136,23 @@ pub fn command(operation: StoreOperation) -> StoreCommand {
     })
     .unwrap()
 }
+
+/// SHA-256 of pre-native corpus revision 3 (`schema_version = 2`).
+/// Provenance: pre-native frozen independent corpus at `/tmp/metron-intent-contracts-agy-5hobgpxs/independent-corpus.json`
+/// supersedes revision 2; behavioral vectors and labels are unchanged.
+pub const INDEPENDENT_CORPUS_SHA256: &str =
+    "d1176eadd84d484145f847fbb18e4e68d633f1ff9715d0e99d3adc4d7e8d81af";
+
+/// Exact SHA-256 of the accompanying frozen `corpus.freeze.json` receipt.
+pub const INDEPENDENT_CORPUS_FREEZE_SHA256: &str =
+    "eaf60331444bb525a674b47bcdf463a88dfa271892db621d09222b10a8fb2fc7";
+
+/// Development-only frozen independent corpus payload (`schema_version = 2`).
+pub fn independent_corpus_json() -> &'static str {
+    include_str!("../fixtures/independent-corpus.json")
+}
+
+/// Development-only frozen corpus metadata receipt (`corpus.freeze.json`).
+pub fn independent_corpus_freeze_json() -> &'static str {
+    include_str!("../fixtures/corpus.freeze.json")
+}

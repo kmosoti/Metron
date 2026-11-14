@@ -1145,6 +1145,15 @@ fn read_file(root: &File, path: &WorkspacePath, max: u32) -> Result<Vec<u8>, &'s
     Ok(bytes)
 }
 
+/// Snapshot workspace files via the descriptor-pinned `openat2` walker.
+pub(crate) fn snapshot_workspace_files(
+    root: &File,
+    max_file: u32,
+) -> Result<Vec<CodingFile>, &'static str> {
+    let (files, _) = source_files(root, None, max_file, true)?;
+    Ok(files)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
