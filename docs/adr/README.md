@@ -32,3 +32,4 @@ mark them superseded. Template: context, decision, consequences.
 | 0025 | File-backed inference session authority belongs to the local adapter | proposed |
 | 0026 | Resource-budget admission for resident inference workers | proposed |
 | 0027 | Stable Rust 1.100 toolchain pin | proposed; supersedes compiler pin and qualification requirement in ADR 0019 |
+| 0028 | Experimental intent contracts for bounded coding | proposed |
