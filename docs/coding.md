@@ -16,8 +16,8 @@ contract `run` and `resume` currently return a deferred blocked result.
 `declared_ready` means structural and declared checks passed; it is not
 semantic readiness. Unknowns block until supported by host-authenticated
 clarification or trusted-spec inputs. Model approval or blocking flags cannot
-grant authority. Campaign 03 is running the native diagnostics and preparation
-rows; its diagnostic and promotion disposition is still pending.
+grant authority. Native study outcomes and remaining evidence are recorded
+separately in [O-0020](../knowledge/observations/O-0020-intent-contract-experiment.md).
 
 The contract draft validation, freeze, and audit commands are:
 
