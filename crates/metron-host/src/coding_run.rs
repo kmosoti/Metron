@@ -51,7 +51,7 @@ struct Settings {
 fn legacy_context_version() -> u8 {
     1
 }
-fn read<T: DeserializeOwned>(path: &Path) -> Result<T, String> {
+pub(crate) fn read<T: DeserializeOwned>(path: &Path) -> Result<T, String> {
     let fd = rustix::fs::open(
         path,
         rustix::fs::OFlags::RDONLY
@@ -71,7 +71,7 @@ fn read<T: DeserializeOwned>(path: &Path) -> Result<T, String> {
         .map_err(|e| e.to_string())?;
     parse_internal(&bytes).map_err(|e| format!("invalid bounded input: {e:?}"))
 }
-fn write_new(path: &Path, bytes: &[u8]) -> Result<(), String> {
+pub(crate) fn write_new(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let mut file = fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -257,7 +257,7 @@ impl Settings {
         })
     }
 }
-fn command(operation: StoreOperation) -> Result<StoreCommand, String> {
+pub(crate) fn command(operation: StoreOperation) -> Result<StoreCommand, String> {
     let bytes = canonical_bytes(&operation, MAX_INTERNAL).map_err(|e| format!("command: {e:?}"))?;
     StoreCommand::new(CommandData {
         schema_version: SchemaVersion::V3,
@@ -805,7 +805,9 @@ fn inspect_acceptance_report(
                     .all(|c| c.status == coding_acceptance::CheckStatus::Passed)),
     ))
 }
-fn event_capture(path: &Path) -> Result<metron_inference_local::driver::EventSink, String> {
+pub(crate) fn event_capture(
+    path: &Path,
+) -> Result<metron_inference_local::driver::EventSink, String> {
     use metron_inference_local::driver::WorkerEvent;
     use std::sync::{Arc, Mutex};
     let file = fs::OpenOptions::new()
@@ -873,7 +875,10 @@ fn event_capture(path: &Path) -> Result<metron_inference_local::driver::EventSin
         }
     }))
 }
-fn external_resource_budget_path(path: &Path, workspace: &Path) -> Result<PathBuf, String> {
+pub(crate) fn external_resource_budget_path(
+    path: &Path,
+    workspace: &Path,
+) -> Result<PathBuf, String> {
     // A model may edit any workspace file, including a formerly operator-written policy.
     // Both the target and its lookup path must remain outside model control across resumes.
     // Require a canonical spelling, rejecting symlinks in any component and `..` rather
@@ -896,7 +901,7 @@ fn external_resource_budget_path(path: &Path, workspace: &Path) -> Result<PathBu
     }
     Ok(resolved)
 }
-fn resource_budget_flag(args: &[String]) -> Result<Option<String>, String> {
+pub(crate) fn resource_budget_flag(args: &[String]) -> Result<Option<String>, String> {
     if args
         .iter()
         .any(|arg| arg.starts_with("--resource-budget") && arg != "--resource-budget")
@@ -920,12 +925,12 @@ fn resource_budget_flag(args: &[String]) -> Result<Option<String>, String> {
         _ => Err("duplicate --resource-budget".into()),
     }
 }
-fn flag(args: &[String], name: &str) -> Option<String> {
+pub(crate) fn flag(args: &[String], name: &str) -> Option<String> {
     args.windows(2)
         .find(|pair| pair[0] == name)
         .map(|pair| pair[1].clone())
 }
-fn required(args: &[String], name: &str) -> Result<String, String> {
+pub(crate) fn required(args: &[String], name: &str) -> Result<String, String> {
     flag(args, name).ok_or_else(|| format!("missing {name}"))
 }
 fn annotate_memory(args: &[String]) -> Result<serde_json::Value, String> {
@@ -1042,7 +1047,7 @@ fn annotate_memory(args: &[String]) -> Result<serde_json::Value, String> {
     Ok(serde_json::json!({"outcome":"succeeded","dispatch":input.dispatch}))
 }
 
-fn context_version_for_recipe(recipe: Option<&str>) -> u8 {
+pub(crate) fn context_version_for_recipe(recipe: Option<&str>) -> u8 {
     match recipe {
         Some(
             metron_protocol::LOCAL_CODING_V8_RECIPE_SHA
@@ -1292,6 +1297,9 @@ fn operator(args: &[String]) -> Result<serde_json::Value, String> {
 }
 
 fn run(args: &[String]) -> Result<serde_json::Value, String> {
+    if args.first().map(String::as_str) == Some("contract") {
+        return crate::coding_contract::run(&args[1..]);
+    }
     let resource_budget_path = resource_budget_flag(args)?;
     let action = args.first().map(String::as_str).unwrap_or("");
     if matches!(
