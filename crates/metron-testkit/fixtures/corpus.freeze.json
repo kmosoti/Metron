@@ -1,0 +1,11 @@
+{
+  "case_count": 12,
+  "file": "/tmp/metron-intent-contracts-agy-5hobgpxs/independent-corpus.json",
+  "native_outputs_seen_before_freeze": false,
+  "pilot_attempt_count": 48,
+  "reason": "Pre-native corpus revision3: replace unnecessary uncheckable no-file/no-network artifact-purity obligation with non-requirement; behavior/oracle vectors and independent labels unchanged. Sandbox confinement remains environmental evidence, not artifact purity proof.",
+  "schema_version": 2,
+  "separate_diagnostic_count": 4,
+  "sha256": "d1176eadd84d484145f847fbb18e4e68d633f1ff9715d0e99d3adc4d7e8d81af",
+  "supersedes_sha256": "5af364164c58215c2909eac62ce67c63da4706d1bbbbf23fa07717673a0d3981"
+}
