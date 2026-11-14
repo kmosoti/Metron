@@ -116,7 +116,7 @@ pub(crate) fn resolve_pinned_artifact(profile: &LocalProfile) -> Result<Artifact
     ))
 }
 
-fn build_stage_prompt(
+pub(crate) fn build_stage_prompt(
     params: &ProposeParams,
     auth: &HostAuthContext,
     stage: ProposeStageNameV1,
@@ -141,6 +141,15 @@ fn build_stage_prompt(
             params.selected_binary
         ))
     };
+    let has_baseline = auth
+        .workspace_snapshot
+        .as_ref()
+        .is_some_and(|ws| !ws.is_empty());
+    let allowed_checkers = if has_baseline {
+        "\"snapshot-local-path-v1\", \"cargo-offline-locked-v1\", \"cargo-test-offline-locked-v1\", \"selected-cli-vectors-v1\", \"preserved-file-v1\" (when `preserved_files` is non-empty)"
+    } else {
+        "\"snapshot-local-path-v1\", \"cargo-offline-locked-v1\", \"cargo-test-offline-locked-v1\", \"selected-cli-vectors-v1\""
+    };
 
     let mut prompt = format!(
         "Role: Metron contract preparation assistant ({mode_note}).\n\
@@ -151,7 +160,7 @@ fn build_stage_prompt(
          - Optional nonmaterial assumption id `prepared-guidance` contains implementation guidance of 1..=32 UTF-8 bytes; never replace original requirements with guidance.\n\
          - Declare EVERY unresolved material ambiguity, contradiction, or unspecified edge case in `unknowns`.\n\
          - Never invent requirements not backed by request/clarifications/baseline; mark inferences in `assumptions`.\n\
-         - Allowed `checker` values (or null): \"snapshot-local-path-v1\", \"cargo-offline-locked-v1\", \"cargo-test-offline-locked-v1\", \"selected-cli-vectors-v1\", \"preserved-file-v1\", \"forbidden-file-v1\", \"fixed-file-v1\", \"interface-signature-v1\".\n\
+         - Allowed `checker` values (or null): {allowed_checkers}.\n\
          - Keep clause strings concise and bounded; workflow={workflow}; selected_binary={}.\n\
          Original request:\n{}\n",
         params.selected_binary,
@@ -249,7 +258,7 @@ pub(crate) fn parse_compact_proposal_dto(raw: &str) -> Result<CompactProposalDto
     Ok(dto)
 }
 
-fn build_draft_from_dto(
+pub(crate) fn build_draft_from_dto(
     params: &ProposeParams,
     auth: &HostAuthContext,
     dto: &CompactProposalDtoV1,
