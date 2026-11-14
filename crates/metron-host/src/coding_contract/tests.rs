@@ -8,7 +8,10 @@ use super::io::{
     collect_workspace_snapshot, inspect_predecessor_journal_read_only, open_external_nofollow,
     read_external_bounded_bytes, read_open_file_bounded,
 };
-use super::propose::{UNCERTAIN_TEST_SENTINEL, derive_team_text_profile};
+use super::propose::{
+    ProposeParams, UNCERTAIN_TEST_SENTINEL, build_draft_from_dto, build_stage_prompt,
+    derive_team_text_profile, parse_compact_proposal_dto,
+};
 use super::run;
 use super::runner::{
     CodingAttemptRequest, CustomRunnerFactory, execute_contract_coding_attempt,
@@ -17,7 +20,7 @@ use super::runner::{
 use super::types::*;
 use super::validation::{
     HostAuthContext, HostAuthSource, build_contract_report, expected_check_specs_for_bundle,
-    validate_against_auth, verify_report_structural_only,
+    validate_against_auth, validate_against_auth_with_mode, verify_report_structural_only,
 };
 use super::verifier::{
     check_interface_lexical_tokens, strip_rust_comments_and_literals, validate_cargo_metadata_json,
@@ -2771,4 +2774,431 @@ fn objective_projection_retains_complete_sources_and_exact_mandatory_bytes() {
             .1
             .contains("complete authenticated clarification")
     );
+}
+
+#[test]
+fn supplied_clarification_rejected_when_omitted_and_retained_across_validate_freeze_audit() {
+    let root = temp_root("clarification-retention");
+    let ws = root.join("workspace");
+    fs::DirBuilder::new().mode(0o700).create(&ws).unwrap();
+
+    let req = "Format signed integers cleanly.";
+    let clar = "Clarified: negative zero formats as 0 and trailing spaces are trimmed.";
+    let req_path = root.join("request.txt");
+    let clar_path = root.join("clarification.txt");
+    write_file_bytes(&req_path, req.as_bytes());
+    write_file_bytes(&clar_path, clar.as_bytes());
+
+    // Freeze a valid baseline bundle WITHOUT --clarification-file first.
+    let omitted_draft = base_new_draft(req);
+    let omitted_draft_path = root.join("omitted-draft.json");
+    write_file_bytes(
+        &omitted_draft_path,
+        &serde_json::to_vec(&omitted_draft).unwrap(),
+    );
+    let baseline_val = run(&[
+        "validate".into(),
+        "--draft".into(),
+        omitted_draft_path.display().to_string(),
+        "--request-file".into(),
+        req_path.display().to_string(),
+        "--workspace".into(),
+        ws.display().to_string(),
+    ])
+    .unwrap();
+    assert_eq!(baseline_val["outcome"], "succeeded");
+    let baseline_digest = baseline_val["prospective_bundle_digest"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let baseline_bundle_path = root.join("baseline-bundle.json");
+    let baseline_freeze = run(&[
+        "freeze".into(),
+        "--draft".into(),
+        omitted_draft_path.display().to_string(),
+        "--request-file".into(),
+        req_path.display().to_string(),
+        "--workspace".into(),
+        ws.display().to_string(),
+        "--expected-digest".into(),
+        baseline_digest,
+        "--output".into(),
+        baseline_bundle_path.display().to_string(),
+    ])
+    .unwrap();
+    assert_eq!(baseline_freeze["outcome"], "succeeded");
+
+    // 1. validate/freeze MUST reject an abridged draft that omits supplied src-clarification.
+    let val_omitted = run(&[
+        "validate".into(),
+        "--draft".into(),
+        omitted_draft_path.display().to_string(),
+        "--request-file".into(),
+        req_path.display().to_string(),
+        "--clarification-file".into(),
+        clar_path.display().to_string(),
+        "--workspace".into(),
+        ws.display().to_string(),
+    ])
+    .unwrap();
+    assert_eq!(val_omitted["outcome"], "blocked");
+    assert_eq!(val_omitted["structurally_valid"], false);
+    assert!(
+        val_omitted["report"]["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f["code"] == "missing_clarification_source")
+    );
+
+    let dummy_bundle_path = root.join("should-not-write.json");
+    let freeze_omitted = run(&[
+        "freeze".into(),
+        "--draft".into(),
+        omitted_draft_path.display().to_string(),
+        "--request-file".into(),
+        req_path.display().to_string(),
+        "--clarification-file".into(),
+        clar_path.display().to_string(),
+        "--workspace".into(),
+        ws.display().to_string(),
+        "--expected-digest".into(),
+        baseline_val["prospective_bundle_digest"]
+            .as_str()
+            .unwrap()
+            .to_string(),
+        "--output".into(),
+        dummy_bundle_path.display().to_string(),
+    ])
+    .unwrap();
+    assert_eq!(freeze_omitted["outcome"], "blocked");
+    assert_eq!(freeze_omitted["structurally_valid"], false);
+    assert!(!dummy_bundle_path.exists());
+    assert!(
+        freeze_omitted["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f["code"] == "missing_clarification_source")
+    );
+
+    // 2. audit MUST fail when re-authenticating a bundle that omitted supplied --clarification-file.
+    let audit_omitted = run(&[
+        "audit".into(),
+        "--bundle".into(),
+        baseline_bundle_path.display().to_string(),
+        "--request-file".into(),
+        req_path.display().to_string(),
+        "--clarification-file".into(),
+        clar_path.display().to_string(),
+        "--workspace".into(),
+        ws.display().to_string(),
+    ])
+    .unwrap();
+    assert_eq!(audit_omitted["outcome"], "integrity_failure");
+    assert!(
+        audit_omitted["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f["code"] == "missing_clarification_source")
+    );
+
+    // 3. When src-clarification is present (even without an explicit resolution item), validate,
+    //    freeze, and audit retain the complete authenticated clarification bytes and detect tampering.
+    let mut full_draft = omitted_draft;
+    full_draft.sources.push(ContractSourceEntryV1 {
+        id: BoundedText::new("src-clarification").unwrap(),
+        claimed_kind: SourceKind::ClarificationAnswer,
+        host_kind: None,
+        label: BoundedText::new("clarification.txt").unwrap(),
+        content_sha256: content_digest(clar.as_bytes()),
+        host_authenticated: false,
+    });
+    let full_draft_path = root.join("full-draft.json");
+    write_file_bytes(&full_draft_path, &serde_json::to_vec(&full_draft).unwrap());
+
+    let val_ok = run(&[
+        "validate".into(),
+        "--draft".into(),
+        full_draft_path.display().to_string(),
+        "--request-file".into(),
+        req_path.display().to_string(),
+        "--clarification-file".into(),
+        clar_path.display().to_string(),
+        "--workspace".into(),
+        ws.display().to_string(),
+    ])
+    .unwrap();
+    assert_eq!(val_ok["outcome"], "succeeded");
+    assert_eq!(val_ok["declared_ready"], true);
+
+    let full_digest = val_ok["prospective_bundle_digest"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let full_bundle_path = root.join("full-bundle.json");
+    let freeze_ok = run(&[
+        "freeze".into(),
+        "--draft".into(),
+        full_draft_path.display().to_string(),
+        "--request-file".into(),
+        req_path.display().to_string(),
+        "--clarification-file".into(),
+        clar_path.display().to_string(),
+        "--workspace".into(),
+        ws.display().to_string(),
+        "--expected-digest".into(),
+        full_digest,
+        "--output".into(),
+        full_bundle_path.display().to_string(),
+    ])
+    .unwrap();
+    assert_eq!(freeze_ok["outcome"], "succeeded");
+    let bundle: ContractBundleV1 =
+        serde_json::from_slice(&fs::read(&full_bundle_path).unwrap()).unwrap();
+    assert!(bundle.objective.as_str().contains(clar));
+    assert!(
+        bundle
+            .body
+            .requirements
+            .mandatory_obligations
+            .iter()
+            .any(|ob| ob.source_ref.as_str() == "src-clarification"
+                && ob.id.as_str().starts_with("host-clar-")
+                && ob.clause.as_str() == clar)
+    );
+
+    let audit_ok = run(&[
+        "audit".into(),
+        "--bundle".into(),
+        full_bundle_path.display().to_string(),
+        "--request-file".into(),
+        req_path.display().to_string(),
+        "--clarification-file".into(),
+        clar_path.display().to_string(),
+        "--workspace".into(),
+        ws.display().to_string(),
+    ])
+    .unwrap();
+    assert_eq!(audit_ok["outcome"], "succeeded");
+    assert_eq!(audit_ok["sources_reauthenticated"], true);
+
+    let altered_clar_path = root.join("altered-clarification.txt");
+    write_file_bytes(
+        &altered_clar_path,
+        b"Clarified: negative zero formats as -0.",
+    );
+    let audit_tampered = run(&[
+        "audit".into(),
+        "--bundle".into(),
+        full_bundle_path.display().to_string(),
+        "--request-file".into(),
+        req_path.display().to_string(),
+        "--clarification-file".into(),
+        altered_clar_path.display().to_string(),
+        "--workspace".into(),
+        ws.display().to_string(),
+    ])
+    .unwrap();
+    assert_eq!(audit_tampered["outcome"], "integrity_failure");
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn propose_prompt_advertises_only_dto_constructible_registry_checkers() {
+    let req = "Update demo parser while preserving Cargo files.";
+    let mut new_sources = BTreeMap::new();
+    new_sources.insert(
+        "src-request".to_string(),
+        HostAuthSource {
+            kind: SourceKind::OperatorRequest,
+            sha256: content_digest(req.as_bytes()),
+            label: "request.txt".to_string(),
+            utf8_text: Some(req.to_string()),
+        },
+    );
+    let new_auth = HostAuthContext {
+        raw_request: req.to_string(),
+        raw_request_sha256: content_digest(req.as_bytes()),
+        sources_by_id: new_sources,
+        workspace_snapshot: None,
+        predecessor_bundle_digest: None,
+        predecessor_inspection: None,
+    };
+    let new_params = ProposeParams {
+        contract_id: "c-new".to_string(),
+        workflow: ContractWorkflow::New,
+        selected_binary: "metron-case".to_string(),
+        max_stages: 3,
+        architecture_scaffold: true,
+    };
+    let new_prompt = build_stage_prompt(
+        &new_params,
+        &new_auth,
+        ProposeStageNameV1::Proposal,
+        None,
+        &[],
+    )
+    .unwrap();
+    let new_text = new_prompt.as_str();
+    for unsupported in [
+        "interface-signature-v1",
+        CHECKER_SOURCE_LITERAL_V1,
+        CHECKER_FIXED_FILE_V1,
+        CHECKER_FORBIDDEN_FILE_V1,
+        CHECKER_PRESERVED_FILE_V1,
+    ] {
+        assert!(
+            !new_text.contains(unsupported),
+            "new prompt must not advertise {unsupported}"
+        );
+    }
+
+    for checker in [
+        CHECKER_METADATA_SNAPSHOT_LOCAL_PATH_V1,
+        CHECKER_BUILD_CARGO_OFFLINE_LOCKED_V1,
+        CHECKER_TEST_CARGO_TEST_OFFLINE_LOCKED_V1,
+        CHECKER_CLI_SELECTED_VECTORS_V1,
+    ] {
+        assert!(new_text.contains(checker));
+        let dto = parse_compact_proposal_dto(
+            &serde_json::json!({
+                "intended_delta": ["build CLI binary"],
+                "approved_compatibility": [],
+                "allowed_edit_paths": ["src/main.rs"],
+                "preserved_files": [],
+                "mandatory_obligations": [
+                    {"id": "ob1", "clause": "implement spec", "checker": checker}
+                ],
+                "assumptions": [],
+                "unknowns": [],
+                "resolutions": []
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let draft = build_draft_from_dto(&new_params, &new_auth, &dto, &[]).unwrap();
+        let (report, _) = validate_against_auth_with_mode(&draft, Some(&new_auth), true).unwrap();
+        assert!(
+            report.structurally_valid && report.declared_ready,
+            "new checker {checker} failed validation: {:?}",
+            report.findings
+        );
+    }
+
+    let cargo_toml = b"[package]\nname = \"demo\"\nversion = \"0.1.0\"\n";
+    let main_rs = b"fn main() {}\n";
+    let mut snapshot = BTreeMap::new();
+    snapshot.insert("Cargo.toml".to_string(), content_digest(cargo_toml));
+    snapshot.insert("src/main.rs".to_string(), content_digest(main_rs));
+    let baseline_raw = vec![
+        (
+            WorkspacePath::new("Cargo.toml").unwrap(),
+            content_digest(cargo_toml),
+        ),
+        (
+            WorkspacePath::new("src/main.rs").unwrap(),
+            content_digest(main_rs),
+        ),
+    ];
+    let mut existing_sources = BTreeMap::new();
+    existing_sources.insert(
+        "src-request".to_string(),
+        HostAuthSource {
+            kind: SourceKind::OperatorRequest,
+            sha256: content_digest(req.as_bytes()),
+            label: "request.txt".to_string(),
+            utf8_text: Some(req.to_string()),
+        },
+    );
+    existing_sources.insert(
+        "src-file:Cargo.toml".to_string(),
+        HostAuthSource {
+            kind: SourceKind::RepositoryFile,
+            sha256: content_digest(cargo_toml),
+            label: "Cargo.toml".to_string(),
+            utf8_text: None,
+        },
+    );
+    existing_sources.insert(
+        "src-file:src/main.rs".to_string(),
+        HostAuthSource {
+            kind: SourceKind::RepositoryFile,
+            sha256: content_digest(main_rs),
+            label: "src/main.rs".to_string(),
+            utf8_text: None,
+        },
+    );
+    let existing_auth = HostAuthContext {
+        raw_request: req.to_string(),
+        raw_request_sha256: content_digest(req.as_bytes()),
+        sources_by_id: existing_sources,
+        workspace_snapshot: Some(snapshot),
+        predecessor_bundle_digest: None,
+        predecessor_inspection: None,
+    };
+    let existing_params = ProposeParams {
+        contract_id: "c-existing".to_string(),
+        workflow: ContractWorkflow::Existing,
+        selected_binary: "demo".to_string(),
+        max_stages: 3,
+        architecture_scaffold: true,
+    };
+    let existing_prompt = build_stage_prompt(
+        &existing_params,
+        &existing_auth,
+        ProposeStageNameV1::Proposal,
+        None,
+        &[],
+    )
+    .unwrap();
+    let existing_text = existing_prompt.as_str();
+    for unsupported in [
+        "interface-signature-v1",
+        CHECKER_SOURCE_LITERAL_V1,
+        CHECKER_FIXED_FILE_V1,
+        CHECKER_FORBIDDEN_FILE_V1,
+    ] {
+        assert!(
+            !existing_text.contains(unsupported),
+            "existing prompt must not advertise {unsupported}"
+        );
+    }
+    assert!(existing_text.contains(CHECKER_PRESERVED_FILE_V1));
+
+    for checker in [
+        CHECKER_METADATA_SNAPSHOT_LOCAL_PATH_V1,
+        CHECKER_BUILD_CARGO_OFFLINE_LOCKED_V1,
+        CHECKER_TEST_CARGO_TEST_OFFLINE_LOCKED_V1,
+        CHECKER_CLI_SELECTED_VECTORS_V1,
+        CHECKER_PRESERVED_FILE_V1,
+    ] {
+        let dto = parse_compact_proposal_dto(
+            &serde_json::json!({
+                "intended_delta": ["update parser"],
+                "approved_compatibility": ["keep manifest unchanged"],
+                "allowed_edit_paths": ["src/main.rs"],
+                "preserved_files": ["Cargo.toml"],
+                "mandatory_obligations": [
+                    {"id": "ob1", "clause": "preserve manifest and update parser", "checker": checker}
+                ],
+                "assumptions": [],
+                "unknowns": [],
+                "resolutions": []
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let draft =
+            build_draft_from_dto(&existing_params, &existing_auth, &dto, &baseline_raw).unwrap();
+        let (report, _) =
+            validate_against_auth_with_mode(&draft, Some(&existing_auth), true).unwrap();
+        assert!(
+            report.structurally_valid && report.declared_ready,
+            "existing checker {checker} failed validation: {:?}",
+            report.findings
+        );
+    }
 }
