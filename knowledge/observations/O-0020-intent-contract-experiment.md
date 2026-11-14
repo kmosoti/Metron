@@ -54,9 +54,9 @@ but excluded from model-quality counts. Campaign 01 lacked the pinned CUDA
 library search path; it stopped while preserving unknown reservations. The
 only recorded device observation was 181 MiB GPU memory. Campaign 02 reached
 model planning but was rejected before a valid native run because its runtime
-allowed-tool policy included unsupported Search and the request exceeded the
-worker frame limit.
-The policy was corrected by removing Search from all arms and adding regression
+allowed-tool policy included unsupported Search. Request binding rejected
+that policy, surfacing a misleading frame-size diagnostic; an actual frame
+overflow was not established. The policy was corrected by removing Search from all arms and adding regression
 coverage for both native grammar states while retaining Cargo. Neither invalid
 campaign supports a model-quality acceptance claim.
 
