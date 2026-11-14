@@ -1,0 +1,1249 @@
+{
+  "arm_order": [
+    "prose_plain",
+    "typed_architecture",
+    "typed_plain",
+    "prose_architecture"
+  ],
+  "caps": {
+    "admitted_tool_effects": 16,
+    "max_cli_vectors": 8,
+    "max_files": 128,
+    "max_local_packages": 2,
+    "preparation_requests": 3,
+    "total_model_requests": 12
+  },
+  "cases": [
+    {
+      "approved_compatibility": [],
+      "baseline_files": {},
+      "checker_policy": {
+        "build": "cargo-offline-locked-v1",
+        "cli": "selected-cli-vectors-v1",
+        "metadata": "snapshot-local-path-v1",
+        "test": "cargo-test-offline-locked-v1"
+      },
+      "clarified_expected_readiness": "ready",
+      "frozen_clarification": null,
+      "id": "new-add",
+      "initial_expected_readiness": "ready",
+      "intended_delta": [],
+      "mandatory_obligations": [
+        {
+          "checker": "selected-cli-vectors-v1",
+          "clause": "exactly two signed integers in [-1000,1000]",
+          "id": "new-add-r1"
+        },
+        {
+          "checker": "selected-cli-vectors-v1",
+          "clause": "canonical decimal sum; invalid arguments exit2 empty stdout",
+          "id": "new-add-r2"
+        }
+      ],
+      "material_unknown": null,
+      "raw_request": "Create or update a Rust CLI binary named metron-case. Use at most two Rust packages, local path dependencies inside the submitted snapshot only, and no registry/git dependencies. All successful output has exactly one trailing LF. On invalid arguments exit 2 with empty stdout; stderr is unspecified. No file or network functionality is required. Accept exactly two base-10 signed integer arguments in [-1000,1000]. Print their sum in canonical decimal.",
+      "raw_request_sha256": "ef323f5e4e61c151b8eb657c55f0dc3ac8bbdf3d2f4b5c316084926907dd2439",
+      "regime": "explicit",
+      "sealed_cli_vectors": [
+        {
+          "args": [
+            "2",
+            "3"
+          ],
+          "exit_code": 0,
+          "stdout": "5\n"
+        },
+        {
+          "args": [
+            "-5",
+            "2"
+          ],
+          "exit_code": 0,
+          "stdout": "-3\n"
+        },
+        {
+          "args": [
+            "0",
+            "0"
+          ],
+          "exit_code": 0,
+          "stdout": "0\n"
+        },
+        {
+          "args": [
+            "x",
+            "2"
+          ],
+          "exit_code": 2,
+          "stdout": ""
+        },
+        {
+          "args": [],
+          "exit_code": 2,
+          "stdout": ""
+        },
+        {
+          "args": [
+            "1001",
+            "0"
+          ],
+          "exit_code": 2,
+          "stdout": ""
+        }
+      ],
+      "selected_binary": "metron-case",
+      "workflow": "new"
+    },
+    {
+      "approved_compatibility": [],
+      "baseline_files": {},
+      "checker_policy": {
+        "build": "cargo-offline-locked-v1",
+        "cli": "selected-cli-vectors-v1",
+        "metadata": "snapshot-local-path-v1",
+        "test": "cargo-test-offline-locked-v1"
+      },
+      "clarified_expected_readiness": "ready",
+      "frozen_clarification": null,
+      "id": "new-reverse",
+      "initial_expected_readiness": "ready",
+      "intended_delta": [],
+      "mandatory_obligations": [
+        {
+          "checker": "selected-cli-vectors-v1",
+          "clause": "one ASCII alphabetic string length0..32",
+          "id": "new-reverse-r1"
+        },
+        {
+          "checker": "selected-cli-vectors-v1",
+          "clause": "reverse preserving letter case; invalid arguments exit2",
+          "id": "new-reverse-r2"
+        }
+      ],
+      "material_unknown": null,
+      "raw_request": "Create or update a Rust CLI binary named metron-case. Use at most two Rust packages, local path dependencies inside the submitted snapshot only, and no registry/git dependencies. All successful output has exactly one trailing LF. On invalid arguments exit 2 with empty stdout; stderr is unspecified. No file or network functionality is required. Accept exactly one argument of zero to 32 ASCII alphabetic characters (A-Z or a-z). Print those characters in reverse order.",
+      "raw_request_sha256": "362346f92febd886d027267ecbbef2de942e767027c5d98bfdfe0f195a8f8915",
+      "regime": "explicit",
+      "sealed_cli_vectors": [
+        {
+          "args": [
+            "abc"
+          ],
+          "exit_code": 0,
+          "stdout": "cba\n"
+        },
+        {
+          "args": [
+            ""
+          ],
+          "exit_code": 0,
+          "stdout": "\n"
+        },
+        {
+          "args": [
+            "AbZ"
+          ],
+          "exit_code": 0,
+          "stdout": "ZbA\n"
+        },
+        {
+          "args": [
+            "a1"
+          ],
+          "exit_code": 2,
+          "stdout": ""
+        },
+        {
+          "args": [],
+          "exit_code": 2,
+          "stdout": ""
+        }
+      ],
+      "selected_binary": "metron-case",
+      "workflow": "new"
+    },
+    {
+      "approved_compatibility": [],
+      "baseline_files": {},
+      "checker_policy": {
+        "build": "cargo-offline-locked-v1",
+        "cli": "selected-cli-vectors-v1",
+        "metadata": "snapshot-local-path-v1",
+        "test": "cargo-test-offline-locked-v1"
+      },
+      "clarified_expected_readiness": "ready",
+      "frozen_clarification": "Use nearest-integer rounding of cents/100; ties round away from zero, including negative ties. For example 150 gives 2 and -150 gives -2.",
+      "id": "new-round",
+      "initial_expected_readiness": "blocked",
+      "intended_delta": [],
+      "mandatory_obligations": [
+        {
+          "checker": "selected-cli-vectors-v1",
+          "clause": "one integer cents in [-10000,10000]",
+          "id": "new-round-r1"
+        },
+        {
+          "checker": "selected-cli-vectors-v1",
+          "clause": "round nearest whole dollar; exact halfway values away from zero after clarification",
+          "id": "new-round-r2"
+        }
+      ],
+      "material_unknown": "Tie handling and direction for negative half-dollar values materially change the requested result.",
+      "raw_request": "Create or update a Rust CLI binary named metron-case. Use at most two Rust packages, local path dependencies inside the submitted snapshot only, and no registry/git dependencies. All successful output has exactly one trailing LF. On invalid arguments exit 2 with empty stdout; stderr is unspecified. No file or network functionality is required. Accept exactly one signed integer number of cents in [-10000,10000] and round it to a whole number of dollars. Print the resulting signed integer.",
+      "raw_request_sha256": "b823a25f22e7446f61db91cb698a01a2ef44e1f8f873beb3e4bcf54f5a9537fd",
+      "regime": "material-ambiguity",
+      "sealed_cli_vectors": [
+        {
+          "args": [
+            "149"
+          ],
+          "exit_code": 0,
+          "stdout": "1\n"
+        },
+        {
+          "args": [
+            "150"
+          ],
+          "exit_code": 0,
+          "stdout": "2\n"
+        },
+        {
+          "args": [
+            "-150"
+          ],
+          "exit_code": 0,
+          "stdout": "-2\n"
+        },
+        {
+          "args": [
+            "0"
+          ],
+          "exit_code": 0,
+          "stdout": "0\n"
+        },
+        {
+          "args": [
+            "x"
+          ],
+          "exit_code": 2,
+          "stdout": ""
+        }
+      ],
+      "selected_binary": "metron-case",
+      "workflow": "new"
+    },
+    {
+      "approved_compatibility": [],
+      "baseline_files": {},
+      "checker_policy": {
+        "build": "cargo-offline-locked-v1",
+        "cli": "selected-cli-vectors-v1",
+        "metadata": "snapshot-local-path-v1",
+        "test": "cargo-test-offline-locked-v1"
+      },
+      "clarified_expected_readiness": "ready",
+      "frozen_clarification": "The second rule supersedes the negative-input rejection rule: accept all integers in [-1000,1000], including negatives, print the canonical value and exit 0.",
+      "id": "new-sign",
+      "initial_expected_readiness": "blocked",
+      "intended_delta": [],
+      "mandatory_obligations": [
+        {
+          "checker": "selected-cli-vectors-v1",
+          "clause": "one integer in [-1000,1000]",
+          "id": "new-sign-r1"
+        },
+        {
+          "checker": "selected-cli-vectors-v1",
+          "clause": "after clarification negative inputs are accepted and printed, exit0",
+          "id": "new-sign-r2"
+        }
+      ],
+      "material_unknown": "Two explicit rules require incompatible exit status and output for the same negative input.",
+      "raw_request": "Create or update a Rust CLI binary named metron-case. Use at most two Rust packages, local path dependencies inside the submitted snapshot only, and no registry/git dependencies. All successful output has exactly one trailing LF. On invalid arguments exit 2 with empty stdout; stderr is unspecified. No file or network functionality is required. Accept exactly one signed integer in [-1000,1000]. For every negative input, exit 2 with no stdout. Also, for every input including negative inputs, print its canonical signed decimal value and exit 0.",
+      "raw_request_sha256": "18374408448f04d19ea34ff7d929148447de63aa28b9b6d516ef4ba08927d3a2",
+      "regime": "contradiction",
+      "sealed_cli_vectors": [
+        {
+          "args": [
+            "-5"
+          ],
+          "exit_code": 0,
+          "stdout": "-5\n"
+        },
+        {
+          "args": [
+            "0"
+          ],
+          "exit_code": 0,
+          "stdout": "0\n"
+        },
+        {
+          "args": [
+            "7"
+          ],
+          "exit_code": 0,
+          "stdout": "7\n"
+        },
+        {
+          "args": [
+            "x"
+          ],
+          "exit_code": 2,
+          "stdout": ""
+        }
+      ],
+      "selected_binary": "metron-case",
+      "workflow": "new"
+    },
+    {
+      "approved_compatibility": [],
+      "baseline_files": {},
+      "checker_policy": {
+        "build": "cargo-offline-locked-v1",
+        "cli": "selected-cli-vectors-v1",
+        "metadata": "snapshot-local-path-v1",
+        "test": "cargo-test-offline-locked-v1"
+      },
+      "clarified_expected_readiness": "ready",
+      "frozen_clarification": null,
+      "id": "new-exception",
+      "initial_expected_readiness": "ready",
+      "intended_delta": [],
+      "mandatory_obligations": [
+        {
+          "checker": "selected-cli-vectors-v1",
+          "clause": "single comma-separated digit list",
+          "id": "new-exception-r1"
+        },
+        {
+          "checker": "selected-cli-vectors-v1",
+          "clause": "remove3,6,9 but retain0; preserve order; empty result LF",
+          "id": "new-exception-r2"
+        }
+      ],
+      "material_unknown": null,
+      "raw_request": "Create or update a Rust CLI binary named metron-case. Use at most two Rust packages, local path dependencies inside the submitted snapshot only, and no registry/git dependencies. All successful output has exactly one trailing LF. On invalid arguments exit 2 with empty stdout; stderr is unspecified. No file or network functionality is required. Accept exactly one argument containing one or more digits 0-9 separated by single commas. Remove digits divisible by 3 EXCEPT zero: zero must remain. Print retained digits in original order, comma-separated; print an empty line if none remain.",
+      "raw_request_sha256": "2059ed27e5dc3cbaab5eba9ff6906395d43807013459fe048bde51ecf745df6c",
+      "regime": "negation-exception",
+      "sealed_cli_vectors": [
+        {
+          "args": [
+            "0,3,6,2"
+          ],
+          "exit_code": 0,
+          "stdout": "0,2\n"
+        },
+        {
+          "args": [
+            "3,6,9"
+          ],
+          "exit_code": 0,
+          "stdout": "\n"
+        },
+        {
+          "args": [
+            "0"
+          ],
+          "exit_code": 0,
+          "stdout": "0\n"
+        },
+        {
+          "args": [
+            "2,4,1"
+          ],
+          "exit_code": 0,
+          "stdout": "2,4,1\n"
+        },
+        {
+          "args": [
+            "1,,2"
+          ],
+          "exit_code": 2,
+          "stdout": ""
+        },
+        {
+          "args": [],
+          "exit_code": 2,
+          "stdout": ""
+        }
+      ],
+      "selected_binary": "metron-case",
+      "workflow": "new"
+    },
+    {
+      "approved_compatibility": [
+        "--version returns v1 LF exit0"
+      ],
+      "baseline_files": {},
+      "checker_policy": {
+        "build": "cargo-offline-locked-v1",
+        "cli": "selected-cli-vectors-v1",
+        "metadata": "snapshot-local-path-v1",
+        "test": "cargo-test-offline-locked-v1"
+      },
+      "clarified_expected_readiness": "ready",
+      "frozen_clarification": null,
+      "id": "new-compat",
+      "initial_expected_readiness": "ready",
+      "intended_delta": [
+        "add length TEXT without altering --version"
+      ],
+      "mandatory_obligations": [
+        {
+          "checker": "selected-cli-vectors-v1",
+          "clause": "--version prints v1",
+          "id": "new-compat-r1"
+        },
+        {
+          "checker": "selected-cli-vectors-v1",
+          "clause": "length TEXT prints ASCII length0..32; other shapes invalid",
+          "id": "new-compat-r2"
+        }
+      ],
+      "material_unknown": null,
+      "raw_request": "Create or update a Rust CLI binary named metron-case. Use at most two Rust packages, local path dependencies inside the submitted snapshot only, and no registry/git dependencies. All successful output has exactly one trailing LF. On invalid arguments exit 2 with empty stdout; stderr is unspecified. No file or network functionality is required. Implement this established CLI interface in a new application: exactly --version prints v1. Add the new invocation length TEXT, with TEXT containing zero to 32 ASCII letters, printing its byte length. Preserve --version exactly and reject all other argument shapes.",
+      "raw_request_sha256": "93b403b384a3abefb8a8a2561d7123a55380ad94b7d51e84a9212992840da737",
+      "regime": "compatibility-delta",
+      "sealed_cli_vectors": [
+        {
+          "args": [
+            "--version"
+          ],
+          "exit_code": 0,
+          "stdout": "v1\n"
+        },
+        {
+          "args": [
+            "length",
+            "abcd"
+          ],
+          "exit_code": 0,
+          "stdout": "4\n"
+        },
+        {
+          "args": [
+            "length",
+            ""
+          ],
+          "exit_code": 0,
+          "stdout": "0\n"
+        },
+        {
+          "args": [
+            "length",
+            "1"
+          ],
+          "exit_code": 2,
+          "stdout": ""
+        },
+        {
+          "args": [],
+          "exit_code": 2,
+          "stdout": ""
+        }
+      ],
+      "selected_binary": "metron-case",
+      "workflow": "new"
+    },
+    {
+      "approved_compatibility": [
+        "--version v1 LF exit0",
+        "invalid arguments exit2 empty stdout"
+      ],
+      "baseline_files": {
+        "Cargo.lock": "# This file is automatically @generated by Cargo.\nversion = 4\n\n[[package]]\nname = \"metron-case\"\nversion = \"0.1.0\"\n",
+        "Cargo.toml": "[package]\nname = \"metron-case\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+        "src/main.rs": "fn main(){let a:Vec<String>=std::env::args().skip(1).collect();if a==[\"--version\"]{println!(\"v1\");return}if a.len()!=1||!a[0].bytes().all(|b|b.is_ascii_alphabetic())||a[0].len()>32{std::process::exit(2)}println!(\"{}\",a[0].len()+1);}\n"
+      },
+      "checker_policy": {
+        "build": "cargo-offline-locked-v1",
+        "cli": "selected-cli-vectors-v1",
+        "metadata": "snapshot-local-path-v1",
+        "test": "cargo-test-offline-locked-v1"
+      },
+      "clarified_expected_readiness": "ready",
+      "frozen_clarification": null,
+      "id": "existing-length",
+      "initial_expected_readiness": "ready",
+      "intended_delta": [
+        "correct length calculation only"
+      ],
+      "mandatory_obligations": [
+        {
+          "checker": "selected-cli-vectors-v1",
+          "clause": "ASCII length0..32 without offbyone",
+          "id": "existing-length-r1"
+        },
+        {
+          "checker": "selected-cli-vectors-v1",
+          "clause": "preserve --version v1 and invalid exit2",
+          "id": "existing-length-r2"
+        }
+      ],
+      "material_unknown": null,
+      "raw_request": "Create or update a Rust CLI binary named metron-case. Use at most two Rust packages, local path dependencies inside the submitted snapshot only, and no registry/git dependencies. All successful output has exactly one trailing LF. On invalid arguments exit 2 with empty stdout; stderr is unspecified. No file or network functionality is required. The provided length CLI has an off-by-one bug. With exactly one argument of zero to 32 ASCII letters print its actual byte length. Preserve the --version invocation printing v1 and all invalid-argument behavior.",
+      "raw_request_sha256": "3b988022944dcdd99252dc827d0dd47674b86b60378d961fb7b90451313b60c7",
+      "regime": "explicit",
+      "sealed_cli_vectors": [
+        {
+          "args": [
+            "abcd"
+          ],
+          "exit_code": 0,
+          "stdout": "4\n"
+        },
+        {
+          "args": [
+            ""
+          ],
+          "exit_code": 0,
+          "stdout": "0\n"
+        },
+        {
+          "args": [
+            "--version"
+          ],
+          "exit_code": 0,
+          "stdout": "v1\n"
+        },
+        {
+          "args": [
+            "a1"
+          ],
+          "exit_code": 2,
+          "stdout": ""
+        },
+        {
+          "args": [],
+          "exit_code": 2,
+          "stdout": ""
+        }
+      ],
+      "selected_binary": "metron-case",
+      "workflow": "existing"
+    },
+    {
+      "approved_compatibility": [
+        "--version v1 LF exit0",
+        "invalid arguments exit2"
+      ],
+      "baseline_files": {
+        "Cargo.lock": "# This file is automatically @generated by Cargo.\nversion = 4\n\n[[package]]\nname = \"metron-case\"\nversion = \"0.1.0\"\n",
+        "Cargo.toml": "[package]\nname = \"metron-case\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+        "src/main.rs": "fn main(){let a:Vec<String>=std::env::args().skip(1).collect();if a==[\"--version\"]{println!(\"v1\");return}if a.len()!=2{std::process::exit(2)}let p=|s:&str|s.parse::<i64>().ok().filter(|n|(-1000..=1000).contains(n));let(Some(x),Some(y))=(p(&a[0]),p(&a[1]))else{std::process::exit(2)};println!(\"{}\",x-y);}\n"
+      },
+      "checker_policy": {
+        "build": "cargo-offline-locked-v1",
+        "cli": "selected-cli-vectors-v1",
+        "metadata": "snapshot-local-path-v1",
+        "test": "cargo-test-offline-locked-v1"
+      },
+      "clarified_expected_readiness": "ready",
+      "frozen_clarification": null,
+      "id": "existing-add",
+      "initial_expected_readiness": "ready",
+      "intended_delta": [
+        "change subtraction to addition"
+      ],
+      "mandatory_obligations": [
+        {
+          "checker": "selected-cli-vectors-v1",
+          "clause": "sum not difference over signed range",
+          "id": "existing-add-r1"
+        },
+        {
+          "checker": "selected-cli-vectors-v1",
+          "clause": "preserve --version and invalid argument handling",
+          "id": "existing-add-r2"
+        }
+      ],
+      "material_unknown": null,
+      "raw_request": "Create or update a Rust CLI binary named metron-case. Use at most two Rust packages, local path dependencies inside the submitted snapshot only, and no registry/git dependencies. All successful output has exactly one trailing LF. On invalid arguments exit 2 with empty stdout; stderr is unspecified. No file or network functionality is required. The provided two-integer CLI subtracts instead of adding. Accept exactly two signed integers in [-1000,1000] and print their sum. Preserve --version printing v1 and all invalid-argument behavior.",
+      "raw_request_sha256": "a003e5627f15e44d739be0a5b694536b546c9402750d080e6a0771977f137ea2",
+      "regime": "explicit",
+      "sealed_cli_vectors": [
+        {
+          "args": [
+            "2",
+            "3"
+          ],
+          "exit_code": 0,
+          "stdout": "5\n"
+        },
+        {
+          "args": [
+            "-5",
+            "2"
+          ],
+          "exit_code": 0,
+          "stdout": "-3\n"
+        },
+        {
+          "args": [
+            "--version"
+          ],
+          "exit_code": 0,
+          "stdout": "v1\n"
+        },
+        {
+          "args": [
+            "x",
+            "2"
+          ],
+          "exit_code": 2,
+          "stdout": ""
+        },
+        {
+          "args": [
+            "1001",
+            "0"
+          ],
+          "exit_code": 2,
+          "stdout": ""
+        }
+      ],
+      "selected_binary": "metron-case",
+      "workflow": "existing"
+    },
+    {
+      "approved_compatibility": [
+        "--version v1 LF exit0",
+        "invalid arity exit2"
+      ],
+      "baseline_files": {
+        "Cargo.lock": "# This file is automatically @generated by Cargo.\nversion = 4\n\n[[package]]\nname = \"metron-case\"\nversion = \"0.1.0\"\n",
+        "Cargo.toml": "[package]\nname = \"metron-case\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+        "src/main.rs": "fn main(){let a:Vec<String>=std::env::args().skip(1).collect();if a==[\"--version\"]{println!(\"v1\");return}if a.len()!=1{std::process::exit(2)}println!(\"{}\",a[0].split(' ').count());}\n"
+      },
+      "checker_policy": {
+        "build": "cargo-offline-locked-v1",
+        "cli": "selected-cli-vectors-v1",
+        "metadata": "snapshot-local-path-v1",
+        "test": "cargo-test-offline-locked-v1"
+      },
+      "clarified_expected_readiness": "ready",
+      "frozen_clarification": "Treat ASCII space, tab, LF and CR as separators. Count nonempty tokens only, ignoring runs and leading/trailing separators. Empty or all-separator text has zero tokens.",
+      "id": "existing-spacing",
+      "initial_expected_readiness": "blocked",
+      "intended_delta": [
+        "fix tokenization according to clarification"
+      ],
+      "mandatory_obligations": [
+        {
+          "checker": "selected-cli-vectors-v1",
+          "clause": "one ASCII-text argument; count nonempty tokens",
+          "id": "existing-spacing-r1"
+        },
+        {
+          "checker": "selected-cli-vectors-v1",
+          "clause": "after clarification split on ASCII space tab LF CR and ignore empty tokens",
+          "id": "existing-spacing-r2"
+        },
+        {
+          "checker": "selected-cli-vectors-v1",
+          "clause": "preserve version and argument arity",
+          "id": "existing-spacing-r3"
+        }
+      ],
+      "material_unknown": "Spacing does not specify separator characters or whether repeated/edge separators create empty words.",
+      "raw_request": "Create or update a Rust CLI binary named metron-case. Use at most two Rust packages, local path dependencies inside the submitted snapshot only, and no registry/git dependencies. All successful output has exactly one trailing LF. On invalid arguments exit 2 with empty stdout; stderr is unspecified. No file or network functionality is required. The provided word counter has a spacing bug. Fix its treatment of spacing for one ASCII-text argument. Preserve --version printing v1; no argument or extra arguments remain invalid.",
+      "raw_request_sha256": "995a50dd3e839b3d0b0317a73143af56413463c8e6ead833c46fd5fc06a936e3",
+      "regime": "material-ambiguity",
+      "sealed_cli_vectors": [
+        {
+          "args": [
+            " a  b "
+          ],
+          "exit_code": 0,
+          "stdout": "2\n"
+        },
+        {
+          "args": [
+            "a\tb"
+          ],
+          "exit_code": 0,
+          "stdout": "2\n"
+        },
+        {
+          "args": [
+            "\r\n"
+          ],
+          "exit_code": 0,
+          "stdout": "0\n"
+        },
+        {
+          "args": [
+            ""
+          ],
+          "exit_code": 0,
+          "stdout": "0\n"
+        },
+        {
+          "args": [
+            "--version"
+          ],
+          "exit_code": 0,
+          "stdout": "v1\n"
+        },
+        {
+          "args": [],
+          "exit_code": 2,
+          "stdout": ""
+        }
+      ],
+      "selected_binary": "metron-case",
+      "workflow": "existing"
+    },
+    {
+      "approved_compatibility": [
+        "valid one-argument length output",
+        "invalid nonempty argument and extra args exit2"
+      ],
+      "baseline_files": {
+        "Cargo.lock": "# This file is automatically @generated by Cargo.\nversion = 4\n\n[[package]]\nname = \"metron-case\"\nversion = \"0.1.0\"\n",
+        "Cargo.toml": "[package]\nname = \"metron-case\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+        "src/main.rs": "fn main(){let a:Vec<String>=std::env::args().skip(1).collect();if a.len()!=1{std::process::exit(2)}if !a[0].bytes().all(|b|b.is_ascii_alphabetic())||a[0].len()>32{std::process::exit(2)}println!(\"{}\",a[0].len());}\n"
+      },
+      "checker_policy": {
+        "build": "cargo-offline-locked-v1",
+        "cli": "selected-cli-vectors-v1",
+        "metadata": "snapshot-local-path-v1",
+        "test": "cargo-test-offline-locked-v1"
+      },
+      "clarified_expected_readiness": "ready",
+      "frozen_clarification": "The missing-argument change is intentional and supersedes preservation of its old exit code: print 0 and exit 0. Preserve all other existing behavior.",
+      "id": "existing-exit",
+      "initial_expected_readiness": "blocked",
+      "intended_delta": [
+        "change missing argument from exit2 to stdout0 exit0"
+      ],
+      "mandatory_obligations": [
+        {
+          "checker": "selected-cli-vectors-v1",
+          "clause": "after clarification missing argument prints0 exit0",
+          "id": "existing-exit-r1"
+        },
+        {
+          "checker": "selected-cli-vectors-v1",
+          "clause": "one ASCII string length0..32 prints actual length",
+          "id": "existing-exit-r2"
+        },
+        {
+          "checker": "selected-cli-vectors-v1",
+          "clause": "invalid nonempty arguments and extra args exit2",
+          "id": "existing-exit-r3"
+        }
+      ],
+      "material_unknown": "Missing argument is explicitly required both to retain exit2 and change to exit0.",
+      "raw_request": "Create or update a Rust CLI binary named metron-case. Use at most two Rust packages, local path dependencies inside the submitted snapshot only, and no registry/git dependencies. All successful output has exactly one trailing LF. On invalid arguments exit 2 with empty stdout; stderr is unspecified. No file or network functionality is required. The provided ASCII-length CLI accepts one argument of zero to 32 ASCII letters. Preserve all existing exit codes, including exit 2 for a missing argument. Also change missing-argument behavior to print 0 and exit 0. All other behavior must stay the same.",
+      "raw_request_sha256": "e9894d16517104c194a0a499edbe285fdbb2a3c0768b2abda15a021dbd802e3d",
+      "regime": "contradiction",
+      "sealed_cli_vectors": [
+        {
+          "args": [],
+          "exit_code": 0,
+          "stdout": "0\n"
+        },
+        {
+          "args": [
+            "ab"
+          ],
+          "exit_code": 0,
+          "stdout": "2\n"
+        },
+        {
+          "args": [
+            ""
+          ],
+          "exit_code": 0,
+          "stdout": "0\n"
+        },
+        {
+          "args": [
+            "a1"
+          ],
+          "exit_code": 2,
+          "stdout": ""
+        },
+        {
+          "args": [
+            "a",
+            "b"
+          ],
+          "exit_code": 2,
+          "stdout": ""
+        }
+      ],
+      "selected_binary": "metron-case",
+      "workflow": "existing"
+    },
+    {
+      "approved_compatibility": [
+        "--version v1 LF exit0",
+        "odd digits removed",
+        "invalid argument exit2"
+      ],
+      "baseline_files": {
+        "Cargo.lock": "# This file is automatically @generated by Cargo.\nversion = 4\n\n[[package]]\nname = \"metron-case\"\nversion = \"0.1.0\"\n",
+        "Cargo.toml": "[package]\nname = \"metron-case\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+        "src/main.rs": "fn main(){let a:Vec<String>=std::env::args().skip(1).collect();if a==[\"--version\"]{println!(\"v1\");return}if a.len()!=1||a[0].is_empty()||!a[0].bytes().all(|b|b.is_ascii_digit()){std::process::exit(2)}let s:String=a[0].chars().filter(|c|*c>'0'&&c.to_digit(10).unwrap()%2==0).collect();println!(\"{s}\");}\n"
+      },
+      "checker_policy": {
+        "build": "cargo-offline-locked-v1",
+        "cli": "selected-cli-vectors-v1",
+        "metadata": "snapshot-local-path-v1",
+        "test": "cargo-test-offline-locked-v1"
+      },
+      "clarified_expected_readiness": "ready",
+      "frozen_clarification": null,
+      "id": "existing-zero",
+      "initial_expected_readiness": "ready",
+      "intended_delta": [
+        "include zero among retained even digits"
+      ],
+      "mandatory_obligations": [
+        {
+          "checker": "selected-cli-vectors-v1",
+          "clause": "retain0,2,4,6,8 in order",
+          "id": "existing-zero-r1"
+        },
+        {
+          "checker": "selected-cli-vectors-v1",
+          "clause": "preserve odddigit removal, version, invalid args",
+          "id": "existing-zero-r2"
+        }
+      ],
+      "material_unknown": null,
+      "raw_request": "Create or update a Rust CLI binary named metron-case. Use at most two Rust packages, local path dependencies inside the submitted snapshot only, and no registry/git dependencies. All successful output has exactly one trailing LF. On invalid arguments exit 2 with empty stdout; stderr is unspecified. No file or network functionality is required. The provided digit filter wrongly removes zero. With exactly one nonempty string of digits, retain all even digits INCLUDING zero, in original order. Preserve --version printing v1 and existing invalid-argument behavior. Do not remove odd-digit filtering.",
+      "raw_request_sha256": "240a7e1c92cbbf2df206356cabaf02820db712ec61e0994782f6346f1bf272a8",
+      "regime": "negation-exception",
+      "sealed_cli_vectors": [
+        {
+          "args": [
+            "0123456789"
+          ],
+          "exit_code": 0,
+          "stdout": "02468\n"
+        },
+        {
+          "args": [
+            "0"
+          ],
+          "exit_code": 0,
+          "stdout": "0\n"
+        },
+        {
+          "args": [
+            "135"
+          ],
+          "exit_code": 0,
+          "stdout": "\n"
+        },
+        {
+          "args": [
+            "--version"
+          ],
+          "exit_code": 0,
+          "stdout": "v1\n"
+        },
+        {
+          "args": [
+            ""
+          ],
+          "exit_code": 2,
+          "stdout": ""
+        },
+        {
+          "args": [
+            "a"
+          ],
+          "exit_code": 2,
+          "stdout": ""
+        }
+      ],
+      "selected_binary": "metron-case",
+      "workflow": "existing"
+    },
+    {
+      "approved_compatibility": [
+        "ASCII echo exact case",
+        "invalid arguments exit2"
+      ],
+      "baseline_files": {
+        "Cargo.lock": "# This file is automatically @generated by Cargo.\nversion = 4\n\n[[package]]\nname = \"metron-case\"\nversion = \"0.1.0\"\n",
+        "Cargo.toml": "[package]\nname = \"metron-case\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+        "src/main.rs": "fn main(){let a:Vec<String>=std::env::args().skip(1).collect();if a==[\"--version\"]{println!(\"v1\");return}if a.len()!=1||!a[0].bytes().all(|b|b.is_ascii_alphabetic())||a[0].len()>32{std::process::exit(2)}println!(\"{}\",a[0]);}\n"
+      },
+      "checker_policy": {
+        "build": "cargo-offline-locked-v1",
+        "cli": "selected-cli-vectors-v1",
+        "metadata": "snapshot-local-path-v1",
+        "test": "cargo-test-offline-locked-v1"
+      },
+      "clarified_expected_readiness": "ready",
+      "frozen_clarification": null,
+      "id": "existing-version",
+      "initial_expected_readiness": "ready",
+      "intended_delta": [
+        "intentional version v1 to v2"
+      ],
+      "mandatory_obligations": [
+        {
+          "checker": "selected-cli-vectors-v1",
+          "clause": "--version now prints v2",
+          "id": "existing-version-r1"
+        },
+        {
+          "checker": "selected-cli-vectors-v1",
+          "clause": "preserve ASCII echo0..32 including case",
+          "id": "existing-version-r2"
+        },
+        {
+          "checker": "selected-cli-vectors-v1",
+          "clause": "preserve invalid exit2",
+          "id": "existing-version-r3"
+        }
+      ],
+      "material_unknown": null,
+      "raw_request": "Create or update a Rust CLI binary named metron-case. Use at most two Rust packages, local path dependencies inside the submitted snapshot only, and no registry/git dependencies. All successful output has exactly one trailing LF. On invalid arguments exit 2 with empty stdout; stderr is unspecified. No file or network functionality is required. Change the provided echo CLI --version output from v1 to v2 intentionally. Preserve its one-argument echo behavior for zero to 32 ASCII letters, including case, and preserve all invalid-argument behavior. The old v1 version output is explicitly not a compatibility obligation.",
+      "raw_request_sha256": "df450eb8c7d70608c80488644015dc4ba086fbc309222488bd9158ed36f4a977",
+      "regime": "compatibility-delta",
+      "sealed_cli_vectors": [
+        {
+          "args": [
+            "--version"
+          ],
+          "exit_code": 0,
+          "stdout": "v2\n"
+        },
+        {
+          "args": [
+            "Abc"
+          ],
+          "exit_code": 0,
+          "stdout": "Abc\n"
+        },
+        {
+          "args": [
+            ""
+          ],
+          "exit_code": 0,
+          "stdout": "\n"
+        },
+        {
+          "args": [
+            "a1"
+          ],
+          "exit_code": 2,
+          "stdout": ""
+        },
+        {
+          "args": [],
+          "exit_code": 2,
+          "stdout": ""
+        }
+      ],
+      "selected_binary": "metron-case",
+      "workflow": "existing"
+    }
+  ],
+  "diagnostic_case_ids": [
+    "diagnostic-new-absolute",
+    "diagnostic-new-uppercase",
+    "diagnostic-existing-negate",
+    "diagnostic-existing-colon"
+  ],
+  "diagnostic_cases": [
+    {
+      "approved_compatibility": [],
+      "baseline_files": {},
+      "checker_policy": {
+        "build": "cargo-offline-locked-v1",
+        "cli": "selected-cli-vectors-v1",
+        "metadata": "snapshot-local-path-v1",
+        "test": "cargo-test-offline-locked-v1"
+      },
+      "clarified_expected_readiness": "ready",
+      "frozen_clarification": null,
+      "id": "diagnostic-new-absolute",
+      "initial_expected_readiness": "ready",
+      "intended_delta": [
+        "one signed integer[-9,9]",
+        "absolute value canonical decimal"
+      ],
+      "mandatory_obligations": [
+        {
+          "checker": "selected-cli-vectors-v1",
+          "clause": "one signed integer[-9,9]",
+          "id": "diagnostic-new-absolute-r1"
+        },
+        {
+          "checker": "selected-cli-vectors-v1",
+          "clause": "absolute value canonical decimal",
+          "id": "diagnostic-new-absolute-r2"
+        }
+      ],
+      "material_unknown": null,
+      "raw_request": "Create or update a Rust CLI binary named metron-case. Use at most two Rust packages, local path dependencies inside the submitted snapshot only, and no registry/git dependencies. All successful output has exactly one trailing LF. On invalid arguments exit 2 with empty stdout; stderr is unspecified. No file or network functionality is required. Accept exactly one signed integer in [-9,9] and print its absolute value.",
+      "raw_request_sha256": "9e7246cf942f54450c2212f4775178f552570a14a88b4db2e0f2a09b29964444",
+      "regime": "separate-reviewed-contract-diagnostic",
+      "sealed_cli_vectors": [
+        {
+          "args": [
+            "-4"
+          ],
+          "exit_code": 0,
+          "stdout": "4\n"
+        },
+        {
+          "args": [
+            "0"
+          ],
+          "exit_code": 0,
+          "stdout": "0\n"
+        },
+        {
+          "args": [
+            "8"
+          ],
+          "exit_code": 0,
+          "stdout": "8\n"
+        },
+        {
+          "args": [
+            "10"
+          ],
+          "exit_code": 2,
+          "stdout": ""
+        },
+        {
+          "args": [],
+          "exit_code": 2,
+          "stdout": ""
+        }
+      ],
+      "selected_binary": "metron-case",
+      "workflow": "new"
+    },
+    {
+      "approved_compatibility": [],
+      "baseline_files": {},
+      "checker_policy": {
+        "build": "cargo-offline-locked-v1",
+        "cli": "selected-cli-vectors-v1",
+        "metadata": "snapshot-local-path-v1",
+        "test": "cargo-test-offline-locked-v1"
+      },
+      "clarified_expected_readiness": "ready",
+      "frozen_clarification": null,
+      "id": "diagnostic-new-uppercase",
+      "initial_expected_readiness": "ready",
+      "intended_delta": [
+        "one lowercaseASCII string length0..16",
+        "uppercase output"
+      ],
+      "mandatory_obligations": [
+        {
+          "checker": "selected-cli-vectors-v1",
+          "clause": "one lowercaseASCII string length0..16",
+          "id": "diagnostic-new-uppercase-r1"
+        },
+        {
+          "checker": "selected-cli-vectors-v1",
+          "clause": "uppercase output",
+          "id": "diagnostic-new-uppercase-r2"
+        }
+      ],
+      "material_unknown": null,
+      "raw_request": "Create or update a Rust CLI binary named metron-case. Use at most two Rust packages, local path dependencies inside the submitted snapshot only, and no registry/git dependencies. All successful output has exactly one trailing LF. On invalid arguments exit 2 with empty stdout; stderr is unspecified. No file or network functionality is required. Accept exactly one string of zero to16 ASCII lowercase letters and print it converted to ASCII uppercase.",
+      "raw_request_sha256": "eb81d7d9d6a28545482281f9817d3fc712ab2fc5a0dac85007f6f22b99b44ad9",
+      "regime": "separate-reviewed-contract-diagnostic",
+      "sealed_cli_vectors": [
+        {
+          "args": [
+            "abz"
+          ],
+          "exit_code": 0,
+          "stdout": "ABZ\n"
+        },
+        {
+          "args": [
+            ""
+          ],
+          "exit_code": 0,
+          "stdout": "\n"
+        },
+        {
+          "args": [
+            "A"
+          ],
+          "exit_code": 2,
+          "stdout": ""
+        },
+        {
+          "args": [],
+          "exit_code": 2,
+          "stdout": ""
+        }
+      ],
+      "selected_binary": "metron-case",
+      "workflow": "new"
+    },
+    {
+      "approved_compatibility": [],
+      "baseline_files": {
+        "Cargo.lock": "# This file is automatically @generated by Cargo.\nversion = 4\n\n[[package]]\nname = \"metron-case\"\nversion = \"0.1.0\"\n",
+        "Cargo.toml": "[package]\nname = \"metron-case\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+        "src/main.rs": "fn main(){let a:Vec<String>=std::env::args().skip(1).collect();if a==[\"--version\"]{println!(\"d1\");return}if a.len()!=1{std::process::exit(2)}let Some(n)=a[0].parse::<i32>().ok().filter(|n|(-9..=9).contains(n))else{std::process::exit(2)};println!(\"{n}\");}\n"
+      },
+      "checker_policy": {
+        "build": "cargo-offline-locked-v1",
+        "cli": "selected-cli-vectors-v1",
+        "metadata": "snapshot-local-path-v1",
+        "test": "cargo-test-offline-locked-v1"
+      },
+      "clarified_expected_readiness": "ready",
+      "frozen_clarification": null,
+      "id": "diagnostic-existing-negate",
+      "initial_expected_readiness": "ready",
+      "intended_delta": [
+        "negate integer[-9,9]",
+        "preserve --version d1 and invalid exit2"
+      ],
+      "mandatory_obligations": [
+        {
+          "checker": "selected-cli-vectors-v1",
+          "clause": "negate integer[-9,9]",
+          "id": "diagnostic-existing-negate-r1"
+        },
+        {
+          "checker": "selected-cli-vectors-v1",
+          "clause": "preserve --version d1 and invalid exit2",
+          "id": "diagnostic-existing-negate-r2"
+        }
+      ],
+      "material_unknown": null,
+      "raw_request": "Create or update a Rust CLI binary named metron-case. Use at most two Rust packages, local path dependencies inside the submitted snapshot only, and no registry/git dependencies. All successful output has exactly one trailing LF. On invalid arguments exit 2 with empty stdout; stderr is unspecified. No file or network functionality is required. The provided negate CLI prints its input unchanged. Fix it to print the negative of one signed integer in [-9,9]. Preserve --version printing d1 and invalid argument behavior.",
+      "raw_request_sha256": "14793f127011a9db299376ddf185142a02b1fc839dcebb76239b3b288e2074d5",
+      "regime": "separate-reviewed-contract-diagnostic",
+      "sealed_cli_vectors": [
+        {
+          "args": [
+            "-4"
+          ],
+          "exit_code": 0,
+          "stdout": "4\n"
+        },
+        {
+          "args": [
+            "3"
+          ],
+          "exit_code": 0,
+          "stdout": "-3\n"
+        },
+        {
+          "args": [
+            "0"
+          ],
+          "exit_code": 0,
+          "stdout": "0\n"
+        },
+        {
+          "args": [
+            "--version"
+          ],
+          "exit_code": 0,
+          "stdout": "d1\n"
+        },
+        {
+          "args": [],
+          "exit_code": 2,
+          "stdout": ""
+        }
+      ],
+      "selected_binary": "metron-case",
+      "workflow": "existing"
+    },
+    {
+      "approved_compatibility": [],
+      "baseline_files": {
+        "Cargo.lock": "# This file is automatically @generated by Cargo.\nversion = 4\n\n[[package]]\nname = \"metron-case\"\nversion = \"0.1.0\"\n",
+        "Cargo.toml": "[package]\nname = \"metron-case\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+        "src/main.rs": "fn main(){let a:Vec<String>=std::env::args().skip(1).collect();if a==[\"--version\"]{println!(\"d1\");return}if a.len()!=2||a.iter().any(|s|s.len()>8||!s.bytes().all(|b|b.is_ascii_lowercase())){std::process::exit(2)}println!(\"{},{}\",a[0],a[1]);}\n"
+      },
+      "checker_policy": {
+        "build": "cargo-offline-locked-v1",
+        "cli": "selected-cli-vectors-v1",
+        "metadata": "snapshot-local-path-v1",
+        "test": "cargo-test-offline-locked-v1"
+      },
+      "clarified_expected_readiness": "ready",
+      "frozen_clarification": null,
+      "id": "diagnostic-existing-colon",
+      "initial_expected_readiness": "ready",
+      "intended_delta": [
+        "join with colon",
+        "preserve lowercaseASCII length0..8 constraints, version and invalid exit2"
+      ],
+      "mandatory_obligations": [
+        {
+          "checker": "selected-cli-vectors-v1",
+          "clause": "join with colon",
+          "id": "diagnostic-existing-colon-r1"
+        },
+        {
+          "checker": "selected-cli-vectors-v1",
+          "clause": "preserve lowercaseASCII length0..8 constraints, version and invalid exit2",
+          "id": "diagnostic-existing-colon-r2"
+        }
+      ],
+      "material_unknown": null,
+      "raw_request": "Create or update a Rust CLI binary named metron-case. Use at most two Rust packages, local path dependencies inside the submitted snapshot only, and no registry/git dependencies. All successful output has exactly one trailing LF. On invalid arguments exit 2 with empty stdout; stderr is unspecified. No file or network functionality is required. The provided join CLI accepts exactly two strings of zero to8 ASCII lowercase letters. Change its separator from comma to colon. Preserve --version printing d1 and invalid argument behavior.",
+      "raw_request_sha256": "441954e2ea37439d98f34a2f4f04e845c9a5f2000c9fc262d0ffd4eb1a370185",
+      "regime": "separate-reviewed-contract-diagnostic",
+      "sealed_cli_vectors": [
+        {
+          "args": [
+            "ab",
+            "cd"
+          ],
+          "exit_code": 0,
+          "stdout": "ab:cd\n"
+        },
+        {
+          "args": [
+            "",
+            ""
+          ],
+          "exit_code": 0,
+          "stdout": ":\n"
+        },
+        {
+          "args": [
+            "--version"
+          ],
+          "exit_code": 0,
+          "stdout": "d1\n"
+        },
+        {
+          "args": [
+            "A",
+            "b"
+          ],
+          "exit_code": 2,
+          "stdout": ""
+        },
+        {
+          "args": [],
+          "exit_code": 2,
+          "stdout": ""
+        }
+      ],
+      "selected_binary": "metron-case",
+      "workflow": "existing"
+    }
+  ],
+  "owner": "Sol independent evaluator author",
+  "purpose": "Frozen engineering pilot, not statistical reliability evidence",
+  "schema_version": 2
+}
