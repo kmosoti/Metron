@@ -1063,6 +1063,22 @@ pub(crate) fn validate_against_auth_with_mode(
         }
         authenticated_sources.push(normalized);
     }
+    if let Some(ctx) = auth {
+        for (src_id, real) in &ctx.sources_by_id {
+            if real.kind == SourceKind::ClarificationAnswer && !source_ids.contains(src_id.as_str())
+            {
+                push_finding(
+                    &mut findings,
+                    "missing_clarification_source",
+                    FindingSeverity::Error,
+                    &format!(
+                        "host-supplied clarification source '{src_id}' ({}) is missing from draft sources",
+                        real.label
+                    ),
+                );
+            }
+        }
+    }
 
     // Baseline digests, preserved/edit/forbidden scopes, and snapshot staleness.
     let mut baseline_map = BTreeMap::new();
