@@ -50,6 +50,41 @@ Optional context planning and resident-worker admission are described in
 conditional policy does not alter durable effect authority and applies only to
 drivers sharing its in-process coordinator.
 
+## Experimental intent contracts and gated promotion
+
+The host implements a private proposal, validation, freeze, experiment,
+finalization, and audit path. The local inference crate adds read-only
+comparison-session audit over an expected profile and ordered case inputs.
+Structural checks do not grant effects or establish semantic correctness, and
+recorded consistency is not a cryptographic proof against a malicious host.
+The fixed trusted checker and verifier retain existing acceptance authority.
+Public contract run/resume remain unconditionally deferred. Internal pilot
+coding requires passing separate diagnostics; promotion requires independently
+reviewed native evidence. See [ADR 0028](../adr/0028-experimental-intent-contracts.md)
+and [O-0020](../../knowledge/observations/O-0020-intent-contract-experiment.md).
+
+```mermaid
+flowchart LR
+    Inputs[Task sources and provenance] --> Contract[Host-private intent contract]
+    Baseline[Baseline plus approved delta] --> Contract
+    Assumptions[Model assumptions and resolutions] --> Contract
+    Contract --> Structural[Host: proposal, validation, freeze]
+    Structural --> Host[metron-host: experiment coordinator]
+    Host --> Session[metron-inference-local: ComparisonSession]
+    Session --> LocalAudit[Read-only session audit against expected profile and cases]
+    Trusted[Fixed trusted checker registry] --> Verify[Existing CodingVerifier authority]
+    Frozen[Frozen coding_acceptance.rs bytes and identities] --> Verify
+    Host -->|internal diagnostics and gated pilot| Native[Native coding attempts]
+    Session -->|bounded preparation evidence| Host
+    Native --> Verify
+    Verify --> Audit[Host: experiment audit]
+    Audit -.->|final disposition and separate review required| Promotion[Gated public run/resume]
+```
+
+Solid arrows show proposal data/control flow or existing authority; dashed
+arrows show gated public run/resume and promotion paths. The experiment leaves
+core v3 acceptance authority, durable contracts and effect admission unchanged.
+
 ## Execution and authority
 
 ```mermaid
