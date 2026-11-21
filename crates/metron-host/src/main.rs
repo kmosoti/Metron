@@ -399,6 +399,9 @@ fn action(command: CliCommand, args: &[String]) -> Result<CliReport, (CliOutcome
 }
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().skip(1).collect();
+    if args.first().is_some_and(|arg| arg == "__metron-jail") {
+        return metron_sandbox::trampoline::run_from_args(&args[1..]);
+    }
     if args.first().is_some_and(|arg| arg == "coding") {
         return coding_run::execute(&args[1..]);
     }

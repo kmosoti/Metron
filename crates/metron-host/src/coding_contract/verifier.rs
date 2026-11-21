@@ -426,6 +426,7 @@ pub(crate) struct ContractVerifier {
     checker_impl_digest: Digest,
     run_dir: PathBuf,
     allowed_metadata_roots: Vec<PathBuf>,
+    include_snapshot_metadata_root: bool,
     runner_factory: RunnerFactory,
 }
 
@@ -444,6 +445,7 @@ impl ContractVerifier {
             checker_impl_digest,
             run_dir,
             allowed_metadata_roots: vec![PathBuf::from("/workspace")],
+            include_snapshot_metadata_root: true,
             runner_factory: Box::new(move |artifact, dispatch| {
                 let runner = VerifierRunner::new(&catalog, artifact, &run_dir_clone, dispatch)?;
                 Ok(Box::new(runner))
@@ -470,6 +472,7 @@ impl ContractVerifier {
             checker_impl_digest,
             run_dir,
             allowed_metadata_roots,
+            include_snapshot_metadata_root: false,
             runner_factory: Box::new(move |artifact, dispatch| make_runner(artifact, dispatch)),
         }
     }
@@ -674,11 +677,14 @@ impl CodingVerifier for ContractVerifier {
         };
 
         // 1. Metadata: must execute BEFORE build/test and validate local-only snapshot graph.
-        let root_refs: Vec<&Path> = self
-            .allowed_metadata_roots
-            .iter()
-            .map(PathBuf::as_path)
-            .collect();
+        let mut metadata_roots = self.allowed_metadata_roots.clone();
+        if self.include_snapshot_metadata_root {
+            metadata_roots.push(snapshot_path.clone());
+            if let Ok(canon) = snapshot_path.canonicalize() {
+                metadata_roots.push(canon);
+            }
+        }
+        let root_refs: Vec<&Path> = metadata_roots.iter().map(PathBuf::as_path).collect();
         let meta_out = runner
             .cargo(CargoStage::Metadata)
             .map_err(|_| DriveError::Invalid)?;

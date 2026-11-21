@@ -14,7 +14,6 @@ pub enum ToolId {
     Lean,
     Cargo,
     Rustc,
-    Bubblewrap,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -37,7 +36,7 @@ impl ToolCatalog {
         if self.schema_version != 1 {
             return Err(ValidationError::Version);
         }
-        if self.tools.is_empty() || self.tools.len() > 7 {
+        if self.tools.is_empty() || self.tools.len() > 6 {
             return Err(ValidationError::Limit);
         }
         let mut seen = std::collections::BTreeSet::new();

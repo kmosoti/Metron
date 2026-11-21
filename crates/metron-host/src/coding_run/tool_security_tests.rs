@@ -55,7 +55,7 @@ fn write_project(root: &Path, build: &str) {
     fs::write(workspace.join("build.rs"), build).unwrap();
 }
 #[test]
-#[ignore = "requires pinned local tools, user systemd, bubblewrap and disk scratch"]
+#[ignore = "requires pinned local tools, user systemd, Landlock/seccomp, and disk scratch"]
 fn admitted_list_read_and_argv_cannot_escape_build_script() {
     if std::env::var_os("METRON_SECURITY_TEST_CHILD").is_none() {
         let status = std::process::Command::new(std::env::current_exe().unwrap())
@@ -89,8 +89,8 @@ fn admitted_list_read_and_argv_cannot_escape_build_script() {
     write_project(
         &root,
         r#"fn main() {
-        assert!(!std::path::Path::new("/home").exists());
-        assert_eq!(std::env::var("HOME").unwrap(), "/scratch");
+        assert!(std::fs::read_dir("/home").is_err());
+        assert_eq!(std::env::var("HOME").unwrap(), std::env::var("TMPDIR").unwrap());
         assert!(std::env::var_os("DBUS_SESSION_BUS_ADDRESS").is_none());
         assert!(std::env::var_os("XDG_RUNTIME_DIR").is_none());
         assert!(std::env::var_os("METRON_SECURITY_SENTINEL").is_none());
@@ -105,7 +105,7 @@ fn admitted_list_read_and_argv_cannot_escape_build_script() {
         r#"{"tool":"list","directory":null}"#,
         r#"{"tool":"read","path":"src/main.rs","first_line":1,"line_count":10}"#,
         r#"{"tool":"run","program":"cargo","args":["check","--locked","-vv"],"directory":null}"#,
-        r#"{"tool":"run","program":"rustc","args":["--edition=2024","src/main.rs","-o","/scratch/direct-probe"],"directory":null}"#,
+        r#"{"tool":"run","program":"rustc","args":["--edition=2024","src/main.rs","--emit=metadata"],"directory":null}"#,
         r#"{"tool":"finish","summary":"request verification"}"#,
     ];
     let mut worker = driver(&root, &s, &script);
@@ -172,7 +172,7 @@ fn admitted_list_read_and_argv_cannot_escape_build_script() {
 }
 
 #[test]
-#[ignore = "requires pinned local tools, user systemd, bubblewrap and disk scratch"]
+#[ignore = "requires pinned local tools, user systemd, Landlock/seccomp, and disk scratch"]
 fn live_cargo_host_kill_holds_workspace_and_reservation() {
     use std::process::{Command, Stdio};
     use std::time::{Duration, Instant};
@@ -181,7 +181,7 @@ fn live_cargo_host_kill_holds_workspace_and_reservation() {
         write_project(
             &root,
             r#"fn main() {
-            std::fs::write("/workspace/live-start", b"started").unwrap();
+            std::fs::write("live-start", b"started").unwrap();
             std::thread::sleep(std::time::Duration::from_secs(25));
         }"#,
         );
