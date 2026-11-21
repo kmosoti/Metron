@@ -355,8 +355,32 @@ fn product_sources_do_not_reference_sealed_lab_fixtures() {
     }
 }
 
+fn toml_section_has(manifest: &str, wanted_section: &str, wanted_kv: &str) -> bool {
+    let mut section = "";
+    for raw in manifest.lines() {
+        let line = raw.split('#').next().unwrap_or("").trim();
+        if line.is_empty() {
+            continue;
+        }
+        if line.starts_with('[') && line.ends_with(']') {
+            section = &line[1..line.len() - 1];
+            continue;
+        }
+        let compact: String = line.chars().filter(|c| !c.is_ascii_whitespace()).collect();
+        if section == wanted_section && compact == wanted_kv {
+            return true;
+        }
+    }
+    false
+}
+
 #[test]
 fn unsafe_code_and_cranelift_boundaries_are_enforced() {
+    assert!(!toml_section_has(
+        "[package]\nversion.workspace = true\n",
+        "lints",
+        "workspace=true"
+    ));
     let root = root().canonicalize().unwrap();
 
     // 1. metron-wasm-aot-loader must stay < 80 lines across its entire src/ tree.
@@ -382,7 +406,16 @@ fn unsafe_code_and_cranelift_boundaries_are_enforced() {
         "metron-wasm-aot-loader exceeds <80-line cap: {loader_lines} lines"
     );
 
-    // 2. No crate outside metron-wasm-aot-loader may allow unsafe_code or disable forbid(unsafe_code).
+    // 2. No crate outside metron-wasm-aot-loader may allow/expect unsafe_code or disable forbid(unsafe_code).
+    let root_manifest = std::fs::read_to_string(root.join("Cargo.toml")).unwrap();
+    assert!(
+        toml_section_has(
+            &root_manifest,
+            "workspace.lints.rust",
+            "unsafe_code=\"forbid\""
+        ),
+        "root Cargo.toml [workspace.lints.rust] must forbid unsafe_code"
+    );
     for name in RUNTIME_CRATES {
         if name == "metron-wasm-aot-loader" {
             continue;
@@ -390,8 +423,9 @@ fn unsafe_code_and_cranelift_boundaries_are_enforced() {
         let crate_dir = root.join("crates").join(name);
         let manifest = std::fs::read_to_string(crate_dir.join("Cargo.toml")).unwrap();
         assert!(
-            manifest.contains("workspace = true") || manifest.contains("unsafe_code = \"forbid\""),
-            "{name} Cargo.toml must forbid unsafe_code"
+            toml_section_has(&manifest, "lints", "workspace=true")
+                || toml_section_has(&manifest, "lints.rust", "unsafe_code=\"forbid\""),
+            "{name} Cargo.toml must set `[lints] workspace = true` or `[lints.rust] unsafe_code = \"forbid\"`"
         );
         fn check_no_allow_unsafe(dir: &std::path::Path) {
             for entry in std::fs::read_dir(dir).unwrap() {
@@ -400,10 +434,16 @@ fn unsafe_code_and_cranelift_boundaries_are_enforced() {
                     check_no_allow_unsafe(&p);
                 } else if p.extension().is_some_and(|e| e == "rs") {
                     let src = std::fs::read_to_string(&p).unwrap();
+                    let compact: String =
+                        src.chars().filter(|c| !c.is_ascii_whitespace()).collect();
                     assert!(
-                        !src.contains("allow(unsafe_code)")
-                            && !src.contains("unsafe_code = \"allow\""),
-                        "{} permits unsafe_code outside metron-wasm-aot-loader",
+                        !compact.contains("allow(unsafe_code)")
+                            && !compact.contains("expect(unsafe_code)")
+                            && !compact.contains("warn(unsafe_code)")
+                            && !compact.contains("unsafe_code=\"allow\"")
+                            && !compact.contains("unsafe_code=\"warn\"")
+                            && !compact.contains("unsafe_code=\"deny\""),
+                        "{} relaxes unsafe_code outside metron-wasm-aot-loader",
                         p.display()
                     );
                 }

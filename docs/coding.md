@@ -210,7 +210,7 @@ Provide separate absolute paths for an owner-private workspace and the private
 run directory. The workspace contains only candidate-accessible project files;
 keep model artifacts, credentials, memory databases, journals and evaluator
 inputs outside it. The run directory must not already exist for a fresh task.
-Process scratch must reside on disk. Linux user namespaces, bubblewrap, a user
+Process scratch must reside on disk. Landlock (ABI v3..v6), seccomp-bpf, a user
 systemd manager and cgroup v2 are required; isolation failure has no fallback.
 
 The operator supplies these bounded JSON inputs:

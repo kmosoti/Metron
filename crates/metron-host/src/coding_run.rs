@@ -2368,7 +2368,7 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
     #[test]
-    #[ignore = "requires pinned local tools, user systemd, bubblewrap and disk scratch"]
+    #[ignore = "requires pinned local tools, user systemd, Landlock/seccomp, and disk scratch"]
     fn admitted_shared_toolkit_records_real_receipts_and_replays() {
         let catalog_path =
             std::env::var("METRON_CODING_PROBE_CATALOG").expect("pinned probe catalog");
