@@ -2,7 +2,10 @@
 #![forbid(unsafe_code)]
 
 mod engine;
+pub mod external_receipts;
 pub mod memory;
+
+pub use external_receipts::ExternalReceiptRecord;
 
 use std::path::Path;
 use std::time::Duration;

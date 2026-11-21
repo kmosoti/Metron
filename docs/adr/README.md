@@ -34,3 +34,4 @@ mark them superseded. Template: context, decision, consequences.
 | 0027 | Stable Rust 1.100 toolchain pin | proposed; supersedes compiler pin and qualification requirement in ADR 0019 |
 | 0028 | Experimental intent contracts for bounded coding | proposed |
 | 0029 | Two-lane zero-bubblewrap sandbox (Wasmtime 51 AOT + Landlock + seccomp-bpf) | proposed |
+| 0030 | Pluggable ModelProvider HTTP adapter, optional local-cuda, and rmcp 3.11 MCP bridge | proposed |

@@ -1266,8 +1266,13 @@ fn commit_transition(
             selected_evidence: None,
         };
         tx.execute(
-            "INSERT INTO intents(task_id,intent_id,value) VALUES(?1,?2,?3)",
-            params![task_id.as_str(), id.as_str(), bytes!(&snapshot)],
+            "INSERT INTO intents(task_id,intent_id,status,value) VALUES(?1,?2,?3,?4)",
+            params![
+                task_id.as_str(),
+                id.as_str(),
+                intent_status_tag(snapshot.status),
+                bytes!(&snapshot)
+            ],
         )
         .map_err(sql_error)?;
         Some(id)
@@ -1305,10 +1310,25 @@ fn load_intent(tx: &Transaction<'_>, id: &Digest) -> Result<IntentSnapshot, Stor
     }
     Ok(intent)
 }
+fn intent_status_tag(status: DispatchStatus) -> &'static str {
+    match status {
+        DispatchStatus::Ready => "ready",
+        DispatchStatus::AwaitingApproval => "awaiting_approval",
+        DispatchStatus::Denied => "denied",
+        DispatchStatus::Leased => "leased",
+        DispatchStatus::Dispatched => "dispatched",
+        DispatchStatus::Uncertain => "uncertain",
+        DispatchStatus::Settled => "settled",
+    }
+}
 fn save_intent(tx: &Transaction<'_>, intent: &IntentSnapshot) -> Result<(), StoreError> {
     tx.execute(
-        "UPDATE intents SET value=?1 WHERE intent_id=?2",
-        params![bytes!(intent), intent.intent_id.as_str()],
+        "UPDATE intents SET status=?1, value=?2 WHERE intent_id=?3",
+        params![
+            intent_status_tag(intent.status),
+            bytes!(intent),
+            intent.intent_id.as_str()
+        ],
     )
     .map_err(sql_error)?;
     Ok(())
@@ -2336,8 +2356,19 @@ fn finish_verification(
     {
         return Ok(None);
     }
+    let non_settled: Option<i64> = tx
+        .query_row(
+            "SELECT 1 FROM intents WHERE task_id=?1 AND status != 'settled' LIMIT 1",
+            [task.data().task_id.as_str()],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(sql_error)?;
+    if non_settled.is_some() {
+        return Ok(None);
+    }
     let mut stmt = tx
-        .prepare("SELECT value FROM intents WHERE task_id=?1")
+        .prepare("SELECT value FROM intents WHERE task_id=?1 AND status='settled'")
         .map_err(sql_error)?;
     let mut rows = stmt
         .query([task.data().task_id.as_str()])
@@ -2577,7 +2608,9 @@ fn refresh_unresolved(tx: &Transaction<'_>, task_id: &TaskId) -> Result<(), Stor
     .ok_or(StoreError::Integrity)?;
     let mut v: VerificationSnapshot = decode!(&raw, VerificationSnapshot);
     let mut stmt = tx
-        .prepare("SELECT value FROM intents WHERE task_id=?1")
+        .prepare(
+            "SELECT value FROM intents WHERE task_id=?1 AND status IN ('dispatched','uncertain')",
+        )
         .map_err(sql_error)?;
     let mut rows = stmt.query([task_id.as_str()]).map_err(sql_error)?;
     let mut unresolved = false;
@@ -3049,7 +3082,9 @@ fn clear_reconciled_hold(
         return Ok(());
     }
     let mut stmt = tx
-        .prepare("SELECT value FROM intents WHERE task_id=?1")
+        .prepare(
+            "SELECT value FROM intents WHERE task_id=?1 AND status IN ('dispatched','uncertain')",
+        )
         .map_err(sql_error)?;
     let mut rows = stmt.query([task_id.as_str()]).map_err(sql_error)?;
     while let Some(row) = rows.next().map_err(sql_error)? {

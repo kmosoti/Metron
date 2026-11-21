@@ -25,7 +25,7 @@ fn metadata(manifest: PathBuf) -> Value {
     serde_json::from_slice(&output.stdout).expect("metadata JSON")
 }
 
-const RUNTIME_CRATES: [&str; 10] = [
+const RUNTIME_CRATES: [&str; 12] = [
     "metron-protocol",
     "metron-agent",
     "metron-harness",
@@ -33,6 +33,8 @@ const RUNTIME_CRATES: [&str; 10] = [
     "metron-testkit",
     "metron-wasm-aot-loader",
     "metron-sandbox",
+    "metron-mcp",
+    "metron-provider-http",
     "metron-host",
     "metron-inference-local",
     "metron-inference-worker",
@@ -183,6 +185,29 @@ fn root_workspace_members_and_dependency_boundaries() {
                 "wasmtime",
                 "wasmtime-wasi",
             ],
+            "metron-mcp" => &[
+                // Typed rmcp 3.11 MCP bridge: routes every tool execution through
+                // metron-sandbox and persists ResourceReceipts into metron-store-sqlite.
+                "metron-protocol",
+                "metron-sandbox",
+                "metron-store-sqlite",
+                "rmcp",
+                "serde",
+                "serde_json",
+                "sha2",
+                "thiserror",
+                "tokio",
+            ],
+            "metron-provider-http" => &[
+                // Pluggable OpenAI/Anthropic HTTP ModelProvider adapter.
+                "metron-protocol",
+                "reqwest",
+                "serde",
+                "serde_json",
+                "sha2",
+                "thiserror",
+                "tokio",
+            ],
             "metron-host" => &[
                 // The composition root owns operational report serialization;
                 // the inference SDK remains confined to the worker.
@@ -191,23 +216,31 @@ fn root_workspace_members_and_dependency_boundaries() {
                 // Safe Linux descriptors/sealed executable images belong only
                 // at this operator/effect boundary, never in pure contracts.
                 "rustix",
+                "tokio",
                 "metron-protocol",
                 "metron-agent",
                 "metron-harness",
                 "metron-store-sqlite",
                 "metron-testkit",
                 "metron-sandbox",
+                "metron-mcp",
+                "metron-provider-http",
                 "metron-inference-local",
             ],
             _ => panic!("unexpected package {name}"),
         };
         for dependency in package["dependencies"].as_array().unwrap() {
             let dep = dependency["name"].as_str().unwrap();
-            if name == "metron-host" && dep == "rusqlite" {
+            if name == "metron-host"
+                && matches!(
+                    dep,
+                    "rusqlite" | "blake3" | "wasmtime" | "wat" | "metron-wasm-aot-loader"
+                )
+            {
                 assert_eq!(
                     dependency["kind"].as_str(),
                     Some("dev"),
-                    "host may use rusqlite only in tests"
+                    "host may use {dep} only in tests"
                 );
                 continue;
             }
@@ -233,6 +266,24 @@ fn root_workspace_members_and_dependency_boundaries() {
                 && dependency["kind"].as_str() == Some("dev")
             {
                 continue;
+            }
+            if name == "metron-mcp"
+                && matches!(
+                    dep,
+                    "blake3" | "wasmtime" | "wat" | "metron-wasm-aot-loader"
+                )
+                && dependency["kind"].as_str() == Some("dev")
+            {
+                continue;
+            }
+            if name == "metron-inference-worker"
+                && matches!(dep, "mistralrs" | "mistralrs-core" | "either" | "tokio")
+            {
+                assert_eq!(
+                    dependency["optional"].as_bool(),
+                    Some(true),
+                    "metron-inference-worker must keep {dep} strictly optional behind local-cuda/local-cpu"
+                );
             }
             assert!(allowed.contains(&dep), "{name} must not depend on {dep}");
         }
@@ -361,8 +412,15 @@ fn unsafe_code_and_cranelift_boundaries_are_enforced() {
         check_no_allow_unsafe(&crate_dir);
     }
 
-    // 3. Production dependency graphs of runtime host & sandbox must contain zero Cranelift compiler.
-    for pkg in ["metron-wasm-aot-loader", "metron-sandbox", "metron-host"] {
+    // 3. Production dependency graphs of runtime host & sandbox must contain zero Cranelift compiler,
+    // and default metron-inference-worker must contain zero mistralrs SDK.
+    for pkg in [
+        "metron-wasm-aot-loader",
+        "metron-sandbox",
+        "metron-mcp",
+        "metron-provider-http",
+        "metron-host",
+    ] {
         let out = Command::new("cargo")
             .current_dir(&root)
             .args([
@@ -387,4 +445,23 @@ fn unsafe_code_and_cranelift_boundaries_are_enforced() {
             "{pkg} runtime dependency tree unexpectedly pulls Cranelift compiler:\n{tree}"
         );
     }
+    let worker_tree = Command::new("cargo")
+        .current_dir(&root)
+        .args([
+            "tree",
+            "-p",
+            "metron-inference-worker",
+            "--edges",
+            "no-dev",
+            "--offline",
+            "--locked",
+        ])
+        .output()
+        .expect("run cargo tree for worker");
+    assert!(worker_tree.status.success());
+    let worker_out = String::from_utf8_lossy(&worker_tree.stdout);
+    assert!(
+        !worker_out.contains("mistralrs"),
+        "default metron-inference-worker must keep mistralrs gated behind local-cuda:\n{worker_out}"
+    );
 }

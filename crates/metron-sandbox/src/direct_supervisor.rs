@@ -11,6 +11,7 @@ use std::{
     io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
+    sync::atomic::{AtomicBool, Ordering},
     thread,
     time::{Duration, Instant},
 };
@@ -89,6 +90,31 @@ pub fn run_direct_supervised_with_prefix(
     stdin_file: Option<&File>,
     receipt_path: Option<&Path>,
 ) -> Result<CgroupCompleted, SandboxError> {
+    run_direct_supervised_cancellable(
+        limits,
+        scratch,
+        bin,
+        args,
+        stdin_prefix,
+        stdin_file,
+        receipt_path,
+        None,
+    )
+}
+
+/// Cancellable variant of [`run_direct_supervised_with_prefix`]: when `cancel` flips `true`,
+/// immediately sends `SIGKILL` and reaps the child.
+#[allow(clippy::too_many_arguments)]
+pub fn run_direct_supervised_cancellable(
+    limits: &CgroupLimits,
+    scratch: &Path,
+    bin: &Path,
+    args: &[String],
+    stdin_prefix: Option<Vec<u8>>,
+    stdin_file: Option<&File>,
+    receipt_path: Option<&Path>,
+    cancel: Option<&AtomicBool>,
+) -> Result<CgroupCompleted, SandboxError> {
     check_scratch_space(scratch, limits.scratch_reserve_bytes)?;
 
     let mut cmd = Command::new(bin);
@@ -130,9 +156,13 @@ pub fn run_direct_supervised_with_prefix(
     let mut disk_err: Option<SandboxError> = None;
 
     loop {
+        if cancel.is_some_and(|c| c.load(Ordering::Acquire)) {
+            timed_out = true;
+            kill_child_tree(&mut child);
+            break;
+        }
         if let Err(err) = check_scratch_space(scratch, limits.scratch_reserve_bytes) {
-            let _ = child.kill();
-            let _ = child.wait();
+            kill_child_tree(&mut child);
             disk_err = Some(err);
             break;
         }
@@ -144,8 +174,7 @@ pub fn run_direct_supervised_with_prefix(
             Ok(None) if start.elapsed() < deadline => thread::sleep(Duration::from_millis(10)),
             _ => {
                 timed_out = true;
-                let _ = child.kill();
-                let _ = child.wait();
+                kill_child_tree(&mut child);
                 break;
             }
         }
@@ -171,6 +200,16 @@ pub fn run_direct_supervised_with_prefix(
         success,
         receipt,
     })
+}
+
+fn kill_child_tree(child: &mut std::process::Child) {
+    if let Ok(raw) = i32::try_from(child.id())
+        && let Some(pid) = rustix::process::Pid::from_raw(raw)
+    {
+        let _ = rustix::process::kill_process_group(pid, rustix::process::Signal::KILL);
+    }
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 /// Spawns a background thread streaming `stdin_file` (rewound to offset 0) into the child's stdin pipe.

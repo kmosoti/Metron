@@ -138,6 +138,9 @@ fn run_inner(args: &[String]) -> Result<(), SandboxError> {
 /// emits `SandboxReceipt`, verifies FD hygiene, applies `rlimits`, and replaces the current
 /// process image via `CommandExt::exec` (never returning on success).
 pub fn execute_spec(spec: &TrampolineSpec) -> Result<(), SandboxError> {
+    // Isolate the jailed process tree into its own process group (PGID == PID) so direct
+    // supervisors can atomically SIGKILL the child and any shell-spawned grandchildren.
+    let _ = rustix::process::setpgid(None, None);
     if spec.rlimits.is_some_and(|r| r.pdeathsig_kill) {
         apply_pdeathsig_kill()?;
     }

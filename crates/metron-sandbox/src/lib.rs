@@ -6,6 +6,7 @@
 //! strict `landlock 0.4.8` (`CompatLevel::HardRequirement`), `seccompiler 0.5.0`,
 //! `/proc/self/fd` hygiene enforcement, and direct sealed `memfd` execution.
 
+mod cgroup_types;
 pub mod direct_supervisor;
 pub mod error;
 pub mod jail_hardening;
@@ -40,14 +41,14 @@ pub use wasm_aot::{
     AotEnvelopeMeta, EngineTunables, LaneALimits, LaneARuntime, PINNED_WASMTIME_VERSION,
     ResourceReceipt, host_target_triple,
 };
-pub use wasm_aot_jail::{LaneARequest, run_lane_a_jail};
+pub use wasm_aot_jail::{LaneARequest, run_lane_a_jail, run_lane_a_jail_cancellable};
 
 use std::{
     fs::OpenOptions,
     io::Write,
     os::unix::fs::OpenOptionsExt,
     path::{Path, PathBuf},
-    sync::atomic::{AtomicU64, Ordering},
+    sync::atomic::{AtomicBool, AtomicU64, Ordering},
 };
 
 static SPEC_SEQ: AtomicU64 = AtomicU64::new(0);
@@ -92,6 +93,15 @@ pub fn run_native_jail(
     cfg: &NativeJailConfig,
     stdin_memfd: Option<&SealedMemfd>,
 ) -> Result<NativeJailOutput, SandboxError> {
+    run_native_jail_cancellable(cfg, stdin_memfd, None)
+}
+
+/// Cancellable variant of [`run_native_jail`]: flipping `cancel` immediately kills the transient unit.
+pub fn run_native_jail_cancellable(
+    cfg: &NativeJailConfig,
+    stdin_memfd: Option<&SealedMemfd>,
+    cancel: Option<&AtomicBool>,
+) -> Result<NativeJailOutput, SandboxError> {
     require_disk_backed(&cfg.scratch)?;
     check_scratch_space(&cfg.scratch, cfg.cgroup.scratch_reserve_bytes)?;
     let (receipt_path, _receipt_guard) = alloc_receipt_path(&cfg.scratch);
@@ -105,12 +115,14 @@ pub fn run_native_jail(
     prefix_args.push(spec_path.to_string_lossy().into_owned());
 
     let stdin_file = stdin_memfd.map(SealedMemfd::as_file);
-    let mut completed = systemd_cg::run_in_systemd_cgroup(
+    let mut completed = systemd_cg::run_in_systemd_cgroup_cancellable(
         &cfg.cgroup,
         &cfg.scratch,
         &bin,
         &prefix_args,
+        None,
         stdin_file,
+        cancel,
     )?;
     completed.receipt = read_receipt(&receipt_path);
     Ok(completed)
@@ -123,6 +135,15 @@ pub fn run_native_jail(
 pub fn run_direct_jail(
     cfg: &NativeJailConfig,
     stdin_memfd: Option<&SealedMemfd>,
+) -> Result<NativeJailOutput, SandboxError> {
+    run_direct_jail_cancellable(cfg, stdin_memfd, None)
+}
+
+/// Cancellable variant of [`run_direct_jail`]: flipping `cancel` immediately `SIGKILL`s the child.
+pub fn run_direct_jail_cancellable(
+    cfg: &NativeJailConfig,
+    stdin_memfd: Option<&SealedMemfd>,
+    cancel: Option<&AtomicBool>,
 ) -> Result<NativeJailOutput, SandboxError> {
     require_disk_backed(&cfg.scratch)?;
     check_scratch_space(&cfg.scratch, cfg.cgroup.scratch_reserve_bytes)?;
@@ -137,13 +158,15 @@ pub fn run_direct_jail(
     prefix_args.push(spec_path.to_string_lossy().into_owned());
 
     let stdin_file = stdin_memfd.map(SealedMemfd::as_file);
-    run_direct_supervised(
+    direct_supervisor::run_direct_supervised_cancellable(
         &cfg.cgroup,
         &cfg.scratch,
         &bin,
         &prefix_args,
+        None,
         stdin_file,
         Some(&receipt_path),
+        cancel,
     )
 }
 
@@ -211,10 +234,7 @@ pub fn resolve_trampoline(explicit: Option<&Path>) -> Result<(PathBuf, Vec<Strin
     if let Ok(exe) = std::env::current_exe()
         && let Some(dir) = exe.parent()
     {
-        for candidate_dir in [Some(dir), dir.parent()] {
-            let Some(base) = candidate_dir else {
-                continue;
-            };
+        for base in dir.ancestors().take(6) {
             let jail = base.join("metron-jail");
             if jail.is_file() {
                 return Ok((jail, Vec::new()));

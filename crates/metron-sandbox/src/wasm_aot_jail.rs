@@ -6,7 +6,7 @@
 use crate::{
     CgroupLimits, DirectRlimits, LandlockPolicy, SealedMemfd, apply_landlock, apply_rlimits,
     check_scratch_space,
-    direct_supervisor::run_direct_supervised_with_prefix,
+    direct_supervisor::run_direct_supervised_cancellable,
     error::SandboxError,
     memfd::{replace_stdin_with, require_disk_backed, seal_from_reader},
     resolve_trampoline, systemd_cg,
@@ -24,7 +24,7 @@ use std::{
     os::unix::fs::OpenOptionsExt,
     path::{Path, PathBuf},
     process::ExitCode,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::atomic::{AtomicBool, AtomicU64, Ordering},
 };
 
 static LANE_A_SEQ: AtomicU64 = AtomicU64::new(0);
@@ -146,6 +146,14 @@ fn verify_parent_seal(req: &LaneARequest<'_>) -> Result<(), SandboxError> {
 /// or hardened direct supervisor with real timeout + `rlimit`, strict `Landlock`, two-phase
 /// seccomp, `F_SEAL_WRITE` `memfd`, and zero secrets on scratch disk).
 pub fn run_lane_a_jail(req: &LaneARequest<'_>) -> Result<ResourceReceipt, SandboxError> {
+    run_lane_a_jail_cancellable(req, None)
+}
+
+/// Cancellable variant of [`run_lane_a_jail`]: flipping `cancel` immediately kills the child.
+pub fn run_lane_a_jail_cancellable(
+    req: &LaneARequest<'_>,
+    cancel: Option<&AtomicBool>,
+) -> Result<ResourceReceipt, SandboxError> {
     require_disk_backed(req.scratch)?;
     check_scratch_space(req.scratch, req.limits.cgroup.scratch_reserve_bytes)?;
     verify_parent_seal(req)?;
@@ -193,16 +201,17 @@ pub fn run_lane_a_jail(req: &LaneARequest<'_>) -> Result<ResourceReceipt, Sandbo
     // Stream 32-byte key + .cwasm bytes exclusively over the anonymous stdin pipe (zero secrets on disk).
     let key_prefix = Some(req.key.to_vec());
     let done = if req.use_systemd {
-        systemd_cg::run_in_systemd_cgroup_with_prefix(
+        systemd_cg::run_in_systemd_cgroup_cancellable(
             &req.limits.cgroup,
             req.scratch,
             &bin,
             &args,
             key_prefix,
             Some(req.cwasm_memfd.as_file()),
+            cancel,
         )?
     } else {
-        run_direct_supervised_with_prefix(
+        run_direct_supervised_cancellable(
             &req.limits.cgroup,
             req.scratch,
             &bin,
@@ -210,6 +219,7 @@ pub fn run_lane_a_jail(req: &LaneARequest<'_>) -> Result<ResourceReceipt, Sandbo
             key_prefix,
             Some(req.cwasm_memfd.as_file()),
             None,
+            cancel,
         )?
     };
 

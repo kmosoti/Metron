@@ -1,75 +1,21 @@
 //! Unprivileged `systemd-run --user --collect` cgroup v2 process runner and cleanup verifier.
 
+pub use crate::cgroup_types::{CgroupCompleted, CgroupLimits};
 pub use crate::direct_supervisor::resolve_manager_tool;
 use crate::{
     direct_supervisor::{
         capture_stream, check_scratch_space, collect_streams, spawn_stdin_writer_with_prefix,
     },
     error::SandboxError,
-    jail_hardening::SandboxReceipt,
 };
 use std::{
     fs::File,
     path::{Path, PathBuf},
     process::{Command, Stdio},
+    sync::atomic::{AtomicBool, Ordering},
     thread,
     time::{Duration, Instant},
 };
-
-/// Cgroup v2 resource limits applied to every transient `systemd-run --user` unit.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CgroupLimits {
-    /// Transient systemd unit name (`metron-...`).
-    pub unit_name: String,
-    /// Hard memory ceiling (`MemoryMax=<bytes>`, `MemorySwapMax=0`).
-    pub memory_max_bytes: u64,
-    /// Maximum number of tasks/threads (`TasksMax=<n>`).
-    pub tasks_max: u16,
-    /// CPU quota percentage (`CPUQuota=<pct>%`, e.g., `200`).
-    pub cpu_quota_percent: u16,
-    /// Per-file size limit (`LimitFSIZE=<bytes>`).
-    pub limit_fsize_bytes: u64,
-    /// Wall-clock deadline in milliseconds (`RuntimeMaxSec` + parent kill).
-    pub timeout_ms: u32,
-    /// Maximum stdout/stderr bytes captured per stream.
-    pub output_limit: usize,
-    /// Minimum free disk reserve required on `scratch` (bytes).
-    pub scratch_reserve_bytes: u64,
-}
-
-impl Default for CgroupLimits {
-    fn default() -> Self {
-        Self {
-            unit_name: format!("metron-sandbox-{}", std::process::id()),
-            memory_max_bytes: 512 * 1024 * 1024,
-            tasks_max: 64,
-            cpu_quota_percent: 200,
-            limit_fsize_bytes: 67_108_864,
-            timeout_ms: 10_000,
-            output_limit: 64 * 1024,
-            scratch_reserve_bytes: 2 * 1024 * 1024 * 1024,
-        }
-    }
-}
-
-/// Output captured from a completed cgroup- or rlimit-bounded execution.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CgroupCompleted {
-    /// Captured standard output (bounded by `output_limit`).
-    pub stdout: Vec<u8>,
-    /// Captured standard error (bounded by `output_limit`).
-    pub stderr: Vec<u8>,
-    /// True if stdout or stderr exceeded `output_limit`.
-    pub truncated: bool,
-    /// Exit status code if exited normally.
-    pub exit_code: Option<i32>,
-    /// True if terminated due to wall-clock deadline timeout.
-    pub timed_out: bool,
-    /// True only when exited with status 0 and not timed out.
-    pub success: bool,
-    /// Pre-exec sandbox enforcement attestation recorded by `metron-jail`, when available.
-    pub receipt: Option<SandboxReceipt>,
-}
 
 /// Checks whether unprivileged `systemd-run --user` cgroup management is active.
 #[must_use]
@@ -162,6 +108,28 @@ pub fn run_in_systemd_cgroup_with_prefix(
     stdin_prefix: Option<Vec<u8>>,
     stdin_file: Option<&File>,
 ) -> Result<CgroupCompleted, SandboxError> {
+    run_in_systemd_cgroup_cancellable(
+        limits,
+        scratch,
+        trampoline_bin,
+        trampoline_args,
+        stdin_prefix,
+        stdin_file,
+        None,
+    )
+}
+
+/// Cancellable variant of [`run_in_systemd_cgroup_with_prefix`]: when `cancel` flips `true`,
+/// immediately kills the transient systemd unit and child process tree.
+pub fn run_in_systemd_cgroup_cancellable(
+    limits: &CgroupLimits,
+    scratch: &Path,
+    trampoline_bin: &Path,
+    trampoline_args: &[String],
+    stdin_prefix: Option<Vec<u8>>,
+    stdin_file: Option<&File>,
+    cancel: Option<&AtomicBool>,
+) -> Result<CgroupCompleted, SandboxError> {
     check_scratch_space(scratch, limits.scratch_reserve_bytes)?;
 
     let runtime = std::env::var("XDG_RUNTIME_DIR")
@@ -229,6 +197,13 @@ pub fn run_in_systemd_cgroup_with_prefix(
     let mut disk_err: Option<SandboxError> = None;
 
     loop {
+        if cancel.is_some_and(|c| c.load(Ordering::Acquire)) {
+            timed_out = true;
+            kill_unit(&runtime, unit_name);
+            let _ = child.kill();
+            let _ = child.wait();
+            break;
+        }
         if let Err(err) = check_scratch_space(scratch, limits.scratch_reserve_bytes) {
             kill_unit(&runtime, unit_name);
             let _ = child.kill();

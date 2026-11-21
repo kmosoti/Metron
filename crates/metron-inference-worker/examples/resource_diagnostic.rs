@@ -1,27 +1,42 @@
 //! Bounded, one-process/one-route diagnostic. This never qualifies numerical equivalence.
 #![forbid(unsafe_code)]
+#[cfg(any(feature = "local-cuda", feature = "local-cpu"))]
 #[path = "../src/model_loading.rs"]
 mod model_loading;
+#[cfg(any(feature = "local-cuda", feature = "local-cpu"))]
 #[path = "../src/resources.rs"]
 mod resources;
+#[cfg(any(feature = "local-cuda", feature = "local-cpu"))]
 use either::Either;
+#[cfg(any(feature = "local-cuda", feature = "local-cpu"))]
 use metron_inference_local::resources::{TRAINED_CONTEXT_TOKENS, lfm3_fit_lower_bound};
+#[cfg(any(feature = "local-cuda", feature = "local-cpu"))]
 use metron_protocol::{LocalDevice, LocalProfile, SqlU64, content_digest};
+#[cfg(any(feature = "local-cuda", feature = "local-cpu"))]
 use mistralrs::{
     Constraint, CustomLogitsProcessor, DType, Device, RequestBuilder, SamplingParams, Tensor,
     TextMessageRole, TextMessages,
 };
+#[cfg(any(feature = "local-cuda", feature = "local-cpu"))]
 use serde_json::{Value, json};
+#[cfg(any(feature = "local-cuda", feature = "local-cpu"))]
 use std::{
     io::{Read, Write},
     path::Path,
     sync::{Arc, Mutex},
 };
 
+#[cfg(any(feature = "local-cuda", feature = "local-cpu"))]
 fn messages(content: &str) -> TextMessages {
     TextMessages::new().add_message(TextMessageRole::User, content)
 }
 
+#[cfg(not(any(feature = "local-cuda", feature = "local-cpu")))]
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    Err("resource_diagnostic requires `--features local-cuda` or `--features local-cpu`".into())
+}
+
+#[cfg(any(feature = "local-cuda", feature = "local-cpu"))]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
