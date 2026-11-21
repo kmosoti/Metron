@@ -8,7 +8,7 @@ use crate::{
 };
 use std::{
     fs::File,
-    io::{Read, Write},
+    io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
     thread,
@@ -74,6 +74,21 @@ pub fn run_direct_supervised(
     stdin_file: Option<&File>,
     receipt_path: Option<&Path>,
 ) -> Result<CgroupCompleted, SandboxError> {
+    run_direct_supervised_with_prefix(limits, scratch, bin, args, None, stdin_file, receipt_path)
+}
+
+/// Variant of [`run_direct_supervised`] that prepends an in-memory byte prefix
+/// (for example a 32-byte HMAC key) ahead of `stdin_file` on the anonymous stdin pipe
+/// so no secrets ever touch scratch disk.
+pub fn run_direct_supervised_with_prefix(
+    limits: &CgroupLimits,
+    scratch: &Path,
+    bin: &Path,
+    args: &[String],
+    stdin_prefix: Option<Vec<u8>>,
+    stdin_file: Option<&File>,
+    receipt_path: Option<&Path>,
+) -> Result<CgroupCompleted, SandboxError> {
     check_scratch_space(scratch, limits.scratch_reserve_bytes)?;
 
     let mut cmd = Command::new(bin);
@@ -81,7 +96,7 @@ pub fn run_direct_supervised(
         .env_clear()
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    if stdin_file.is_some() {
+    if stdin_prefix.is_some() || stdin_file.is_some() {
         cmd.stdin(Stdio::piped());
     } else {
         cmd.stdin(Stdio::null());
@@ -91,7 +106,8 @@ pub fn run_direct_supervised(
         .spawn()
         .map_err(|e| SandboxError::Denied(format!("jail launch failed: {e}")))?;
 
-    let stdin_writer = spawn_stdin_writer(stdin_file, child.stdin.take())?;
+    let stdin_writer =
+        spawn_stdin_writer_with_prefix(stdin_prefix, stdin_file, child.stdin.take())?;
     let stdout = capture_stream(
         child
             .stdout
@@ -157,21 +173,44 @@ pub fn run_direct_supervised(
     })
 }
 
-/// Spawns a background thread streaming `stdin_file` into the child's stdin pipe.
+/// Spawns a background thread streaming `stdin_file` (rewound to offset 0) into the child's stdin pipe.
 pub fn spawn_stdin_writer(
     stdin_file: Option<&File>,
     pipe: Option<std::process::ChildStdin>,
 ) -> Result<Option<thread::JoinHandle<std::io::Result<()>>>, SandboxError> {
-    let Some(src) = stdin_file else {
+    spawn_stdin_writer_with_prefix(None, stdin_file, pipe)
+}
+
+/// Spawns a background thread streaming optional in-memory `prefix` followed by `stdin_file`
+/// (rewound to offset 0) into the child's anonymous stdin pipe.
+pub fn spawn_stdin_writer_with_prefix(
+    prefix: Option<Vec<u8>>,
+    stdin_file: Option<&File>,
+    pipe: Option<std::process::ChildStdin>,
+) -> Result<Option<thread::JoinHandle<std::io::Result<()>>>, SandboxError> {
+    if prefix.is_none() && stdin_file.is_none() {
         return Ok(None);
+    }
+    let cloned = match stdin_file {
+        Some(src) => {
+            let mut f = src
+                .try_clone()
+                .map_err(|_| SandboxError::Uncertain("stdin memfd clone failed".into()))?;
+            f.seek(SeekFrom::Start(0))
+                .map_err(|_| SandboxError::Uncertain("stdin memfd seek failed".into()))?;
+            Some(f)
+        }
+        None => None,
     };
-    let mut cloned = src
-        .try_clone()
-        .map_err(|_| SandboxError::Uncertain("stdin memfd clone failed".into()))?;
     let mut pipe =
         pipe.ok_or_else(|| SandboxError::Uncertain("child stdin pipe unavailable".into()))?;
     Ok(Some(thread::spawn(move || -> std::io::Result<()> {
-        std::io::copy(&mut cloned, &mut pipe)?;
+        if let Some(bytes) = prefix {
+            pipe.write_all(&bytes)?;
+        }
+        if let Some(mut f) = cloned {
+            std::io::copy(&mut f, &mut pipe)?;
+        }
         pipe.flush()
     })))
 }

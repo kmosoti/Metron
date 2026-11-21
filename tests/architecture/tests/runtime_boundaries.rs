@@ -25,12 +25,13 @@ fn metadata(manifest: PathBuf) -> Value {
     serde_json::from_slice(&output.stdout).expect("metadata JSON")
 }
 
-const RUNTIME_CRATES: [&str; 9] = [
+const RUNTIME_CRATES: [&str; 10] = [
     "metron-protocol",
     "metron-agent",
     "metron-harness",
     "metron-store-sqlite",
     "metron-testkit",
+    "metron-wasm-aot-loader",
     "metron-sandbox",
     "metron-host",
     "metron-inference-local",
@@ -162,17 +163,25 @@ fn root_workspace_members_and_dependency_boundaries() {
                 "tokio",
                 "serde_json",
             ],
+            "metron-wasm-aot-loader" => &[
+                // Audited <80-line deserialization boundary: verifies F_SEAL_WRITE memfd,
+                // BLAKE3, host tuple, and HMAC-SHA256 before Component::deserialize.
+                "blake3", "hmac", "rustix", "sha2", "wasmtime",
+            ],
             "metron-sandbox" => &[
-                // Kernel isolation primitives belong strictly inside the
-                // standalone sandbox boundary crate.
+                // Kernel isolation primitives and zero-Cranelift Lane A runtime host.
+                "blake3",
                 "landlock",
                 "libc",
+                "metron-wasm-aot-loader",
                 "rustix",
                 "seccompiler",
                 "serde",
                 "serde_json",
                 "sha2",
                 "thiserror",
+                "wasmtime",
+                "wasmtime-wasi",
             ],
             "metron-host" => &[
                 // The composition root owns operational report serialization;
@@ -208,6 +217,21 @@ fn root_workspace_members_and_dependency_boundaries() {
                     Some("dev"),
                     "metron-sandbox may use io-uring only in negative-control tests"
                 );
+                continue;
+            }
+            if name == "metron-sandbox" && dep == "wat" {
+                let is_dev = dependency["kind"].as_str() == Some("dev");
+                let is_opt = dependency["optional"].as_bool() == Some(true);
+                assert!(
+                    is_dev || is_opt,
+                    "metron-sandbox may use wat only in dev or compiler feature"
+                );
+                continue;
+            }
+            if name == "metron-sandbox"
+                && dep == "wasmtime"
+                && dependency["kind"].as_str() == Some("dev")
+            {
                 continue;
             }
             assert!(allowed.contains(&dep), "{name} must not depend on {dep}");
@@ -277,5 +301,90 @@ fn product_sources_do_not_reference_sealed_lab_fixtures() {
     }
     for name in RUNTIME_CRATES {
         visit(&root().join("crates").join(name));
+    }
+}
+
+#[test]
+fn unsafe_code_and_cranelift_boundaries_are_enforced() {
+    let root = root().canonicalize().unwrap();
+
+    // 1. metron-wasm-aot-loader must stay < 80 lines across its entire src/ tree.
+    let loader_src = root.join("crates/metron-wasm-aot-loader/src");
+    let mut loader_rs_files = Vec::new();
+    for entry in std::fs::read_dir(&loader_src).expect("read loader src") {
+        let p = entry.unwrap().path();
+        if p.extension().is_some_and(|e| e == "rs") {
+            loader_rs_files.push(p);
+        }
+    }
+    assert_eq!(
+        loader_rs_files.len(),
+        1,
+        "loader must stay a single micro-file"
+    );
+    let loader_lines = std::fs::read_to_string(&loader_rs_files[0])
+        .unwrap()
+        .lines()
+        .count();
+    assert!(
+        loader_lines < 80,
+        "metron-wasm-aot-loader exceeds <80-line cap: {loader_lines} lines"
+    );
+
+    // 2. No crate outside metron-wasm-aot-loader may allow unsafe_code or disable forbid(unsafe_code).
+    for name in RUNTIME_CRATES {
+        if name == "metron-wasm-aot-loader" {
+            continue;
+        }
+        let crate_dir = root.join("crates").join(name);
+        let manifest = std::fs::read_to_string(crate_dir.join("Cargo.toml")).unwrap();
+        assert!(
+            manifest.contains("workspace = true") || manifest.contains("unsafe_code = \"forbid\""),
+            "{name} Cargo.toml must forbid unsafe_code"
+        );
+        fn check_no_allow_unsafe(dir: &std::path::Path) {
+            for entry in std::fs::read_dir(dir).unwrap() {
+                let p = entry.unwrap().path();
+                if p.is_dir() {
+                    check_no_allow_unsafe(&p);
+                } else if p.extension().is_some_and(|e| e == "rs") {
+                    let src = std::fs::read_to_string(&p).unwrap();
+                    assert!(
+                        !src.contains("allow(unsafe_code)")
+                            && !src.contains("unsafe_code = \"allow\""),
+                        "{} permits unsafe_code outside metron-wasm-aot-loader",
+                        p.display()
+                    );
+                }
+            }
+        }
+        check_no_allow_unsafe(&crate_dir);
+    }
+
+    // 3. Production dependency graphs of runtime host & sandbox must contain zero Cranelift compiler.
+    for pkg in ["metron-wasm-aot-loader", "metron-sandbox", "metron-host"] {
+        let out = Command::new("cargo")
+            .current_dir(&root)
+            .args([
+                "tree",
+                "-p",
+                pkg,
+                "--edges",
+                "no-dev",
+                "--offline",
+                "--locked",
+            ])
+            .output()
+            .expect("run cargo tree");
+        assert!(
+            out.status.success(),
+            "cargo tree failed for {pkg}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let tree = String::from_utf8_lossy(&out.stdout);
+        assert!(
+            !tree.contains("wasmtime-internal-cranelift") && !tree.contains("cranelift-codegen"),
+            "{pkg} runtime dependency tree unexpectedly pulls Cranelift compiler:\n{tree}"
+        );
     }
 }

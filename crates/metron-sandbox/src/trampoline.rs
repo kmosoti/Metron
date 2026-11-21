@@ -89,8 +89,11 @@ pub struct TrampolineSpec {
     pub receipt_path: Option<PathBuf>,
 }
 
-/// Entrypoint invoked by `metron-jail` or `metron-runtime __metron-jail`.
+/// Entrypoint invoked by `metron-jail`, `metron-runtime __metron-jail`, or Lane A `--lane-a-policy`.
 pub fn run_from_args(args: &[String]) -> ExitCode {
+    if args.len() == 2 && args[0] == "--lane-a-policy" {
+        return crate::wasm_aot_jail::run_trampoline_from_spec(Path::new(&args[1]));
+    }
     match run_inner(args) {
         Ok(()) => ExitCode::from(127),
         Err(err) => {

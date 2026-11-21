@@ -82,6 +82,9 @@ pub struct SeccompPolicy {
     /// When `false` (default), also blocks `socket(AF_UNIX, ...)` with `EPERM`.
     #[serde(default)]
     pub allow_unix_sockets: bool,
+    /// When `true` (Lane A / compiler pre-load), also blocks `execve` and `execveat` with `EPERM`.
+    #[serde(default)]
+    pub deny_exec: bool,
 }
 
 /// Builds the compiled BPF program returning `EPERM` on all blocked syscalls and socket families.
@@ -112,21 +115,13 @@ pub fn build_filter(policy: SeccompPolicy) -> Result<BpfProgram, SandboxError> {
     if !policy.allow_unix_sockets {
         push_socket_deny(&mut rules, libc::AF_UNIX)?;
     }
+    if policy.deny_exec {
+        rules.insert(libc::SYS_execve, vec![]);
+        rules.insert(libc::SYS_execveat, vec![]);
+    }
 
     if policy.deny_prot_exec {
-        let prot_exec = libc::PROT_EXEC as u64;
-        for nr in [libc::SYS_mmap, libc::SYS_mprotect, libc::SYS_pkey_mprotect] {
-            let cond = SeccompCondition::new(
-                2,
-                SeccompCmpArgLen::Dword,
-                SeccompCmpOp::MaskedEq(prot_exec),
-                prot_exec,
-            )
-            .map_err(|e| SandboxError::Denied(format!("seccomp prot_exec cond: {e}")))?;
-            let rule = SeccompRule::new(vec![cond])
-                .map_err(|e| SandboxError::Denied(format!("seccomp prot_exec rule: {e}")))?;
-            rules.entry(nr).or_default().push(rule);
-        }
+        push_prot_exec_rules(&mut rules)?;
     }
 
     let filter = SeccompFilter::new(
@@ -152,6 +147,44 @@ fn push_socket_deny(
         .map_err(|e| SandboxError::Denied(format!("seccomp socket rule: {e}")))?;
     rules.entry(libc::SYS_socket).or_default().push(rule);
     Ok(())
+}
+
+fn push_prot_exec_rules(rules: &mut BTreeMap<i64, Vec<SeccompRule>>) -> Result<(), SandboxError> {
+    let prot_exec = libc::PROT_EXEC as u64;
+    for nr in [libc::SYS_mmap, libc::SYS_mprotect, libc::SYS_pkey_mprotect] {
+        let cond = SeccompCondition::new(
+            2,
+            SeccompCmpArgLen::Dword,
+            SeccompCmpOp::MaskedEq(prot_exec),
+            prot_exec,
+        )
+        .map_err(|e| SandboxError::Denied(format!("seccomp prot_exec cond: {e}")))?;
+        let rule = SeccompRule::new(vec![cond])
+            .map_err(|e| SandboxError::Denied(format!("seccomp prot_exec rule: {e}")))?;
+        rules.entry(nr).or_default().push(rule);
+    }
+    Ok(())
+}
+
+/// Installs a stacked W^X seccomp filter denying `PROT_EXEC` on `mmap`, `mprotect`,
+/// and `pkey_mprotect` (intended to be stacked immediately after `Component::deserialize`).
+pub fn install_prot_exec_seccomp() -> Result<(), SandboxError> {
+    rustix::thread::set_no_new_privs(true)
+        .map_err(|e| SandboxError::Denied(format!("PR_SET_NO_NEW_PRIVS failed: {e}")))?;
+    let mut rules: BTreeMap<i64, Vec<SeccompRule>> = BTreeMap::new();
+    push_prot_exec_rules(&mut rules)?;
+    let filter = SeccompFilter::new(
+        rules,
+        SeccompAction::Allow,
+        SeccompAction::Errno(libc::EPERM as u32),
+        ARCH,
+    )
+    .map_err(|e| SandboxError::Denied(format!("seccomp prot_exec filter build: {e}")))?;
+    let program: BpfProgram = filter
+        .try_into()
+        .map_err(|e| SandboxError::Denied(format!("seccomp prot_exec BPF compile: {e}")))?;
+    apply_filter_all_threads(&program)
+        .map_err(|e| SandboxError::Denied(format!("seccomp prot_exec apply failed: {e}")))
 }
 
 /// Builds the `clone3 -> ENOSYS` BPF filter so glibc falls back cleanly to `clone()`,

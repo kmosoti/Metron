@@ -14,6 +14,11 @@ pub mod memfd;
 pub mod seccomp_bpf;
 pub mod systemd_cg;
 pub mod trampoline;
+pub mod wasm_aot;
+pub mod wasm_aot_jail;
+mod wasm_aot_types;
+#[cfg(feature = "compiler")]
+pub mod wasm_compiler;
 
 pub use direct_supervisor::{check_scratch_space, read_receipt, run_direct_supervised};
 pub use error::SandboxError;
@@ -28,9 +33,14 @@ pub use memfd::{
     MAX_EXECUTABLE_BYTES, SealedMemfd, open_and_seal_regular, require_disk_backed, seal_bytes,
     sha256_regular_file,
 };
-pub use seccomp_bpf::{SeccompPolicy, build_filter, install_seccomp};
+pub use seccomp_bpf::{SeccompPolicy, build_filter, install_prot_exec_seccomp, install_seccomp};
 pub use systemd_cg::{CgroupCompleted, CgroupLimits, resolve_manager_tool, systemd_user_available};
 pub use trampoline::{ExecSource, InheritedMemfd, TrampolineSpec};
+pub use wasm_aot::{
+    AotEnvelopeMeta, EngineTunables, LaneALimits, LaneARuntime, PINNED_WASMTIME_VERSION,
+    ResourceReceipt, host_target_triple,
+};
+pub use wasm_aot_jail::{LaneARequest, run_lane_a_jail};
 
 use std::{
     fs::OpenOptions,
@@ -180,6 +190,7 @@ pub fn build_lane_b_spec(cfg: &NativeJailConfig) -> TrampolineSpec {
         seccomp: SeccompPolicy {
             deny_prot_exec: false,
             allow_unix_sockets: cfg.allow_unix_sockets,
+            deny_exec: false,
         },
         namespace_policy: cfg.namespace_policy,
         rlimits: None,

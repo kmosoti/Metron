@@ -59,6 +59,9 @@ pub struct LandlockPolicy {
     pub ro_paths: Vec<PathBuf>,
     /// Explicit read-write paths (scratch and optional writable workspace).
     pub rw_paths: Vec<PathBuf>,
+    /// Explicit write-only paths (for example, AOT compiler output directory without read access).
+    #[serde(default)]
+    pub wo_paths: Vec<PathBuf>,
     /// Explicit character/pseudo-devices permitted read+write (e.g., `/dev/null`).
     pub rw_devices: Vec<PathBuf>,
     /// Whether to grant read-only access to `/proc/self` (without broad `/proc` execute).
@@ -92,6 +95,7 @@ impl LandlockPolicy {
         Self {
             ro_paths,
             rw_paths,
+            wo_paths: Vec::new(),
             rw_devices: baseline_rw_devices(),
             allow_proc_self: true,
             deny_tcp: true,
@@ -235,6 +239,25 @@ pub fn apply_landlock(policy: &LandlockPolicy) -> Result<LandlockEnforcement, Sa
                 SandboxError::LandlockInsufficient(format!(
                     "landlock rw rule {}: {e}",
                     rw.display()
+                ))
+            })?;
+    }
+
+    for wo in &policy.wo_paths {
+        let access = if wo.is_dir() {
+            AccessFs::from_write(abi)
+        } else {
+            AccessFs::from_write(abi) & AccessFs::from_file(abi)
+        };
+        let fd = PathFd::new(wo).map_err(|e| {
+            SandboxError::LandlockInsufficient(format!("landlock wo open {}: {e}", wo.display()))
+        })?;
+        created = created
+            .add_rule(PathBeneath::new(fd, access))
+            .map_err(|e| {
+                SandboxError::LandlockInsufficient(format!(
+                    "landlock wo rule {}: {e}",
+                    wo.display()
                 ))
             })?;
     }

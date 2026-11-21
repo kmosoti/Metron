@@ -2,7 +2,9 @@
 
 pub use crate::direct_supervisor::resolve_manager_tool;
 use crate::{
-    direct_supervisor::{capture_stream, check_scratch_space, collect_streams, spawn_stdin_writer},
+    direct_supervisor::{
+        capture_stream, check_scratch_space, collect_streams, spawn_stdin_writer_with_prefix,
+    },
     error::SandboxError,
     jail_hardening::SandboxReceipt,
 };
@@ -140,6 +142,26 @@ pub fn run_in_systemd_cgroup(
     trampoline_args: &[String],
     stdin_file: Option<&File>,
 ) -> Result<CgroupCompleted, SandboxError> {
+    run_in_systemd_cgroup_with_prefix(
+        limits,
+        scratch,
+        trampoline_bin,
+        trampoline_args,
+        None,
+        stdin_file,
+    )
+}
+
+/// Variant of [`run_in_systemd_cgroup`] prepending an in-memory byte prefix ahead of
+/// `stdin_file` over the anonymous `--pipe` stdin stream (zero secrets on scratch disk).
+pub fn run_in_systemd_cgroup_with_prefix(
+    limits: &CgroupLimits,
+    scratch: &Path,
+    trampoline_bin: &Path,
+    trampoline_args: &[String],
+    stdin_prefix: Option<Vec<u8>>,
+    stdin_file: Option<&File>,
+) -> Result<CgroupCompleted, SandboxError> {
     check_scratch_space(scratch, limits.scratch_reserve_bytes)?;
 
     let runtime = std::env::var("XDG_RUNTIME_DIR")
@@ -153,18 +175,15 @@ pub fn run_in_systemd_cgroup(
     if !manager.starts_with('/') || manager.contains("..") || manager.contains('\n') {
         return Err(SandboxError::Denied("invalid manager cgroup".into()));
     }
-    let manager_events = PathBuf::from("/sys/fs/cgroup")
-        .join(manager.trim_start_matches('/'))
-        .join("cgroup.events");
-    let events = std::fs::read_to_string(manager_events)
+    let cg_root = PathBuf::from("/sys/fs/cgroup").join(manager.trim_start_matches('/'));
+    let events = std::fs::read_to_string(cg_root.join("cgroup.events"))
         .map_err(|_| SandboxError::Denied("cgroup v2 state unavailable".into()))?;
     if !events.lines().any(|line| line.starts_with("populated ")) {
         return Err(SandboxError::Denied("invalid cgroup v2 state".into()));
     }
 
     let unit_name = &limits.unit_name;
-    let cgroup = PathBuf::from("/sys/fs/cgroup")
-        .join(manager.trim_start_matches('/'))
+    let cgroup = cg_root
         .join("app.slice")
         .join(format!("{unit_name}.service"));
     if cgroup.exists()
@@ -175,7 +194,7 @@ pub fn run_in_systemd_cgroup(
     }
 
     let mut cmd = build_systemd_run_command(&runtime, limits, trampoline_bin, trampoline_args);
-    if stdin_file.is_some() {
+    if stdin_prefix.is_some() || stdin_file.is_some() {
         cmd.stdin(Stdio::piped());
     } else {
         cmd.stdin(Stdio::null());
@@ -186,7 +205,8 @@ pub fn run_in_systemd_cgroup(
         .spawn()
         .map_err(|_| SandboxError::Denied("transient service launch unavailable".into()))?;
 
-    let stdin_writer = spawn_stdin_writer(stdin_file, child.stdin.take())?;
+    let stdin_writer =
+        spawn_stdin_writer_with_prefix(stdin_prefix, stdin_file, child.stdin.take())?;
     let stdout = capture_stream(
         child
             .stdout
@@ -309,20 +329,22 @@ fn manager_command(program: &Path, runtime: &str) -> Command {
 
 fn systemctl(runtime: &str, args: &[&str]) -> Option<String> {
     let systemctl_bin = resolve_manager_tool("METRON_SYSTEMCTL_BIN", "systemctl")?;
-    let out = if let Some(timeout_bin) = resolve_manager_tool("METRON_TIMEOUT_BIN", "timeout") {
-        let mut c = manager_command(&timeout_bin, runtime);
-        c.arg("5s")
+    let out = match resolve_manager_tool("METRON_TIMEOUT_BIN", "timeout") {
+        Some(timeout_bin) => manager_command(&timeout_bin, runtime)
+            .args(["5s"])
             .arg(&systemctl_bin)
             .arg("--user")
             .args(args)
             .output()
-            .ok()?
-    } else {
-        let mut c = manager_command(&systemctl_bin, runtime);
-        c.arg("--user").args(args).output().ok()?
+            .ok()?,
+        None => manager_command(&systemctl_bin, runtime)
+            .arg("--user")
+            .args(args)
+            .output()
+            .ok()?,
     };
-    if !out.status.success() {
-        return None;
-    }
-    String::from_utf8(out.stdout).ok()
+    out.status
+        .success()
+        .then(|| String::from_utf8(out.stdout).ok())
+        .flatten()
 }
