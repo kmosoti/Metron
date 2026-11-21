@@ -67,11 +67,13 @@ evidence and decisions live in `knowledge/`.
 
 ## Collaboration and cleanup
 
-For this product-core effort, Luna (GPT-6 Luna, medium) owns knowledge and
-documentation; Sol (GPT-6.1 Sol, medium) owns product implementation; Sol
-(GPT-6.1 Sol, high) owns architecture synthesis and direction. Use high effort
-for complex design synthesis, medium for routine implementation and review;
-never use max or ultra for review. Coordinate path ownership before edits.
+Coordinate path ownership across parallel agents before edits, and have an
+independent reviewer verify boundaries, provenance, and commit hygiene before
+opening or merging stacked PRs. Use medium reasoning for routine implementation
+and review, high reasoning for complex architectural synthesis; never use max or
+ultra reasoning for verification or review. Keep all new code, scripts, and
+tests free of Python (use Rust, POSIX shell, `jq`, or `rg`) and free of
+personal infrastructure addresses, keys, or workstation paths.
 
 Remove task-owned temporary execution/build artifacts after their work is
 complete and provenance is retained. Preserve shared model, SDK and kernel
@@ -82,8 +84,10 @@ specific artifacts required by active validation.
 
 ## Review and release
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md) for branch and review workflow. Keep
-human release approval mandatory for `main`; agents do not approve or bypass
-that gate. Human-review changes include a current architecture diagram showing
-dependencies and authority boundaries. Never claim incomplete alpha.1 gates as
-passed.
+Read [CONTRIBUTING.md](CONTRIBUTING.md) for the single-branch `main` + stacked
+`jj` PR workflow. Agent workspaces push under `@kennmosoti-maker` (Write-only
+collaborator); `main` requires passing `check` CI and human code-owner
+approval from `@kmosoti` (`.github/CODEOWNERS`), with linear rebase history and
+no self-approval or admin bypass. Human-review PRs include a current Mermaid
+architecture diagram showing dependencies and authority boundaries. Never claim
+incomplete alpha.1 gates as passed.
