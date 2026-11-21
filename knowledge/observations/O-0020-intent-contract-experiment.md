@@ -104,7 +104,7 @@ outputs. The public contract `run` and `resume` remain unconditionally
 deferred; enabling them would require a separate reviewed change.
 
 The campaign artifact root is
-`/home/kmosoti/.cache/metron-alpha1/artifacts/intent-contracts-v3-study-01/campaign-03`.
+`~/.cache/metron-alpha1/artifacts/intent-contracts-v3-study-01/campaign-03`.
 The earlier invalid campaign artifacts are retained under the same study root.
 Do not conflate these private run artifacts with product source or alpha.1
 acceptance evidence.

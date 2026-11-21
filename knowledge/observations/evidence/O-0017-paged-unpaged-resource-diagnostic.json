@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "artifact_directory": "/home/kmosoti/.cache/metron-alpha1/artifacts/product-phase-c-controls",
+  "artifact_directory": "~/.cache/metron-alpha1/artifacts/product-phase-c-controls",
   "hardware": {
     "device": "NVIDIA GeForce RTX 3060 Laptop GPU",
     "device_uuid": "GPU-9cfade90-dabc-1aeb-423c-1a96ba059764",

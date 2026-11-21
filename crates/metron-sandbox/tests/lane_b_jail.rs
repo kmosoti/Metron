@@ -334,11 +334,7 @@ fn lane_b_systemd_timeout_and_oom_cleanup() {
     let out = run_native_jail(&timeout_cfg, None).expect("timeout run");
     assert!(out.timed_out, "expected timeout");
     std::thread::sleep(std::time::Duration::from_secs(2));
-    assert!(
-        !root.join("scratch/escaped").exists(),
-        "descendant escaped cgroup kill"
-    );
-
+    assert!(!root.join("scratch/escaped").exists(), "descendant escaped");
     // 2. OOM kill under MemoryMax with MemorySwapMax=0 must terminate cleanly and leave cgroup gone.
     let mut oom_cfg = base_cfg(&root, "check_oom", Vec::new());
     oom_cfg.cgroup.unit_name = format!("metron-test-oom-{}", std::process::id());
@@ -346,6 +342,5 @@ fn lane_b_systemd_timeout_and_oom_cleanup() {
     oom_cfg.cgroup.timeout_ms = 8000;
     let oom_out = run_native_jail(&oom_cfg, None).expect("oom run");
     assert!(!oom_out.success, "OOM probe must fail");
-
     fs::remove_dir_all(&root).unwrap();
 }

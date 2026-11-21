@@ -43,7 +43,7 @@ overlap. See [resource reporting semantics](../../docs/agent-harness.md#resource
 
 The raw stdout/stderr files, per-run command records and samples, pins, and
 comparison are retained outside the repository at
-`/home/kmosoti/.cache/metron-alpha1/artifacts/product-phase-c-controls/`.
+`~/.cache/metron-alpha1/artifacts/product-phase-c-controls/`.
 Their principal output and provenance hashes are recorded in the compact
 [evidence record](evidence/O-0017-paged-unpaged-resource-diagnostic.json).
 No coding acceptance, cache/batching qualification, physical-fit guarantee or

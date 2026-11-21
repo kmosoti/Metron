@@ -1105,7 +1105,7 @@ fn memory_annotation_rejects_forged_source_evidence() {
 }
 
 #[test]
-#[ignore = "requires pinned local tools, user systemd and bubblewrap"]
+#[ignore = "requires pinned local tools, user systemd, Landlock/seccomp, and disk scratch"]
 fn sealed_evaluator_sentinel_cannot_reach_memory_or_model_context() {
     let catalog_path = std::env::var("METRON_CODING_PROBE_CATALOG").expect("pinned probe catalog");
     let parent = Path::new(&catalog_path).parent().unwrap();
