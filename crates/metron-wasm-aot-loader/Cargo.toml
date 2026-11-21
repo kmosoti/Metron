@@ -1,0 +1,21 @@
+[package]
+name = "metron-wasm-aot-loader"
+description = "Audited <80-line Wasmtime AOT component deserialization boundary"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+blake3 = "1.8"
+hmac = "0.12"
+rustix = { version = "=1.1.6", features = ["fs"] }
+sha2 = "=0.10.9"
+wasmtime = { version = "51.0.0", default-features = false, features = ["runtime", "std", "component-model"] }
+
+[lints.rust]
+unsafe_code = "deny"
+missing_docs = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }

@@ -7,21 +7,37 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+blake3 = "1.8"
 landlock = "0.4.8"
 libc = "0.2"
+metron-wasm-aot-loader = { path = "../metron-wasm-aot-loader" }
 rustix = { version = "=1.1.6", features = ["fs", "net", "process", "stdio", "thread"] }
 seccompiler = "0.5.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "=0.10.9"
 thiserror = "2"
+wasmtime = { version = "51.0.0", default-features = false, features = ["runtime", "std", "async", "component-model", "pooling-allocator"] }
+wasmtime-wasi = { version = "51.0.0", default-features = false, features = ["p2"] }
+wat = { version = "1.263.0", optional = true }
+
+[features]
+default = []
+compiler = ["wasmtime/cranelift", "wasmtime/wat", "dep:wat"]
 
 [dev-dependencies]
 io-uring = "0.7.16"
+wasmtime = { version = "51.0.0", default-features = false, features = ["cranelift", "wat"] }
+wat = "1.263.0"
 
 [[bin]]
 name = "metron-jail"
 path = "src/bin/metron_jail.rs"
+
+[[bin]]
+name = "metron-wasm-compiler"
+path = "src/bin/metron_wasm_compiler.rs"
+required-features = ["compiler"]
 
 [[test]]
 name = "lane_b_jail"
@@ -29,6 +45,14 @@ harness = false
 
 [[test]]
 name = "lane_b_hardening"
+harness = false
+
+[[test]]
+name = "lane_a_wasm_aot"
+harness = false
+
+[[test]]
+name = "lane_a_hardening"
 harness = false
 
 [lints]

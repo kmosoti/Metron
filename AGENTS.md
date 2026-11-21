@@ -35,11 +35,14 @@ part of the current product.
 ## Layout
 
 The current product crates live under `crates/`: `metron-agent`,
-`metron-harness`, `metron-protocol`, `metron-host`, `metron-store-sqlite`,
-`metron-inference-local`, `metron-inference-worker`, and development-only
-`metron-testkit`. `tests/architecture` checks product dependency and authority
-boundaries. Architecture and interface documentation lives in `docs/`; dated
-evidence and decisions live in `knowledge/`.
+`metron-harness`, `metron-protocol`, `metron-host`, `metron-sandbox`,
+`metron-wasm-aot-loader`, `metron-store-sqlite`, `metron-inference-local`,
+`metron-inference-worker`, and development-only `metron-testkit`.
+`tests/architecture` checks product dependency, purity, and authority
+boundaries — including pinning `#![forbid(unsafe_code)]` workspace-wide except
+the audited `< 80`-line `crates/metron-wasm-aot-loader` deserialization boundary.
+Architecture and interface documentation lives in `docs/`; dated evidence and
+decisions live in `knowledge/`.
 
 ## Development and verification
 
