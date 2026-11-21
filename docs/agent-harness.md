@@ -69,7 +69,7 @@ model, memory, and driver. Candidate creation verifies the installed bytes and
 does not download anything.
 
 To build the local worker, first run `cargo fetch --locked`, then run
-`python3 tools/prepare-mistralrs-cache.py` from the repository root. Limit backend
+`sh tools/prepare-mistralrs-cache.sh` from the repository root. Limit backend
 builds to one job with debug information and incremental compilation disabled.
 For manual CUDA builds also set `CUDAFORGE_THREADS=1`.
 

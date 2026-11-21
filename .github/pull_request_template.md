@@ -5,10 +5,9 @@
 
 ## Stack and target
 
-- [ ] Standalone change targeting `develop`
-- [ ] Stack layer targeting its immediate predecessor
-- [ ] Release promotion from `develop` into `main`
-- Parent PR and ordered stack links
+- [ ] Standalone change targeting `main`
+- [ ] Stack layer targeting its immediate predecessor (`stack/...`)
+- [ ] Parent PR and ordered stack links
 
 ## Boundaries
 
@@ -36,7 +35,7 @@
 
 - Authoring agent and model
 - Independent reviewer and model, reasoning level and cross-family or fresh-context fallback
-- [ ] Rebased onto the target with linear history
+- [ ] Rebased onto the target (`main` or predecessor stack layer) with linear history
 - [ ] All review conversations resolved
-- [ ] Integration change reviewed and ready for the reviewer to rebase-merge
-- [ ] Release environment approved and PR merged by a human
+- [ ] Independent agent verification completed
+- [ ] Approved by `@kmosoti` (`.github/CODEOWNERS`) and rebase-merged into `main`
