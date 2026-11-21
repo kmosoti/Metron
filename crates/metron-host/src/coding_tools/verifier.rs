@@ -4,7 +4,7 @@ use crate::coding_acceptance::{CargoStage, EvaluatorRunner, OUTPUT_LIMIT, RunOut
 use metron_protocol::{
     Digest,
     coding_runtime::CodingArtifact,
-    toolkit::{ToolCatalog, ToolId},
+    toolkit::{ToolCatalog, ToolId, ToolPin},
 };
 use rustix::fs::{FlockOperation, Mode, OFlags, ResolveFlags, flock, open, openat2};
 use std::{
@@ -20,14 +20,14 @@ pub struct VerifierRunner {
     base: PathBuf,
     candidate_image: Option<(String, process::Image)>,
     built: bool,
-    bwrap: process::Image,
-    cargo: process::Image,
-    rustc_stage: PathBuf,
+    cargo_pin: ToolPin,
+    rustc_pin: ToolPin,
     toolchain: PathBuf,
     unit_prefix: String,
     next: u16,
     uncertain: bool,
 }
+
 impl VerifierRunner {
     /// The caller must bind the catalog to the task and provide an exclusive,
     /// trusted run directory on disk. No model process may still be alive.
@@ -65,14 +65,9 @@ impl VerifierRunner {
         }
         fs::remove_dir_all(&verify).map_err(|_| RunnerError)?;
         let scratch = base.join("scratch");
-        let images = base.join("images");
         fs::DirBuilder::new()
             .mode(0o700)
             .create(&scratch)
-            .map_err(|_| RunnerError)?;
-        fs::DirBuilder::new()
-            .mode(0o700)
-            .create(&images)
             .map_err(|_| RunnerError)?;
         let get = |id| {
             catalog
@@ -81,11 +76,11 @@ impl VerifierRunner {
                 .find(|p| p.tool == id)
                 .ok_or(RunnerError)
         };
-        let bwrap = process::pin(get(ToolId::Bubblewrap)?).map_err(|_| RunnerError)?;
-        let cargo_pin = get(ToolId::Cargo)?;
-        let rustc_pin = get(ToolId::Rustc)?;
-        let cargo = process::pin(cargo_pin).map_err(|_| RunnerError)?;
-        let rustc = process::pin(rustc_pin).map_err(|_| RunnerError)?;
+        let cargo_pin = get(ToolId::Cargo)?.clone();
+        let rustc_pin = get(ToolId::Rustc)?.clone();
+        // Verify pins are valid regular executables at construction time.
+        let _ = process::pin(&cargo_pin).map_err(|_| RunnerError)?;
+        let _ = process::pin(&rustc_pin).map_err(|_| RunnerError)?;
         let toolchain = Path::new(rustc_pin.executable.as_str())
             .parent()
             .and_then(Path::parent)
@@ -96,7 +91,6 @@ impl VerifierRunner {
         {
             return Err(RunnerError);
         }
-        let rustc_stage = rustc.stage(&images, "rustc").map_err(|_| RunnerError)?;
         Ok(Self {
             source,
             _source_lock: root,
@@ -104,23 +98,23 @@ impl VerifierRunner {
             base,
             candidate_image: None,
             built: false,
-            bwrap,
-            cargo,
-            rustc_stage,
+            cargo_pin,
+            rustc_pin,
             toolchain,
             unit_prefix: format!("metron-verify-{}", dispatch.as_str()),
             next: 0,
             uncertain: false,
         })
     }
+
     fn run(
         &mut self,
-        image: &process::Image,
         scratch: &Path,
-        target: &str,
-        program: &str,
+        exec: process::ExecTarget<'_>,
+        inherited: Vec<process::InheritedTool<'_>>,
         args: Vec<String>,
-        mounts: Vec<(PathBuf, PathBuf)>,
+        ro_inputs: Vec<PathBuf>,
+        extra_env: Vec<(String, String)>,
     ) -> Result<RunOutput, RunnerError> {
         if self.uncertain {
             return Err(RunnerError);
@@ -129,15 +123,15 @@ impl VerifierRunner {
         self.next = self.next.checked_add(1).ok_or(RunnerError)?;
         let result = process::run(process::Config {
             unit: &unit,
-            bwrap: &self.bwrap,
             workspace: &self.source,
             scratch,
             writable: false,
-            mounts,
-            image_stdin: Some((image, PathBuf::from(target))),
-            program,
+            ro_inputs,
+            exec,
+            inherited,
             args,
-            workdir: "/workspace".into(),
+            workdir: self.source.clone(),
+            extra_env,
             timeout_ms: 120_000,
             memory: 2 * 1024 * 1024 * 1024,
             processes: 64,
@@ -165,6 +159,7 @@ impl VerifierRunner {
         })
     }
 }
+
 impl EvaluatorRunner for VerifierRunner {
     fn cargo(&mut self, stage: CargoStage) -> Result<RunOutput, RunnerError> {
         if self.candidate_image.is_some() {
@@ -173,10 +168,6 @@ impl EvaluatorRunner for VerifierRunner {
         if matches!(stage, CargoStage::Build) {
             self.built = false;
         }
-        // Temporarily move the pinned image so the immutable image and mutable
-        // runner can be borrowed together without duplicating its descriptor.
-        let image = process::seal(File::open(&self.cargo.path).map_err(|_| RunnerError)?)
-            .map_err(|_| RunnerError)?;
         let args = match stage {
             CargoStage::Metadata => vec![
                 "--offline",
@@ -191,27 +182,45 @@ impl EvaluatorRunner for VerifierRunner {
         .into_iter()
         .map(str::to_owned)
         .collect();
-        let mounts = vec![
-            (self.toolchain.clone(), PathBuf::from("/toolchain")),
+        let scratch = self.scratch.clone();
+        let toolchain_str = self.toolchain.to_string_lossy().into_owned();
+        let extra_env = vec![
             (
-                self.rustc_stage.clone(),
-                PathBuf::from("/toolchain/bin/rustc"),
+                "CARGO_HOME".to_owned(),
+                scratch.join("cargo-home").to_string_lossy().into_owned(),
+            ),
+            (
+                "CARGO_TARGET_DIR".to_owned(),
+                scratch.join("target").to_string_lossy().into_owned(),
+            ),
+            ("CARGO_NET_OFFLINE".to_owned(), "true".to_owned()),
+            ("RUSTUP_TOOLCHAIN".to_owned(), "1.100.0".to_owned()),
+            ("LD_LIBRARY_PATH".to_owned(), format!("{toolchain_str}/lib")),
+            (
+                "CARGO_ENCODED_RUSTFLAGS".to_owned(),
+                format!("--sysroot\x1f{toolchain_str}"),
             ),
         ];
-        let scratch = self.scratch.clone();
+        let cargo_pin = self.cargo_pin.clone();
+        let rustc_pin = self.rustc_pin.clone();
+        let toolchain = self.toolchain.clone();
         let result = self.run(
-            &image,
             &scratch,
-            "/toolchain/bin/cargo",
-            "/toolchain/bin/cargo",
+            process::ExecTarget::Pinned(&cargo_pin),
+            vec![process::InheritedTool {
+                env_var: "RUSTC",
+                pin: &rustc_pin,
+            }],
             args,
-            mounts,
+            vec![toolchain],
+            extra_env,
         );
         if matches!(stage, CargoStage::Build) {
             self.built = result.as_ref().is_ok_and(|out| out.exit_code == Some(0));
         }
         result
     }
+
     fn candidate(&mut self, bin_name: &str, args: &[&str]) -> Result<RunOutput, RunnerError> {
         if bin_name.is_empty()
             || !bin_name
@@ -257,11 +266,11 @@ impl EvaluatorRunner for VerifierRunner {
             return Err(RunnerError);
         }
         let result = self.run(
-            &image,
             &scratch,
-            "/candidate",
-            "/candidate",
+            process::ExecTarget::PreSealed(&image),
+            vec![],
             args.iter().map(|a| (*a).to_owned()).collect(),
+            vec![],
             vec![],
         );
         self.candidate_image = Some((name, image));
@@ -277,8 +286,9 @@ mod tests {
         structural_digest,
     };
     use std::os::unix::fs::PermissionsExt;
+
     #[test]
-    #[ignore = "requires pinned local tools, user systemd, bubblewrap and disk scratch"]
+    #[ignore = "requires pinned local tools, user systemd, and disk scratch"]
     fn offline_frozen_build_and_candidate() {
         let catalog_file =
             std::env::var("METRON_CODING_PROBE_CATALOG").expect("pinned probe catalog");
@@ -306,7 +316,7 @@ mod tests {
         .unwrap();
         fs::write(
             source.join("src/main.rs"),
-            "fn main() { let p = std::path::Path::new(\"/scratch/state\"); println!(\"{} {}\", p.exists(), std::path::Path::new(\"/scratch/target\").exists()); std::fs::write(p, b\"persist\").unwrap(); }\n",
+            "fn main() { let tmp = std::path::PathBuf::from(std::env::var(\"TMPDIR\").unwrap()); let p = tmp.join(\"state\"); println!(\"{} {}\", p.exists(), tmp.join(\"target\").exists()); std::fs::write(p, b\"persist\").unwrap(); }\n",
         )
         .unwrap();
         let files = snapshot(&File::open(&source).unwrap(), &frozen, 1024 * 1024).unwrap();

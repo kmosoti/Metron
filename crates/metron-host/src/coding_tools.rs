@@ -263,33 +263,31 @@ impl CodingTools {
                 .find(|p| p.tool == tool)
                 .ok_or(Denied("required executable missing from catalog"))
         };
-        let bwrap = process::pin(get(ToolId::Bubblewrap)?).map_err(Denied)?;
         let scratch = self.run_dir.join(format!("scratch-{}", dispatch.as_str()));
         fs::DirBuilder::new()
             .mode(0o700)
             .create(&scratch)
             .map_err(|_| Denied("scratch unavailable"))?;
-        let staged = self.run_dir.join(format!("images-{}", dispatch.as_str()));
-        fs::DirBuilder::new()
-            .mode(0o700)
-            .create(&staged)
-            .map_err(|_| Denied("image staging unavailable"))?;
-        let mut images = Vec::new();
-        let mut mounts = Vec::new();
+        let mut ro_inputs = Vec::new();
         let mut args = Vec::new();
-        let image_target: Option<(usize, PathBuf)>;
-        let (program, writable, workdir) = match action {
+        let mut extra_env = Vec::new();
+        let (exec, inherited, writable, workdir) = match action {
             CodingAction::Smt { problem } => {
-                fs::write(scratch.join("problem.smt2"), problem.as_str())
+                let smt_path = scratch.join("problem.smt2");
+                fs::write(&smt_path, problem.as_str())
                     .map_err(|_| Denied("scratch write failed"))?;
-                images.push(process::pin(get(ToolId::Z3)?).map_err(Denied)?);
-                image_target = Some((0, PathBuf::from("/tool")));
-                args.push("/scratch/problem.smt2".to_owned());
-                ("/tool".to_owned(), false, "/scratch".to_owned())
+                args.push(smt_path.to_string_lossy().into_owned());
+                (
+                    process::ExecTarget::Pinned(get(ToolId::Z3)?),
+                    Vec::new(),
+                    false,
+                    scratch.clone(),
+                )
             }
             CodingAction::Lean { statement, proof } => {
+                let lean_path = scratch.join("proof.lean");
                 fs::write(
-                    scratch.join("proof.lean"),
+                    &lean_path,
                     format!(
                         "theorem metron_claim : {} := by\n{}\n",
                         statement.as_str(),
@@ -302,11 +300,20 @@ impl CodingTools {
                     .parent()
                     .and_then(Path::parent)
                     .ok_or(Denied("invalid Lean installation"))?;
-                mounts.push((base.to_owned(), PathBuf::from("/lean")));
-                images.push(process::pin(pin).map_err(Denied)?);
-                image_target = Some((0, PathBuf::from("/lean/bin/lean")));
-                args.push("/scratch/proof.lean".to_owned());
-                ("/lean/bin/lean".to_owned(), false, "/scratch".to_owned())
+                ro_inputs.push(base.to_owned());
+                if let Ok(libs) = std::env::join_paths([base.join("lib"), base.join("lib/lean")]) {
+                    extra_env.push((
+                        "LD_LIBRARY_PATH".to_owned(),
+                        libs.to_string_lossy().into_owned(),
+                    ));
+                }
+                args.push(lean_path.to_string_lossy().into_owned());
+                (
+                    process::ExecTarget::Pinned(pin),
+                    Vec::new(),
+                    false,
+                    scratch.clone(),
+                )
             }
             CodingAction::Run {
                 program,
@@ -333,36 +340,39 @@ impl CodingTools {
                 {
                     return Err(Denied("Rust toolchain mismatch"));
                 }
-                mounts.push((base.to_owned(), PathBuf::from("/toolchain")));
-                for (pin, target) in [
-                    (rustc, "/toolchain/bin/rustc"),
-                    (cargo, "/toolchain/bin/cargo"),
-                ] {
-                    images.push(process::pin(pin).map_err(Denied)?);
-                    mounts.push((
-                        images
-                            .last()
-                            .expect("image")
-                            .stage(
-                                &staged,
-                                if target.ends_with("rustc") {
-                                    "rustc"
-                                } else {
-                                    "cargo"
-                                },
-                            )
-                            .map_err(Denied)?,
-                        PathBuf::from(target),
-                    ));
-                }
-                if tool == ToolId::Cargo {
-                    mounts.pop();
-                    image_target = Some((1, PathBuf::from("/toolchain/bin/cargo")));
+                ro_inputs.push(base.to_owned());
+                let base_str = base.to_string_lossy().into_owned();
+                extra_env.push(("LD_LIBRARY_PATH".to_owned(), format!("{base_str}/lib")));
+                extra_env.push((
+                    "CARGO_HOME".to_owned(),
+                    scratch.join("cargo-home").to_string_lossy().into_owned(),
+                ));
+                extra_env.push((
+                    "CARGO_TARGET_DIR".to_owned(),
+                    scratch.join("target").to_string_lossy().into_owned(),
+                ));
+                extra_env.push(("CARGO_NET_OFFLINE".to_owned(), "true".to_owned()));
+                extra_env.push(("RUSTUP_TOOLCHAIN".to_owned(), "1.100.0".to_owned()));
+                extra_env.push((
+                    "CARGO_ENCODED_RUSTFLAGS".to_owned(),
+                    format!("--sysroot\x1f{base_str}"),
+                ));
+                let (exec, inherited) = if tool == ToolId::Cargo {
                     args.push("--offline".into());
+                    (
+                        process::ExecTarget::Pinned(cargo),
+                        vec![process::InheritedTool {
+                            env_var: "RUSTC",
+                            pin: rustc,
+                        }],
+                    )
                 } else {
-                    mounts.remove(mounts.len() - 2);
-                    image_target = Some((0, PathBuf::from("/toolchain/bin/rustc")));
-                }
+                    if !user_args.iter().any(|a| a.as_str() == "--sysroot") {
+                        args.push("--sysroot".into());
+                        args.push(base_str);
+                    }
+                    (process::ExecTarget::Pinned(rustc), Vec::new())
+                };
                 args.extend(user_args.iter().map(|a| a.as_str().to_owned()));
                 let dir = if let Some(path) = directory {
                     if path
@@ -380,20 +390,11 @@ impl CodingTools {
                         ResolveFlags::BENEATH | ResolveFlags::NO_SYMLINKS | ResolveFlags::NO_XDEV,
                     )
                     .map_err(|_| Denied("working directory unsafe"))?;
-                    format!("/workspace/{}", path.as_str())
+                    self.workspace.join(path.as_str())
                 } else {
-                    "/workspace".to_owned()
+                    self.workspace.clone()
                 };
-                (
-                    if tool == ToolId::Cargo {
-                        "/toolchain/bin/cargo"
-                    } else {
-                        "/toolchain/bin/rustc"
-                    }
-                    .to_owned(),
-                    true,
-                    dir,
-                )
+                (exec, inherited, true, dir)
             }
             _ => return Err(Denied("unsupported process action")),
         };
@@ -401,15 +402,15 @@ impl CodingTools {
             dispatch,
             process::Config {
                 unit: "",
-                bwrap: &bwrap,
                 workspace: &self.workspace,
                 scratch: &scratch,
                 writable,
-                mounts,
-                image_stdin: image_target.map(|(index, target)| (&images[index], target)),
-                program: &program,
+                ro_inputs,
+                exec,
+                inherited,
                 args,
                 workdir,
+                extra_env,
                 timeout_ms: self.policy.command_timeout_ms,
                 memory: self
                     .policy
@@ -476,8 +477,7 @@ impl CodingTools {
                 .find(|p| p.tool == id)
                 .ok_or(Denied("required executable missing from catalog"))
         };
-        let bwrap = process::pin(get(ToolId::Bubblewrap)?).map_err(Denied)?;
-        let image = process::pin(get(tool)?).map_err(Denied)?;
+        let pin = get(tool)?;
         let scratch = self
             .run_dir
             .join(format!("private-scratch-{}", dispatch.as_str()));
@@ -489,15 +489,15 @@ impl CodingTools {
             dispatch,
             process::Config {
                 unit: "",
-                bwrap: &bwrap,
                 workspace,
                 scratch: &scratch,
                 writable,
-                mounts: vec![],
-                image_stdin: Some((&image, PathBuf::from("/tool"))),
-                program: "/tool",
+                ro_inputs: vec![],
+                exec: process::ExecTarget::Pinned(pin),
+                inherited: vec![],
                 args,
-                workdir: "/workspace".into(),
+                workdir: workspace.to_path_buf(),
+                extra_env: vec![],
                 timeout_ms: self.policy.command_timeout_ms,
                 memory: self
                     .policy

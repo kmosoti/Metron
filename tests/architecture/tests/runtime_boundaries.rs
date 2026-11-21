@@ -25,12 +25,13 @@ fn metadata(manifest: PathBuf) -> Value {
     serde_json::from_slice(&output.stdout).expect("metadata JSON")
 }
 
-const RUNTIME_CRATES: [&str; 8] = [
+const RUNTIME_CRATES: [&str; 9] = [
     "metron-protocol",
     "metron-agent",
     "metron-harness",
     "metron-store-sqlite",
     "metron-testkit",
+    "metron-sandbox",
     "metron-host",
     "metron-inference-local",
     "metron-inference-worker",
@@ -161,6 +162,18 @@ fn root_workspace_members_and_dependency_boundaries() {
                 "tokio",
                 "serde_json",
             ],
+            "metron-sandbox" => &[
+                // Kernel isolation primitives belong strictly inside the
+                // standalone sandbox boundary crate.
+                "landlock",
+                "libc",
+                "rustix",
+                "seccompiler",
+                "serde",
+                "serde_json",
+                "sha2",
+                "thiserror",
+            ],
             "metron-host" => &[
                 // The composition root owns operational report serialization;
                 // the inference SDK remains confined to the worker.
@@ -174,6 +187,7 @@ fn root_workspace_members_and_dependency_boundaries() {
                 "metron-harness",
                 "metron-store-sqlite",
                 "metron-testkit",
+                "metron-sandbox",
                 "metron-inference-local",
             ],
             _ => panic!("unexpected package {name}"),
@@ -185,6 +199,14 @@ fn root_workspace_members_and_dependency_boundaries() {
                     dependency["kind"].as_str(),
                     Some("dev"),
                     "host may use rusqlite only in tests"
+                );
+                continue;
+            }
+            if name == "metron-sandbox" && dep == "io-uring" {
+                assert_eq!(
+                    dependency["kind"].as_str(),
+                    Some("dev"),
+                    "metron-sandbox may use io-uring only in negative-control tests"
                 );
                 continue;
             }

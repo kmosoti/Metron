@@ -7,6 +7,7 @@ members = [
     "crates/metron-store-sqlite",
     "crates/metron-testkit",
     "crates/metron-host",
+    "crates/metron-sandbox",
     "crates/metron-inference-local",
     "crates/metron-inference-worker",
     "tests/architecture",

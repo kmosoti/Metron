@@ -2615,6 +2615,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "io-uring"
+version = "0.7.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "878c26bc5e45fe089ce2ca25689260c152a87ce1d7de2ca86101efeea6973932"
+dependencies = [
+ "bitflags 2.13.2",
+ "cfg-if",
+ "libc",
+]
+
+[[package]]
 name = "ipnet"
 version = "2.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2782,9 +2793,9 @@ checksum = "e037a2e1d8d5fdbd49b16a4ea09d5d6401c1f29eca5ff29d03d3824dba16256a"
 
 [[package]]
 name = "landlock"
-version = "0.4.7"
+version = "0.4.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4cca98e95f35b29d469dade6724c6f96cec9236640f745a0e99b0334ec320ab1"
+checksum = "03795bb5dba9d001e861618f7301289e3ad0bb146d0a8192ff5fd8b06d069087"
 dependencies = [
  "enumflags2",
  "libc",
@@ -3074,6 +3085,7 @@ dependencies = [
  "metron-harness",
  "metron-inference-local",
  "metron-protocol",
+ "metron-sandbox",
  "metron-store-sqlite",
  "metron-testkit",
  "rusqlite",
@@ -3109,6 +3121,21 @@ dependencies = [
 name = "metron-protocol"
 version = "0.1.0"
 dependencies = [
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "metron-sandbox"
+version = "0.1.0"
+dependencies = [
+ "io-uring",
+ "landlock",
+ "libc",
+ "rustix",
+ "seccompiler",
  "serde",
  "serde_json",
  "sha2 0.10.9",

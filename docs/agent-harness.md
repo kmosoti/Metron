@@ -204,7 +204,7 @@ profile. Version output and process waits are bounded. Missing files, digest or
 version mismatches and uncertain probes return a nonzero status.
 
 A catalog has `schema_version: 1` and a `tools` array. Each entry contains `tool`
-(`jj`, `ripgrep`, `z3`, `lean`, `cargo`, `rustc` or `bubblewrap`), an absolute
+(`jj`, `ripgrep`, `z3`, `lean`, `cargo`, or `rustc`), an absolute
 `executable`, its full `sha256`, and `version_prefix`. Use immutable trusted tool
 paths rather than auto-installing shims. The catalog digest can be bound into a
 coding-task contract; it is not a permission set.
