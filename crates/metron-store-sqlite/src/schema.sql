@@ -5,10 +5,13 @@ CREATE TABLE journal (seq INTEGER PRIMARY KEY CHECK(seq >= 0), payload BLOB NOT 
 CREATE TABLE commands (command_id TEXT PRIMARY KEY, digest TEXT NOT NULL, result BLOB NOT NULL);
 CREATE TABLE principals (principal_id TEXT PRIMARY KEY, grant BLOB NOT NULL, account BLOB NOT NULL);
 CREATE TABLE task_accounts (task_id TEXT PRIMARY KEY REFERENCES tasks(task_id), account BLOB NOT NULL);
-CREATE TABLE intents (row_id INTEGER PRIMARY KEY CHECK(row_id > 0), task_id TEXT NOT NULL REFERENCES tasks(task_id), intent_id TEXT NOT NULL UNIQUE, value BLOB NOT NULL);
+CREATE TABLE intents (row_id INTEGER PRIMARY KEY CHECK(row_id > 0), task_id TEXT NOT NULL REFERENCES tasks(task_id), intent_id TEXT NOT NULL UNIQUE, status TEXT NOT NULL DEFAULT 'ready', value BLOB NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_intents_task_status ON intents(task_id, status);
 CREATE TABLE inbox (row_id INTEGER PRIMARY KEY CHECK(row_id > 0), task_id TEXT NOT NULL REFERENCES tasks(task_id), inbox_id TEXT NOT NULL UNIQUE, value BLOB NOT NULL);
 CREATE TABLE evidence (row_id INTEGER PRIMARY KEY CHECK(row_id > 0), intent_id TEXT NOT NULL REFERENCES intents(intent_id), evidence_id TEXT NOT NULL UNIQUE, producer_id TEXT NOT NULL, value BLOB NOT NULL);
 CREATE INDEX evidence_producer ON evidence(producer_id);
 CREATE TABLE unposted_debits (row_id INTEGER PRIMARY KEY CHECK(row_id > 0), task_id TEXT NOT NULL REFERENCES tasks(task_id), dispatch_id TEXT NOT NULL, value BLOB NOT NULL);
+CREATE TABLE IF NOT EXISTS external_receipts (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, task_id TEXT NOT NULL, tool_or_model TEXT NOT NULL, payload_json TEXT NOT NULL, digest_sha256 TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_external_receipts_task ON external_receipts(task_id, id);
 PRAGMA user_version=1;
 COMMIT;

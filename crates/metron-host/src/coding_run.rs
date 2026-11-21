@@ -1,9 +1,12 @@
 //! Explicit experimental coding entry point. Qualification is separate from
 //! attempting a task; a completed task is not a production-profile selection.
+mod http_backend;
+
 use crate::{
     coding_acceptance::{self, AcceptanceSpec},
-    coding_tools::{CodingTools, ToolOutcome, VerifierRunner},
+    coding_tools::{CodingTools, McpToolDispatcher, ToolOutcome, VerifierRunner},
 };
+use http_backend::ModelBackend;
 use metron_harness::{
     driver::DriverOutcome,
     orchestrator::{self, CodingVerifier, DriveError, NoObserver},
@@ -21,8 +24,9 @@ use metron_store_sqlite::{
     },
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
+#[cfg(test)]
+use std::collections::VecDeque;
 use std::{
-    collections::VecDeque,
     fs::{self, File},
     io::{Read, Write},
     os::unix::fs::{DirBuilderExt, OpenOptionsExt},
@@ -41,6 +45,8 @@ struct Settings {
     worker: Option<PathBuf>,
     artifact: Option<PathBuf>,
     script: Option<Vec<String>>,
+    #[serde(default)]
+    http_provider: Option<http_backend::HttpProviderSettings>,
     memory_db: Option<PathBuf>,
     mode: EngineMode,
     #[serde(default = "legacy_context_version")]
@@ -269,8 +275,9 @@ pub(crate) fn command(operation: StoreOperation) -> Result<StoreCommand, String>
 }
 struct Driver {
     tools: CodingTools,
-    native: Option<LocalInferenceDriver>,
-    script: VecDeque<String>,
+    model: ModelBackend,
+    #[allow(dead_code)]
+    mcp: Option<McpToolDispatcher>,
     memory: Option<(MemoryStore, Scope)>,
     store_path: PathBuf,
     run_dir: PathBuf,
@@ -553,7 +560,11 @@ impl EffectDriver for Driver {
             return self.failure(&effect, "unsupported coding request");
         };
         match step.as_ref() {
-            CodingStep::Model { input_digest, .. } => {
+            CodingStep::Model {
+                context,
+                input_digest,
+                ..
+            } => {
                 match self.memory_live() {
                     Ok(true) => {}
                     Ok(false) => {
@@ -561,23 +572,28 @@ impl EffectDriver for Driver {
                     }
                     Err(_) => return DriverOutcome::Uncertain,
                 }
-                if let Some(native) = self.native.as_mut() {
-                    return native.execute(effect);
+                match &mut self.model {
+                    ModelBackend::Native(native) => native.execute(effect),
+                    ModelBackend::Http(http) => {
+                        http.execute(&effect, input_digest, context.as_str())
+                    }
+                    ModelBackend::Script(script) => {
+                        let Some(content) = script.pop_front() else {
+                            return self.failure(&effect, "controlled script exhausted");
+                        };
+                        self.known(
+                            &effect,
+                            ReceiptOutput::Coding {
+                                observation: Box::new(CodingObservation::ScriptedModel {
+                                    input_digest: input_digest.clone(),
+                                    content: BoundedText::new(content).expect("validated script"),
+                                }),
+                            },
+                            1,
+                            0,
+                        )
+                    }
                 }
-                let Some(content) = self.script.pop_front() else {
-                    return self.failure(&effect, "controlled script exhausted");
-                };
-                self.known(
-                    &effect,
-                    ReceiptOutput::Coding {
-                        observation: Box::new(CodingObservation::ScriptedModel {
-                            input_digest: input_digest.clone(),
-                            content: BoundedText::new(content).expect("validated script"),
-                        }),
-                    },
-                    1,
-                    0,
-                )
             }
             CodingStep::Tool { action, .. } => {
                 let (outcome, memory_selection) = if self.context_version >= 9
@@ -1389,6 +1405,9 @@ fn run(args: &[String]) -> Result<serde_json::Value, String> {
             script: flag(args, "--script")
                 .map(|p| read(Path::new(&p)))
                 .transpose()?,
+            http_provider: flag(args, "--http-provider")
+                .map(|p| read(Path::new(&p)))
+                .transpose()?,
             memory_db: flag(args, "--memory-db").map(PathBuf::from),
             mode: match flag(args, "--mode").as_deref() {
                 None | Some("agent") => EngineMode::Agent,
@@ -1572,10 +1591,17 @@ fn run(args: &[String]) -> Result<serde_json::Value, String> {
                 .map_err(|e| e.to_string())
             })
             .transpose()?;
+        let model = if let Some(driver) = native {
+            ModelBackend::Native(Box::new(driver))
+        } else if let Some(http_cfg) = &settings.http_provider {
+            ModelBackend::Http(Box::new(http_cfg.build_backend(store_path.clone())?))
+        } else {
+            ModelBackend::Script(script)
+        };
         let mut driver = Driver {
             tools,
-            native,
-            script,
+            model,
+            mcp: None,
             memory,
             store_path: store_path.clone(),
             run_dir: run_dir.clone(),
@@ -1595,9 +1621,7 @@ fn run(args: &[String]) -> Result<serde_json::Value, String> {
             &mut driver,
             &mut verifier,
         );
-        if let Some(native) = driver.native.as_mut() {
-            native.shutdown();
-        }
+        driver.model.shutdown();
         result.map_err(|e| format!("coding drive: {e:?}"))?;
     }
     let mut snapshot = store
@@ -1715,6 +1739,7 @@ mod tests {
             worker: None,
             artifact: None,
             script: Some(vec!["placeholder".into()]),
+            http_provider: None,
             memory_db: None,
             mode,
         };
@@ -1740,8 +1765,8 @@ mod tests {
                 &root.join("run"),
             )
             .unwrap(),
-            native: None,
-            script: replies.iter().map(|s| (*s).into()).collect(),
+            model: ModelBackend::Script(replies.iter().map(|s| (*s).into()).collect()),
+            mcp: None,
             memory: None,
             store_path: root.join("run/runtime.sqlite"),
             run_dir: root.join("run"),
@@ -2772,3 +2797,6 @@ mod native_file_tests;
 
 #[cfg(test)]
 mod crash_tests;
+
+#[cfg(test)]
+mod http_mcp_e2e_tests;

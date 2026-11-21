@@ -9,6 +9,8 @@ members = [
     "crates/metron-host",
     "crates/metron-sandbox",
     "crates/metron-wasm-aot-loader",
+    "crates/metron-mcp",
+    "crates/metron-provider-http",
     "crates/metron-inference-local",
     "crates/metron-inference-worker",
     "tests/architecture",

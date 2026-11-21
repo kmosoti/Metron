@@ -746,7 +746,7 @@ fn revoked_memory_grant_stops_model_before_script_consumption() {
         .unwrap(),
         orchestrator::DriveStatus::Rejected
     );
-    assert_eq!(worker.script.len(), 1);
+    assert_eq!(worker.model.script_len(), 1);
     let projection = store
         .audit()
         .unwrap()

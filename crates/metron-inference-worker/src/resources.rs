@@ -38,7 +38,7 @@ pub(crate) fn aggregate(device: &Device) -> Value {
             }
         }
     }
-    #[cfg(feature = "cuda")]
+    #[cfg(feature = "local-cuda")]
     if let Ok(Some(allocator)) = MemoryUsage.query_cuda_allocator(device) {
         result["allocator"] = json!({
             "scope":"worker CUDA pools; may overlap device usage",
@@ -76,7 +76,7 @@ pub(crate) fn aggregate(device: &Device) -> Value {
 }
 
 pub(crate) fn actual_device_uuid(device: &Device) -> Option<String> {
-    #[cfg(feature = "cuda")]
+    #[cfg(feature = "local-cuda")]
     if let Device::Cuda(cuda) = device {
         let uuid = cuda.cuda_stream().context().uuid().ok()?;
         let hex: String = uuid

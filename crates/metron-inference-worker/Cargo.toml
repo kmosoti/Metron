@@ -6,16 +6,19 @@ rust-version.workspace = true
 license.workspace = true
 
 [features]
-cuda = ["mistralrs/cuda"]
+default = []
+local-cuda = ["dep:mistralrs", "dep:mistralrs-core", "dep:either", "dep:tokio", "mistralrs/cuda"]
+local-cpu = ["dep:mistralrs", "dep:mistralrs-core", "dep:either", "dep:tokio"]
+cuda = ["local-cuda"]
 
 [dependencies]
 metron-protocol = { path = "../metron-protocol" }
 metron-inference-local = { path = "../metron-inference-local" }
-mistralrs-core = { git = "https://github.com/EricLBuehler/mistral.rs", rev = "fb4cdc3730dc64b366724e7637a205a8b7747499" }
-mistralrs = { git = "https://github.com/EricLBuehler/mistral.rs", rev = "fb4cdc3730dc64b366724e7637a205a8b7747499" }
-either = "=1.19.0"
+mistralrs-core = { git = "https://github.com/EricLBuehler/mistral.rs", rev = "fb4cdc3730dc64b366724e7637a205a8b7747499", optional = true }
+mistralrs = { git = "https://github.com/EricLBuehler/mistral.rs", rev = "fb4cdc3730dc64b366724e7637a205a8b7747499", optional = true }
+either = { version = "=1.19.0", optional = true }
 serde_json = "1"
-tokio = { version = "=1.54.1", features = ["rt-multi-thread", "sync", "time", "macros"] }
+tokio = { version = "=1.54.1", features = ["rt-multi-thread", "sync", "time", "macros"], optional = true }
 
 [lints.rust]
 unsafe_code = "forbid"

@@ -12,13 +12,20 @@ metron-harness = { path = "../metron-harness" }
 metron-store-sqlite = { path = "../metron-store-sqlite" }
 metron-inference-local = { path = "../metron-inference-local" }
 metron-sandbox = { path = "../metron-sandbox" }
+metron-mcp = { path = "../metron-mcp" }
+metron-provider-http = { path = "../metron-provider-http" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rustix = { version = "=1.1.6", features = ["fs"] }
+tokio = { version = "=1.54.1", features = ["rt", "io-util", "net", "macros"] }
 
 [dev-dependencies]
+blake3 = "1.8"
+metron-wasm-aot-loader = { path = "../metron-wasm-aot-loader" }
 rusqlite = { version = "=0.37.0", features = ["bundled"] }
 metron-testkit = { path = "../metron-testkit" }
+wasmtime = { version = "51.0.0", default-features = false, features = ["cranelift", "wat"] }
+wat = "1.263.0"
 
 [lints.rust]
 unsafe_code = "forbid"

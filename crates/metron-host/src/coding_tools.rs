@@ -1,7 +1,9 @@
 //! Host coding-tool boundary. Process execution remains fail-closed until
 //! isolation and process-tree cleanup are established independently.
+pub mod mcp_dispatch;
 mod process;
 mod verifier;
+pub use mcp_dispatch::McpToolDispatcher;
 pub use verifier::VerifierRunner;
 
 use metron_protocol::{
