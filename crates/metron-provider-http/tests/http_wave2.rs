@@ -232,7 +232,12 @@ fn rejects_ssrf_metadata_userinfo_query_and_obfuscated_base_urls() {
         "https://user:pass@api.example.com",
         "https://api.example.com?foo=bar",
         "http://2852039166",
+        "http://169.16690942",
+        "http://169.254.43518",
+        "http://0.0",
         "http://0177.0.0.1",
+        "http://169.254.169.254.",
+        "http://metadata.google.internal.",
         "ftp://127.0.0.1:8080",
     ] {
         assert!(

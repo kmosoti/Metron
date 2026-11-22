@@ -93,14 +93,12 @@ fn validate_host(host: &str) -> Result<(), ProviderError> {
         return check_ip(IpAddr::V4(v4));
     }
 
-    // Reject single-label numeric/hex/octal obfuscated IP representations (e.g. 2852039166, 0x7f000001).
+    // Reject non-canonical numeric/hex/octal IPv4 shorthand literals (e.g. 2852039166,
+    // 169.16690942, 169.254.43518, 0.0, 0x7f000001, 0177.0.0.1) and trailing/empty DNS labels.
     let lower = host.to_ascii_lowercase();
-    if lower.bytes().all(|b| b.is_ascii_digit())
-        || lower.starts_with("0x")
-        || has_leading_zero_numeric_labels(&lower)
-    {
+    if lower.split('.').any(str::is_empty) || is_all_numeric_labels(&lower) {
         return Err(ProviderError::InvalidConfig(
-            "base_url must not use obfuscated numeric host literals".into(),
+            "base_url must not use obfuscated numeric host literals or empty labels".into(),
         ));
     }
 
@@ -127,26 +125,15 @@ fn validate_host(host: &str) -> Result<(), ProviderError> {
     Ok(())
 }
 
-fn has_leading_zero_numeric_labels(lower: &str) -> bool {
-    let mut saw_label = false;
-    let mut all_numeric_labels = true;
-    let mut any_leading_zero = false;
-    for label in lower.split('.') {
-        if label.is_empty() {
-            return true;
-        }
-        saw_label = true;
-        let numeric = label.bytes().all(|b| b.is_ascii_digit())
-            || label.starts_with("0x") && label[2..].bytes().all(|b| b.is_ascii_hexdigit());
-        if !numeric {
-            all_numeric_labels = false;
-            break;
-        }
-        if label.len() > 1 && label.starts_with('0') {
-            any_leading_zero = true;
-        }
-    }
-    saw_label && all_numeric_labels && any_leading_zero
+fn is_all_numeric_labels(lower: &str) -> bool {
+    !lower.is_empty()
+        && lower.split('.').all(|label| {
+            !label.is_empty()
+                && (label.bytes().all(|b| b.is_ascii_digit())
+                    || label.strip_prefix("0x").is_some_and(|rest| {
+                        !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_hexdigit())
+                    }))
+        })
 }
 
 fn check_ip(ip: IpAddr) -> Result<(), ProviderError> {
