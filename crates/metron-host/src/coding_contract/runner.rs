@@ -587,8 +587,13 @@ pub(crate) fn execute_contract_coding_attempt(
 
     let principal = PrincipalId::new("contract-operator").map_err(|e| format!("{e:?}"))?;
     let project = bundle.body.contract_id.clone();
-    let max_steps =
-        u8::try_from((remaining_model_requests + req.max_tool_calls + 8).min(64)).unwrap_or(64);
+    let max_steps = u8::try_from(
+        remaining_model_requests
+            .saturating_add(req.max_tool_calls)
+            .saturating_add(8)
+            .min(64),
+    )
+    .unwrap_or(64);
     let task = CodingTask::new(CodingTaskData {
         schema_version: 3,
         family: CodingFamily::CodingV1,

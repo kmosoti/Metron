@@ -4,8 +4,9 @@
 //! zero-network/zero-exec `seccomp-bpf`) BEFORE reading untrusted Wasm/WAT or invoking Cranelift.
 
 use metron_sandbox::{
-    EngineTunables, LandlockPolicy, SeccompPolicy, apply_landlock, install_seccomp,
-    wasm_aot::decode_hex_32, wasm_compiler::compile_and_seal_component,
+    EngineTunables, LandlockPolicy, MAX_EXECUTABLE_BYTES, SeccompPolicy, apply_landlock,
+    install_seccomp, memfd::read_bounded_regular_file, wasm_aot::decode_hex_32,
+    wasm_compiler::compile_and_seal_component,
 };
 use std::{
     fs,
@@ -66,7 +67,8 @@ fn run() -> Result<(), String> {
     })
     .map_err(|e| e.to_string())?;
 
-    let input = fs::read(&input_path).map_err(|e| format!("read failed: {e}"))?;
+    let input = read_bounded_regular_file(&input_path, MAX_EXECUTABLE_BYTES, "wasm input")
+        .map_err(|e| format!("read failed: {e}"))?;
     let (cwasm, meta) = compile_and_seal_component(&input, &EngineTunables::default(), &key)
         .map_err(|e| e.to_string())?;
     fs::write(&out_cwasm, &cwasm).map_err(|e| format!("write cwasm failed: {e}"))?;

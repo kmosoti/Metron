@@ -123,7 +123,10 @@ impl CircuitBreaker {
         if self.cfg.failure_threshold > 0
             && guard.consecutive_failures >= self.cfg.failure_threshold
         {
-            guard.open_until = Some(Instant::now() + Duration::from_millis(self.cfg.cooldown_ms));
+            let now = Instant::now();
+            guard.open_until = now
+                .checked_add(Duration::from_millis(self.cfg.cooldown_ms))
+                .or_else(|| now.checked_add(Duration::from_secs(86_400)));
         }
     }
 }

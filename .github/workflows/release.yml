@@ -26,6 +26,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+
+      - name: Verify tagged commit is on protected main
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          git merge-base --is-ancestor "${GITHUB_SHA}" refs/remotes/origin/main
+          test -f "docs/releases/${GITHUB_REF_NAME}.md"
+          PKG_VER="$(awk '/^\[workspace\.package\]/{in_pkg=1;next} /^\[/{in_pkg=0} in_pkg && /^version = /{gsub(/"/, "", $3); print $3; exit}' Cargo.toml)"
+          test "${PKG_VER}" = "${GITHUB_REF_NAME#v}"
 
       - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
@@ -55,6 +67,13 @@ jobs:
           INPUT_TAG: ${{ inputs.tag }}
         run: |
           VERSION="${INPUT_TAG:-${GITHUB_REF_NAME}}"
+          case "$VERSION" in
+            v[0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "invalid release tag version: $VERSION" >&2; exit 2 ;;
+          esac
+          case "$VERSION" in
+            */*|*..*|*[[:space:]]*) echo "unsafe characters in version: $VERSION" >&2; exit 2 ;;
+          esac
           sh -n packaging/release/package.sh
           sh packaging/release/package.sh \
             --version "$VERSION" \
@@ -80,6 +99,18 @@ jobs:
       attestations: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+
+      - name: Verify tagged commit is on protected main before publishing
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          git merge-base --is-ancestor "${GITHUB_SHA}" refs/remotes/origin/main
+          test -f "docs/releases/${GITHUB_REF_NAME}.md"
+          PKG_VER="$(awk '/^\[workspace\.package\]/{in_pkg=1;next} /^\[/{in_pkg=0} in_pkg && /^version = /{gsub(/"/, "", $3); print $3; exit}' Cargo.toml)"
+          test "${PKG_VER}" = "${GITHUB_REF_NAME#v}"
 
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -99,7 +130,7 @@ jobs:
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
-          body_path: docs/releases/v0.1.0-alpha.1.md
+          body_path: docs/releases/${{ github.ref_name }}.md
           generate_release_notes: true
           prerelease: true
           files: |

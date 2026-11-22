@@ -1,5 +1,6 @@
 //! Unprivileged `systemd-run --user --collect` cgroup v2 process runner and cleanup verifier.
 
+use crate::cgroup_types::validate_unit_name;
 pub use crate::cgroup_types::{CgroupCompleted, CgroupLimits};
 pub use crate::direct_supervisor::resolve_manager_tool;
 use crate::{
@@ -23,7 +24,11 @@ pub fn systemd_user_available() -> bool {
     let Ok(runtime) = std::env::var("XDG_RUNTIME_DIR") else {
         return false;
     };
-    if !runtime.starts_with('/') || runtime.contains('\n') {
+    if !runtime.starts_with('/')
+        || runtime.contains('\0')
+        || runtime.contains('\r')
+        || runtime.contains('\n')
+    {
         return false;
     }
     if resolve_manager_tool("METRON_SYSTEMD_RUN_BIN", "systemd-run").is_none() {
@@ -134,13 +139,22 @@ pub fn run_in_systemd_cgroup_cancellable(
 
     let runtime = std::env::var("XDG_RUNTIME_DIR")
         .map_err(|_| SandboxError::Denied("user runtime unavailable".into()))?;
-    if !runtime.starts_with('/') || runtime.contains('\n') {
+    if !runtime.starts_with('/')
+        || runtime.contains('\0')
+        || runtime.contains('\r')
+        || runtime.contains('\n')
+    {
         return Err(SandboxError::Denied("invalid user runtime".into()));
     }
     let manager = systemctl(&runtime, &["show", "-p", "ControlGroup", "--value"])
         .ok_or_else(|| SandboxError::Denied("user cgroup manager unavailable".into()))?;
     let manager = manager.trim();
-    if !manager.starts_with('/') || manager.contains("..") || manager.contains('\n') {
+    if !manager.starts_with('/')
+        || manager.contains("..")
+        || manager.contains('\0')
+        || manager.contains('\r')
+        || manager.contains('\n')
+    {
         return Err(SandboxError::Denied("invalid manager cgroup".into()));
     }
     let cg_root = PathBuf::from("/sys/fs/cgroup").join(manager.trim_start_matches('/'));
@@ -150,6 +164,7 @@ pub fn run_in_systemd_cgroup_cancellable(
         return Err(SandboxError::Denied("invalid cgroup v2 state".into()));
     }
 
+    validate_unit_name(&limits.unit_name)?;
     let unit_name = &limits.unit_name;
     let cgroup = cg_root
         .join("app.slice")

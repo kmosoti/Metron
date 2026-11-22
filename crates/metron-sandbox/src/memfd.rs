@@ -230,6 +230,40 @@ pub fn replace_stdin_with(source: BorrowedFd<'_>) -> Result<(), SandboxError> {
         .map_err(|_| SandboxError::Denied("failed to bind sanitized stdin".into()))
 }
 
+/// Opens `path` without following symlinks or blocking, verifies it is a regular file,
+/// and reads at most `max_bytes` bytes (failing closed if exceeded).
+pub fn read_bounded_regular_file(
+    path: &Path,
+    max_bytes: u64,
+    label: &str,
+) -> Result<Vec<u8>, SandboxError> {
+    let file = File::from(
+        open(
+            path,
+            OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC,
+            Mode::empty(),
+        )
+        .map_err(|_| SandboxError::Denied(format!("{label} unreadable")))?,
+    );
+    let meta = file
+        .metadata()
+        .map_err(|_| SandboxError::Denied(format!("{label} metadata unavailable")))?;
+    if !meta.is_file() {
+        return Err(SandboxError::Denied(format!(
+            "{label} must be a regular file"
+        )));
+    }
+    let cap = usize::try_from(meta.len().min(max_bytes).min(1024 * 1024)).unwrap_or(0);
+    let mut buf = Vec::with_capacity(cap);
+    file.take(max_bytes.saturating_add(1))
+        .read_to_end(&mut buf)
+        .map_err(|_| SandboxError::Denied(format!("{label} read failed")))?;
+    if buf.len() as u64 > max_bytes {
+        return Err(SandboxError::Denied(format!("{label} exceeds size bound")));
+    }
+    Ok(buf)
+}
+
 fn open_regular_readonly(path: &Path) -> Result<File, SandboxError> {
     let file = File::from(
         open(
@@ -258,4 +292,19 @@ fn hex_lower(bytes: &[u8]) -> String {
         out.push(HEX[(b & 0x0f) as usize] as char);
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::read_bounded_regular_file;
+    use std::path::Path;
+
+    #[test]
+    fn read_bounded_regular_file_rejects_non_regular_and_oversized() {
+        assert!(read_bounded_regular_file(Path::new("/dev/null"), 64, "dev").is_err());
+        assert!(read_bounded_regular_file(Path::new("."), 64, "dir").is_err());
+        let cargo_toml = Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+        assert!(read_bounded_regular_file(&cargo_toml, 8, "small").is_err());
+        assert!(read_bounded_regular_file(&cargo_toml, 64 * 1024, "ok").is_ok());
+    }
 }

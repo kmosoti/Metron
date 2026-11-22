@@ -199,3 +199,116 @@ async fn retry_429_recovers_and_circuit_breaker_preserves_transport_receipt() {
         other => panic!("expected Transport with failure receipt, got {other:?}"),
     }
 }
+
+fn cfg_with_url(base_url: &str, max_response_bytes: usize) -> EndpointConfig {
+    EndpointConfig {
+        kind: ProviderKind::OpenAiCompatible,
+        base_url: base_url.to_owned(),
+        model: "gpt-4o-mini".to_owned(),
+        api_key: None,
+        timeout_ms: 2_000,
+        max_response_bytes,
+        pricing_override: None,
+        retry: RetryPolicy {
+            max_retries: 0,
+            base_delay_ms: 5,
+            max_delay_ms: 50,
+        },
+        circuit_breaker: CircuitBreakerConfig {
+            failure_threshold: 0,
+            cooldown_ms: 1_000,
+        },
+    }
+}
+
+#[test]
+fn rejects_ssrf_metadata_userinfo_query_and_obfuscated_base_urls() {
+    for bad in [
+        "http://169.254.169.254/latest",
+        "http://[::ffff:169.254.169.254]",
+        "http://[fe80::1]:8080",
+        "http://0.0.0.0:8080",
+        "http://metadata.google.internal",
+        "https://user:pass@api.example.com",
+        "https://api.example.com?foo=bar",
+        "http://2852039166",
+        "http://0177.0.0.1",
+        "ftp://127.0.0.1:8080",
+    ] {
+        assert!(
+            matches!(
+                HttpModelProvider::new(cfg_with_url(bad, 4096)),
+                Err(ProviderError::InvalidConfig(_))
+            ),
+            "expected InvalidConfig for {bad}"
+        );
+    }
+
+    for good in [
+        "http://127.0.0.1:8080",
+        "http://localhost:11434",
+        "https://[::1]:8443/v1",
+        "https://api.openai.com",
+    ] {
+        assert!(
+            HttpModelProvider::new(cfg_with_url(good, 4096)).is_ok(),
+            "expected valid base_url for {good}"
+        );
+    }
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn rejects_chunked_response_and_stream_error_exceeding_max_response_bytes() {
+    let oversized = "x".repeat(256);
+    let chunked_ok = format!(
+        "HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\nconnection: close\r\n\r\n{:x}\r\n{oversized}\r\n0\r\n\r\n",
+        oversized.len()
+    );
+    let chunked_err = format!(
+        "HTTP/1.1 500 Internal Server Error\r\ntransfer-encoding: chunked\r\nconnection: close\r\n\r\n{:x}\r\n{oversized}\r\n0\r\n\r\n",
+        oversized.len()
+    );
+    let (base_url, _, _) = spawn_sequence(vec![chunked_ok, chunked_err]).await;
+    let provider = HttpModelProvider::new(cfg_with_url(&base_url, 64)).unwrap();
+
+    match provider.complete(&base_req()).await.unwrap_err() {
+        ProviderError::Upstream { message, .. } => {
+            assert!(message.contains("exceeds"), "got: {message}");
+        }
+        other => panic!("expected Upstream limit error, got {other:?}"),
+    }
+
+    let mut deltas = Vec::new();
+    match provider
+        .complete_stream(&base_req(), &mut |d| deltas.push(d))
+        .await
+        .unwrap_err()
+    {
+        ProviderError::Upstream {
+            status, message, ..
+        } => {
+            assert_eq!(status, Some(500));
+            assert!(message.contains("exceeds"), "got: {message}");
+        }
+        other => panic!("expected Upstream error for oversized 500 stream, got {other:?}"),
+    }
+}
+
+#[test]
+fn sse_handles_split_utf8_chunks_and_u64_max_cooldown_does_not_panic() {
+    let line = b"data: {\"choices\":[{\"delta\":{\"content\":\"\xF0\x9F\xA6\x80\"}}]}\n\n";
+    let split = line.iter().position(|&b| b == 0xF0).unwrap() + 2;
+    let mut acc = metron_provider_http::sse::SseAccumulator::new(ProviderKind::OpenAiCompatible);
+    let mut deltas = Vec::new();
+    acc.push_chunk(&line[..split], &mut |d| deltas.push(d));
+    acc.push_chunk(&line[split..], &mut |d| deltas.push(d));
+    let (text, _, _, _) = acc.finish(&mut |d| deltas.push(d));
+    assert_eq!(text, "🦀");
+
+    let breaker = metron_provider_http::CircuitBreaker::new(CircuitBreakerConfig {
+        failure_threshold: 1,
+        cooldown_ms: u64::MAX,
+    });
+    breaker.record_transient_failure();
+    assert!(breaker.allow_request().is_err());
+}
