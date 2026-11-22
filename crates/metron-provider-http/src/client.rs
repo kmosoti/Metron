@@ -5,6 +5,7 @@
 
 use crate::{
     anthropic::{self, ANTHROPIC_API_VERSION},
+    body::{BodyReadError, read_bounded_body},
     openai,
     port::{
         EndpointConfig, ModelProvider, ProviderError, ProviderKind, ProviderOutcome,
@@ -15,6 +16,7 @@ use crate::{
     },
     resilience::{CircuitBreaker, is_retryable_status, parse_retry_after_ms},
     sse::consume_sse_response,
+    url::validate_base_url,
 };
 use reqwest::{Client, Response, redirect::Policy};
 use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
@@ -30,11 +32,7 @@ pub struct HttpModelProvider {
 impl HttpModelProvider {
     /// Builds a bounded HTTP provider client (`redirect = none`, explicit timeout, circuit breaker).
     pub fn new(config: EndpointConfig) -> Result<Self, ProviderError> {
-        if !(config.base_url.starts_with("https://") || config.base_url.starts_with("http://")) {
-            return Err(ProviderError::InvalidConfig(
-                "base_url must use http:// or https://".into(),
-            ));
-        }
+        validate_base_url(&config.base_url)?;
         if config.model.trim().is_empty() {
             return Err(ProviderError::InvalidConfig(
                 "model identifier must be non-empty".into(),
@@ -166,32 +164,15 @@ impl HttpModelProvider {
             .send_with_resilience(req, &body, &request_sha256)
             .await?;
         let status = resp.status().as_u16();
-        if resp
-            .content_length()
-            .is_some_and(|len| len > self.config.max_response_bytes as u64)
-        {
-            return Err(self.upstream_err(
-                req,
-                Some(status),
-                &request_sha256,
-                b"",
-                "response content-length exceeds limit".into(),
-            ));
-        }
-
-        let raw = resp
-            .bytes()
-            .await
-            .map_err(|e| self.transport_err(req, &request_sha256, e.to_string()))?;
-        if raw.len() > self.config.max_response_bytes {
-            return Err(self.upstream_err(
-                req,
-                Some(status),
-                &request_sha256,
-                b"",
-                format!("response payload {} bytes exceeds limit", raw.len()),
-            ));
-        }
+        let raw = match read_bounded_body(resp, self.config.max_response_bytes).await {
+            Ok(raw) => raw,
+            Err(BodyReadError::Transport(msg)) => {
+                return Err(self.transport_err(req, &request_sha256, msg));
+            }
+            Err(BodyReadError::TooLarge(msg)) => {
+                return Err(self.upstream_err(req, Some(status), &request_sha256, b"", msg));
+            }
+        };
         if !(200..300).contains(&status) {
             return Err(self.upstream_err(
                 req,
@@ -238,14 +219,17 @@ impl HttpModelProvider {
             .await?;
         let status = resp.status().as_u16();
         if !(200..300).contains(&status) {
-            let raw = resp.bytes().await.unwrap_or_default();
-            return Err(self.upstream_err(
-                req,
-                Some(status),
-                &request_sha256,
-                &raw,
-                format!("non-success HTTP status {status}"),
-            ));
+            let (raw, msg) = match read_bounded_body(resp, self.config.max_response_bytes).await {
+                Ok(bytes) => (bytes, format!("non-success HTTP status {status}")),
+                Err(BodyReadError::TooLarge(err)) => (
+                    Vec::new(),
+                    format!("non-success HTTP status {status}: {err}"),
+                ),
+                Err(BodyReadError::Transport(_)) => {
+                    (Vec::new(), format!("non-success HTTP status {status}"))
+                }
+            };
+            return Err(self.upstream_err(req, Some(status), &request_sha256, &raw, msg));
         }
         let (raw_all, text, finish_reason, tool_calls, usage) = match consume_sse_response(
             resp,

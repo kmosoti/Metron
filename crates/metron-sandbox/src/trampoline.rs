@@ -9,7 +9,10 @@ use crate::{
         apply_rootless_namespaces, verify_fd_hygiene,
     },
     landlock_fs::{LandlockPolicy, apply_landlock},
-    memfd::{SealedMemfd, open_and_seal_regular, replace_stdin_with, seal_from_reader},
+    memfd::{
+        SealedMemfd, open_and_seal_regular, read_bounded_regular_file, replace_stdin_with,
+        seal_from_reader,
+    },
     seccomp_bpf::{SeccompPolicy, install_seccomp},
 };
 use rustix::{
@@ -18,9 +21,9 @@ use rustix::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
-    fs::{File, OpenOptions},
-    io::{Read, Write},
-    os::unix::{fs::OpenOptionsExt, process::CommandExt},
+    fs::File,
+    io::Write,
+    os::unix::process::CommandExt,
     path::{Path, PathBuf},
     process::{Command, ExitCode},
 };
@@ -110,22 +113,7 @@ fn run_inner(args: &[String]) -> Result<(), SandboxError> {
         ));
     }
     let spec_path = Path::new(&args[1]);
-    let raw = {
-        let spec_file = File::from(
-            open(
-                spec_path,
-                OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC,
-                Mode::empty(),
-            )
-            .map_err(|_| SandboxError::Denied("jail spec unreadable".into()))?,
-        );
-        let mut buf = Vec::new();
-        spec_file
-            .take(4 * 1024 * 1024)
-            .read_to_end(&mut buf)
-            .map_err(|_| SandboxError::Denied("jail spec read failed".into()))?;
-        buf
-    };
+    let raw = read_bounded_regular_file(spec_path, 4 * 1024 * 1024, "jail spec")?;
     let _ = std::fs::remove_file(spec_path);
 
     let spec: TrampolineSpec = serde_json::from_slice(&raw)
@@ -227,13 +215,14 @@ pub fn execute_spec(spec: &TrampolineSpec) -> Result<(), SandboxError> {
 fn write_receipt(path: &Path, receipt: &SandboxReceipt) -> Result<(), SandboxError> {
     let bytes = serde_json::to_vec(receipt)
         .map_err(|e| SandboxError::Denied(format!("receipt encode failed: {e}")))?;
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(0o600)
-        .open(path)
-        .map_err(|e| SandboxError::Denied(format!("receipt open failed: {e}")))?;
+    let mut file = File::from(
+        open(
+            path,
+            OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::from_raw_mode(0o600),
+        )
+        .map_err(|e| SandboxError::Denied(format!("receipt open failed: {e}")))?,
+    );
     file.write_all(&bytes)
         .map_err(|e| SandboxError::Denied(format!("receipt write failed: {e}")))?;
     Ok(())

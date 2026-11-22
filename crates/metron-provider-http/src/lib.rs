@@ -1,6 +1,7 @@
 //! Pluggable `ModelProvider` port and bounded OpenAI / Anthropic HTTP adapters.
 
 pub mod anthropic;
+mod body;
 pub mod client;
 pub mod openai;
 pub mod port;
@@ -8,6 +9,7 @@ pub mod pricing;
 pub mod receipt;
 pub mod resilience;
 pub mod sse;
+mod url;
 
 pub use client::HttpModelProvider;
 pub use port::{

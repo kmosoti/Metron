@@ -27,10 +27,19 @@ struct Document {
     provenance: String,
 }
 fn read(path: &Path) -> Result<Vec<u8>, String> {
+    let fd = rustix::fs::open(
+        path,
+        rustix::fs::OFlags::RDONLY | rustix::fs::OFlags::NONBLOCK | rustix::fs::OFlags::CLOEXEC,
+        rustix::fs::Mode::empty(),
+    )
+    .map_err(|e| e.to_string())?;
+    let file = File::from(fd);
+    let meta = file.metadata().map_err(|e| e.to_string())?;
+    if !meta.is_file() {
+        return Err("resource input must be a regular file".into());
+    }
     let mut bytes = Vec::new();
-    File::open(path)
-        .map_err(|e| e.to_string())?
-        .take(16_385)
+    file.take(16_385)
         .read_to_end(&mut bytes)
         .map_err(|e| e.to_string())?;
     if bytes.len() > 16_384 {
@@ -162,4 +171,16 @@ pub fn calculate(path: &Path) -> Result<Value, String> {
         "runtime_context_ceiling":8192,"trained_context_ceiling":262144,
         "reason":"heterogeneous role scheduling is not implemented; context planning does not qualify physical fit"}),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::read;
+    use std::path::Path;
+
+    #[test]
+    fn rejects_non_regular_resource_input() {
+        assert!(read(Path::new("/dev/null")).is_err());
+        assert!(read(Path::new(".")).is_err());
+    }
 }

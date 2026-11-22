@@ -8,7 +8,7 @@ use crate::{
     check_scratch_space,
     direct_supervisor::run_direct_supervised_cancellable,
     error::SandboxError,
-    memfd::{replace_stdin_with, require_disk_backed, seal_from_reader},
+    memfd::{read_bounded_regular_file, replace_stdin_with, require_disk_backed, seal_from_reader},
     resolve_trampoline, systemd_cg,
     wasm_aot::{
         AotEnvelopeMeta, EngineTunables, LaneALimits, PINNED_WASMTIME_VERSION, ResourceReceipt,
@@ -19,7 +19,7 @@ use metron_wasm_aot_loader::{AotSeal, compute_seal_tag};
 use rustix::fs::{Mode, OFlags, open};
 use serde::{Deserialize, Serialize};
 use std::{
-    fs::{File, OpenOptions},
+    fs::OpenOptions,
     io::{Read, Seek, SeekFrom, Write},
     os::unix::fs::OpenOptionsExt,
     path::{Path, PathBuf},
@@ -275,21 +275,7 @@ pub fn run_trampoline_from_spec(spec_path: &Path) -> ExitCode {
 }
 
 fn run_inner(spec_path: &Path) -> Result<ResourceReceipt, SandboxError> {
-    let raw = {
-        let file = File::from(
-            open(
-                spec_path,
-                OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC,
-                Mode::empty(),
-            )
-            .map_err(|_| SandboxError::Denied("lane_a spec unreadable".into()))?,
-        );
-        let mut buf = Vec::new();
-        file.take(4 * 1024 * 1024)
-            .read_to_end(&mut buf)
-            .map_err(|_| SandboxError::Denied("lane_a spec read failed".into()))?;
-        buf
-    };
+    let raw = read_bounded_regular_file(spec_path, 4 * 1024 * 1024, "lane_a spec")?;
     let _ = std::fs::remove_file(spec_path);
 
     let spec: LaneASpec = serde_json::from_slice(&raw)
@@ -302,7 +288,18 @@ fn run_inner(spec_path: &Path) -> Result<ResourceReceipt, SandboxError> {
         locked
             .read_exact(&mut key_buf)
             .map_err(|_| SandboxError::Denied("lane_a key pipe read failed".into()))?;
-        let memfd = seal_from_reader("metron-cwasm", locked, None, true)?;
+        let max_cwasm = u64::try_from(spec.max_cwasm_bytes).unwrap_or(u64::MAX);
+        let memfd = seal_from_reader(
+            "metron-cwasm",
+            locked.by_ref().take(max_cwasm.saturating_add(1)),
+            None,
+            true,
+        )?;
+        if memfd.len() > max_cwasm {
+            return Err(SandboxError::Denied(
+                "lane_a cwasm exceeds max_cwasm_bytes".into(),
+            ));
+        }
         (key_buf, memfd)
     };
     let dev_null = open("/dev/null", OFlags::RDONLY | OFlags::CLOEXEC, Mode::empty())

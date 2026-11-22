@@ -1,6 +1,21 @@
 //! Shared cgroup / direct-supervisor limit and completion types.
 
-use crate::jail_hardening::SandboxReceipt;
+use crate::{error::SandboxError, jail_hardening::SandboxReceipt};
+
+pub(crate) fn validate_unit_name(unit_name: &str) -> Result<(), SandboxError> {
+    if unit_name.is_empty()
+        || unit_name.len() > 128
+        || unit_name.starts_with('.')
+        || unit_name.starts_with('-')
+        || unit_name.contains("..")
+        || !unit_name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b'@' | b':' | b'-'))
+    {
+        return Err(SandboxError::Denied("invalid systemd unit name".into()));
+    }
+    Ok(())
+}
 
 /// Cgroup v2 resource limits applied to every transient `systemd-run --user` unit
 /// and mapped to `setrlimit` bounds in direct-supervisor mode.
@@ -56,4 +71,21 @@ pub struct CgroupCompleted {
     pub success: bool,
     /// Pre-exec sandbox enforcement attestation recorded by `metron-jail`, when available.
     pub receipt: Option<SandboxReceipt>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_unit_name;
+
+    #[test]
+    fn unit_name_validation_blocks_traversal_and_option_injection() {
+        assert!(validate_unit_name("metron-mcp-b-42-1").is_ok());
+        assert!(validate_unit_name("metron-sandbox-100").is_ok());
+        assert!(validate_unit_name("").is_err());
+        assert!(validate_unit_name("../escape").is_err());
+        assert!(validate_unit_name("-property=ExecStart=/bin/sh").is_err());
+        assert!(validate_unit_name(".hidden").is_err());
+        assert!(validate_unit_name("bad/slash").is_err());
+        assert!(validate_unit_name("bad space").is_err());
+    }
 }

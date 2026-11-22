@@ -5,7 +5,7 @@
 use crate::{
     executor::run_sandboxed_spec,
     receipt::{BoundedReceiptRing, McpResourceReceipt, ReceiptSink, hex_sha256},
-    schema::validate_args_against_schema,
+    schema::{MAX_MCP_ARGS_BYTES, serialize_bounded_args, validate_args_against_schema},
 };
 use metron_sandbox::{AotEnvelopeMeta, CgroupLimits, EngineTunables, LaneALimits};
 use rmcp::model::{JsonObject, Tool};
@@ -200,10 +200,43 @@ impl SandboxedToolRegistry {
     /// Registers one pinned Lane A or Lane B tool.
     pub fn register(&mut self, spec: SandboxedToolSpec) -> Result<(), McpBridgeError> {
         let name = spec.name();
-        if name.trim().is_empty() {
+        if name.trim().is_empty()
+            || name.len() > 128
+            || !name
+                .chars()
+                .all(|c| !c.is_control() && !c.is_whitespace() && c != '/' && c != '\\')
+        {
             return Err(McpBridgeError::InvalidRegistration(
-                "tool name must be non-empty".into(),
+                "tool name must be non-empty, <=128 chars, and free of whitespace, control, or path separators".into(),
             ));
+        }
+        match &spec {
+            SandboxedToolSpec::LaneAWasm { cwasm_bytes, .. } if cwasm_bytes.is_empty() => {
+                return Err(McpBridgeError::InvalidRegistration(
+                    "LaneAWasm cwasm_bytes must be non-empty".into(),
+                ));
+            }
+            SandboxedToolSpec::LaneBNative {
+                executable_path,
+                sha256,
+                ..
+            } => {
+                if !executable_path.is_absolute() {
+                    return Err(McpBridgeError::InvalidRegistration(
+                        "LaneBNative executable_path must be absolute".into(),
+                    ));
+                }
+                if sha256.len() != 64
+                    || !sha256
+                        .bytes()
+                        .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+                {
+                    return Err(McpBridgeError::InvalidRegistration(
+                        "LaneBNative sha256 must be a 64-character lowercase hex digest".into(),
+                    ));
+                }
+            }
+            _ => {}
         }
         if self.tools.contains_key(name) {
             return Err(McpBridgeError::InvalidRegistration(format!(
@@ -261,9 +294,12 @@ impl SandboxedToolRegistry {
             return Err(McpBridgeError::Cancelled);
         }
 
-        let seq = self.seq.fetch_add(1, Ordering::Relaxed) + 1;
-        let args_json =
-            serde_json::to_vec(args).map_err(|e| McpBridgeError::Protocol(e.to_string()))?;
+        let seq = self
+            .seq
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
+            .map(|prev| prev + 1)
+            .map_err(|_| McpBridgeError::Protocol("execution sequence counter exhausted".into()))?;
+        let args_json = serialize_bounded_args(args, MAX_MCP_ARGS_BYTES)?;
         let args_digest = hex_sha256(&args_json);
 
         let (payload, receipt) = run_sandboxed_spec(seq, spec, &args_json, args_digest, cancel)?;
@@ -272,5 +308,43 @@ impl SandboxedToolRegistry {
             sink.record(&receipt).map_err(McpBridgeError::Sink)?;
         }
         Ok((payload, receipt))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn register_rejects_malformed_name_relative_path_and_invalid_sha256() {
+        let mut reg = SandboxedToolRegistry::new();
+        let empty_schema = Arc::new(Map::new());
+        let mk_native = |name: &str, path: &str, sha: &str| SandboxedToolSpec::LaneBNative {
+            name: name.to_owned(),
+            description: "test".to_owned(),
+            input_schema: Arc::clone(&empty_schema),
+            executable_path: PathBuf::from(path),
+            sha256: sha.to_owned(),
+            fixed_args: Vec::new(),
+            workspace: None,
+            writable_workspace: false,
+            scratch: PathBuf::from("/tmp/scratch"),
+            cgroup: CgroupLimits::default(),
+            trampoline_bin: None,
+            use_systemd: false,
+        };
+        let valid_sha = "a".repeat(64);
+        assert!(matches!(
+            reg.register(mk_native("../bad", "/bin/sh", &valid_sha)),
+            Err(McpBridgeError::InvalidRegistration(_))
+        ));
+        assert!(matches!(
+            reg.register(mk_native("rel_tool", "bin/sh", &valid_sha)),
+            Err(McpBridgeError::InvalidRegistration(_))
+        ));
+        assert!(matches!(
+            reg.register(mk_native("bad_sha", "/bin/sh", "ABCDEF")),
+            Err(McpBridgeError::InvalidRegistration(_))
+        ));
     }
 }

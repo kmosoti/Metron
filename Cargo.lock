@@ -3301,28 +3301,28 @@ dependencies = [
 
 [[package]]
 name = "metron-agent"
-version = "0.1.0"
+version = "0.1.1-alpha.1"
 dependencies = [
  "metron-protocol",
 ]
 
 [[package]]
 name = "metron-architecture-tests"
-version = "0.1.0"
+version = "0.1.1-alpha.1"
 dependencies = [
  "serde_json",
 ]
 
 [[package]]
 name = "metron-harness"
-version = "0.1.0"
+version = "0.1.1-alpha.1"
 dependencies = [
  "metron-protocol",
 ]
 
 [[package]]
 name = "metron-host"
-version = "0.1.0"
+version = "0.1.1-alpha.1"
 dependencies = [
  "blake3",
  "metron-agent",
@@ -3346,7 +3346,7 @@ dependencies = [
 
 [[package]]
 name = "metron-inference-local"
-version = "0.1.0"
+version = "0.1.1-alpha.1"
 dependencies = [
  "metron-harness",
  "metron-protocol",
@@ -3356,7 +3356,7 @@ dependencies = [
 
 [[package]]
 name = "metron-inference-worker"
-version = "0.1.0"
+version = "0.1.1-alpha.1"
 dependencies = [
  "either",
  "metron-inference-local",
@@ -3369,7 +3369,7 @@ dependencies = [
 
 [[package]]
 name = "metron-mcp"
-version = "0.1.0"
+version = "0.1.1-alpha.1"
 dependencies = [
  "blake3",
  "metron-protocol",
@@ -3388,7 +3388,7 @@ dependencies = [
 
 [[package]]
 name = "metron-protocol"
-version = "0.1.0"
+version = "0.1.1-alpha.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -3398,7 +3398,7 @@ dependencies = [
 
 [[package]]
 name = "metron-provider-http"
-version = "0.1.0"
+version = "0.1.1-alpha.1"
 dependencies = [
  "metron-protocol",
  "reqwest 0.13.5",
@@ -3411,7 +3411,7 @@ dependencies = [
 
 [[package]]
 name = "metron-sandbox"
-version = "0.1.0"
+version = "0.1.1-alpha.1"
 dependencies = [
  "blake3",
  "io-uring",
@@ -3431,7 +3431,7 @@ dependencies = [
 
 [[package]]
 name = "metron-store-sqlite"
-version = "0.1.0"
+version = "0.1.1-alpha.1"
 dependencies = [
  "metron-protocol",
  "rusqlite",
@@ -3439,7 +3439,7 @@ dependencies = [
 
 [[package]]
 name = "metron-testkit"
-version = "0.1.0"
+version = "0.1.1-alpha.1"
 dependencies = [
  "metron-harness",
  "metron-protocol",
@@ -3447,7 +3447,7 @@ dependencies = [
 
 [[package]]
 name = "metron-wasm-aot-loader"
-version = "0.1.0"
+version = "0.1.1-alpha.1"
 dependencies = [
  "blake3",
  "hmac",

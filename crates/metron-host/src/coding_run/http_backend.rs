@@ -42,8 +42,24 @@ fn default_http_max_tokens() -> u32 {
     2048
 }
 
+const MAX_HTTP_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
+
 impl HttpProviderSettings {
     pub(crate) fn build_backend(&self, store_path: PathBuf) -> Result<HttpModelBackend, String> {
+        if self.max_response_bytes == 0 || self.max_response_bytes > MAX_HTTP_RESPONSE_BYTES {
+            return Err(format!(
+                "http provider config: max_response_bytes must be in 1..={MAX_HTTP_RESPONSE_BYTES}"
+            ));
+        }
+        if let Some(env_name) = &self.api_key_env
+            && (env_name.is_empty()
+                || env_name.contains('=')
+                || !env_name
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'_'))
+        {
+            return Err("http provider config: invalid api_key_env name".to_owned());
+        }
         let api_key = self
             .api_key_env
             .as_deref()

@@ -70,10 +70,20 @@ fn options(
     Some(result)
 }
 fn read(path: &str, limit: usize) -> Result<Vec<u8>, &'static str> {
+    let fd = rustix::fs::open(
+        path,
+        rustix::fs::OFlags::RDONLY | rustix::fs::OFlags::NONBLOCK | rustix::fs::OFlags::CLOEXEC,
+        rustix::fs::Mode::empty(),
+    )
+    .map_err(|_| "cannot open input")?;
+    let file = File::from(fd);
+    let meta = file.metadata().map_err(|_| "cannot stat input")?;
+    if !meta.is_file() {
+        return Err("input must be a regular file");
+    }
     let mut bytes = Vec::new();
-    File::open(path)
-        .map_err(|_| "cannot open input")?
-        .take((limit + 1) as u64)
+    let max = u64::try_from(limit).unwrap_or(u64::MAX);
+    file.take(max.saturating_add(1))
         .read_to_end(&mut bytes)
         .map_err(|_| "cannot read input")?;
     if bytes.len() > limit {

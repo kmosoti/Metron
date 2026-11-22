@@ -13,10 +13,21 @@ pub(crate) async fn consume_sse_response(
     max_response_bytes: usize,
     on_delta: &mut (dyn FnMut(StreamDelta) + Send),
 ) -> Result<(Vec<u8>, String, String, Vec<ToolCall>, ProviderUsage), (bool, String)> {
+    if let Some(len) = resp.content_length()
+        && len > max_response_bytes as u64
+    {
+        return Err((
+            false,
+            "streaming response content-length exceeded max_response_bytes".into(),
+        ));
+    }
     let mut acc = SseAccumulator::new(kind);
     let mut raw_all = Vec::new();
     while let Some(chunk) = resp.chunk().await.map_err(|e| (true, e.to_string()))? {
-        if raw_all.len().saturating_add(chunk.len()) > max_response_bytes {
+        let Some(next) = raw_all.len().checked_add(chunk.len()) else {
+            return Err((false, "streaming response length overflow".into()));
+        };
+        if next > max_response_bytes {
             return Err((
                 false,
                 "streaming response exceeded max_response_bytes".into(),
@@ -39,6 +50,7 @@ struct PartialTool {
 /// Stateful incremental SSE decoder assembling final text, tool calls, finish reason, and usage.
 pub struct SseAccumulator {
     kind: ProviderKind,
+    pending_utf8: Vec<u8>,
     line_buf: String,
     text: String,
     finish_reason: Option<String>,
@@ -52,6 +64,7 @@ impl SseAccumulator {
     pub fn new(kind: ProviderKind) -> Self {
         Self {
             kind,
+            pending_utf8: Vec::new(),
             line_buf: String::new(),
             text: String::new(),
             finish_reason: None,
@@ -62,7 +75,34 @@ impl SseAccumulator {
 
     /// Feeds a raw UTF-8 chunk from HTTP response body and emits parsed [`StreamDelta`]s.
     pub fn push_chunk(&mut self, chunk: &[u8], on_delta: &mut dyn FnMut(StreamDelta)) {
-        self.line_buf.push_str(&String::from_utf8_lossy(chunk));
+        if chunk.is_empty() {
+            return;
+        }
+        self.pending_utf8.extend_from_slice(chunk);
+        loop {
+            match std::str::from_utf8(&self.pending_utf8) {
+                Ok(s) => {
+                    self.line_buf.push_str(s);
+                    self.pending_utf8.clear();
+                    break;
+                }
+                Err(err) => {
+                    let valid_len = err.valid_up_to();
+                    if valid_len > 0 {
+                        let valid = std::str::from_utf8(&self.pending_utf8[..valid_len])
+                            .unwrap_or_default();
+                        self.line_buf.push_str(valid);
+                    }
+                    if let Some(bad_len) = err.error_len() {
+                        self.line_buf.push('\u{FFFD}');
+                        self.pending_utf8.drain(..valid_len + bad_len);
+                    } else {
+                        self.pending_utf8.drain(..valid_len);
+                        break;
+                    }
+                }
+            }
+        }
         while let Some(pos) = self.line_buf.find('\n') {
             let line = self.line_buf[..pos].trim_end_matches('\r').to_owned();
             self.line_buf.drain(..=pos);
@@ -75,6 +115,11 @@ impl SseAccumulator {
         mut self,
         on_delta: &mut dyn FnMut(StreamDelta),
     ) -> (String, String, Vec<ToolCall>, ProviderUsage) {
+        if !self.pending_utf8.is_empty() {
+            self.line_buf
+                .push_str(&String::from_utf8_lossy(&self.pending_utf8));
+            self.pending_utf8.clear();
+        }
         if !self.line_buf.trim().is_empty() {
             let tail = std::mem::take(&mut self.line_buf);
             self.process_line(tail.trim(), on_delta);
@@ -161,7 +206,9 @@ impl SseAccumulator {
         }
         if let Some(tcs) = delta.get("tool_calls").and_then(Value::as_array) {
             for tc in tcs {
-                let idx = tc.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
+                let Some(idx) = parse_tool_index(tc) else {
+                    continue;
+                };
                 let entry = self.tools.entry(idx).or_default();
                 let id = tc.get("id").and_then(Value::as_str).map(str::to_owned);
                 if let Some(ref i) = id {
@@ -207,7 +254,9 @@ impl SseAccumulator {
                 }
             }
             "content_block_start" => {
-                let idx = val.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
+                let Some(idx) = parse_tool_index(val) else {
+                    return;
+                };
                 if let Some(block) = val.get("content_block")
                     && block.get("type").and_then(Value::as_str) == Some("tool_use")
                 {
@@ -229,7 +278,9 @@ impl SseAccumulator {
                 }
             }
             "content_block_delta" => {
-                let idx = val.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
+                let Some(idx) = parse_tool_index(val) else {
+                    return;
+                };
                 let Some(delta) = val.get("delta") else {
                     return;
                 };
@@ -275,5 +326,12 @@ impl SseAccumulator {
             }
             _ => {}
         }
+    }
+}
+
+fn parse_tool_index(val: &Value) -> Option<usize> {
+    match val.get("index") {
+        None | Some(Value::Null) => Some(0),
+        Some(v) => v.as_u64().and_then(|n| usize::try_from(n).ok()),
     }
 }
